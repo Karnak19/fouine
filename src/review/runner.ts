@@ -2,7 +2,8 @@ import { config } from "~/config";
 import { getInstallationOctokit } from "~/github";
 import { addWorktree, ensureBare, fetchRef, removeWorktree } from "~/git/worktree";
 import { reviews, repos } from "~/db";
-import { runReview } from "~/review/opencode";
+import { runReview, withOpencode } from "~/review/opencode";
+import { registerCommentTool } from "~/mcp/register";
 import { buildPrompt } from "~/review/prompt";
 import type { PullRequestInfo, ReviewStatus } from "~/review/types";
 import { resolve } from "node:path";
@@ -45,10 +46,19 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     log(`worktree ready at ${worktree}`);
 
     const prompt = buildPrompt(pr, repo?.prompt ?? null);
-    const result = await runReview({
-      directory: worktree,
-      prompt,
-      model: repo?.model ?? undefined,
+    const [owner, repoName] = pr.repoFullName.split("/");
+    const result = await withOpencode(async (client) => {
+      await registerCommentTool(client, {
+        token: auth.token,
+        owner,
+        repo: repoName,
+        prNumber: pr.number,
+      });
+      return runReview(client, {
+        directory: worktree,
+        prompt,
+        model: repo?.model ?? undefined,
+      });
     });
     reviews.setSession.run({ $session: result.sessionId, $id: id });
     log(`${pr.repoFullName}#${pr.number} done (session ${result.sessionId})`);

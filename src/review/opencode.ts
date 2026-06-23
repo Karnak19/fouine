@@ -37,33 +37,34 @@ function unwrap<T, E>(res: { data?: T; error?: E }, op: string): T {
   return res.data;
 }
 
-export async function runReview(opts: RunOptions): Promise<RunResult> {
-  return withOpencode(async (client) => {
-    const session = unwrap(
-      await client.session.create({
-        body: { title: "fouine review" },
-        query: { directory: opts.directory },
-      }),
-      "session.create",
-    );
+export async function runReview(
+  client: OpencodeClient,
+  opts: RunOptions,
+): Promise<RunResult> {
+  const session = unwrap(
+    await client.session.create({
+      body: { title: "fouine review" },
+      query: { directory: opts.directory },
+    }),
+    "session.create",
+  );
 
-    const res = unwrap(
-      await client.session.prompt({
-        path: { id: session.id },
-        body: {
-          parts: [{ type: "text", text: opts.prompt }],
-          model: parseModel(opts.model ?? config.review.defaultModel),
-          ...(opts.agent ? { agent: opts.agent } : {}),
-        },
-      }),
-      "session.prompt",
-    );
+  const res = unwrap(
+    await client.session.prompt({
+      path: { id: session.id },
+      body: {
+        parts: [{ type: "text", text: opts.prompt }],
+        model: parseModel(opts.model ?? config.review.defaultModel),
+        ...(opts.agent ? { agent: opts.agent } : {}),
+      },
+    }),
+    "session.prompt",
+  );
 
-    const text = res.parts
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
+  const text = res.parts
+    .filter((p) => p.type === "text")
+    .map((p) => (p as { text: string }).text)
+    .join("\n");
 
-    return { sessionId: session.id, text };
-  });
+  return { sessionId: session.id, text };
 }
