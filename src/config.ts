@@ -20,8 +20,11 @@ export const config = {
     privateKey: readKey(),
     webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
   },
+  opencode: {
+    apiKey: process.env.OPENCODE_API_KEY,
+  },
   review: {
-    defaultModel: process.env.OPENCODE_MODEL ?? "anthropic/claude-sonnet-4-5",
+    defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",
     timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 10 * 60 * 1000),
   },
 } as const;

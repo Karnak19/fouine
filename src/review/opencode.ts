@@ -37,10 +37,28 @@ function unwrap<T, E>(res: { data?: T; error?: E }, op: string): T {
   return res.data;
 }
 
+async function setProviderApiKey(
+  client: OpencodeClient,
+  providerID: string,
+): Promise<void> {
+  const key = config.opencode.apiKey;
+  if (!key) return;
+  unwrap(
+    await client.auth.set({
+      path: { id: providerID },
+      body: { type: "api", key },
+    }),
+    `auth.set(${providerID})`,
+  );
+}
+
 export async function runReview(
   client: OpencodeClient,
   opts: RunOptions,
 ): Promise<RunResult> {
+  const model = parseModel(opts.model ?? config.review.defaultModel);
+  await setProviderApiKey(client, model.providerID);
+
   const session = unwrap(
     await client.session.create({
       body: { title: "fouine review" },
@@ -54,7 +72,7 @@ export async function runReview(
       path: { id: session.id },
       body: {
         parts: [{ type: "text", text: opts.prompt }],
-        model: parseModel(opts.model ?? config.review.defaultModel),
+        model,
         ...(opts.agent ? { agent: opts.agent } : {}),
       },
     }),
