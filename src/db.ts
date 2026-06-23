@@ -26,6 +26,11 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_reviews_repo_pr
     ON reviews(repo_full_name, pr_number);
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 export interface RepoRow {
@@ -46,6 +51,11 @@ export interface ReviewRow {
   completed_at: number | null;
 }
 
+export interface SettingRow {
+  key: string;
+  value: string;
+}
+
 export const repos = {
   get: db.prepare<RepoRow, { $full_name: string }>(
     "SELECT * FROM repos WHERE full_name = $full_name",
@@ -55,6 +65,12 @@ export const repos = {
      VALUES ($full_name, $installation_id, $prompt, $model)
      ON CONFLICT(full_name) DO UPDATE SET
        installation_id = excluded.installation_id`,
+  ),
+  update: db.prepare<null, { $full_name: string; $prompt: string | null; $model: string | null }>(
+    `UPDATE repos SET prompt = $prompt, model = $model WHERE full_name = $full_name`,
+  ),
+  remove: db.prepare<null, { $full_name: string }>(
+    "DELETE FROM repos WHERE full_name = $full_name",
   ),
   list: db.prepare<RepoRow, []>("SELECT * FROM repos ORDER BY created_at DESC"),
 };
@@ -73,6 +89,24 @@ export const reviews = {
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
     "UPDATE reviews SET session_id = $session WHERE id = $id",
   ),
+  recent: db.prepare<ReviewRow, { $limit: number }>(
+    "SELECT * FROM reviews ORDER BY id DESC LIMIT $limit",
+  ),
 };
+
+export const settings = {
+  get: db.prepare<SettingRow, { $key: string }>(
+    "SELECT * FROM settings WHERE key = $key",
+  ),
+  set: db.prepare<null, { $key: string; $value: string }>(
+    `INSERT INTO settings (key, value) VALUES ($key, $value)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ),
+  all: db.prepare<SettingRow, []>("SELECT * FROM settings ORDER BY key"),
+};
+
+export function settingValue(key: string): string | undefined {
+  return settings.get.get({ $key: key })?.value;
+}
 
 export type { Database };

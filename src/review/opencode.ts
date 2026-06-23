@@ -1,5 +1,5 @@
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
-import { config } from "~/config";
+import { resolveApiKey, resolveDefaultModel } from "~/settings";
 
 function parseModel(spec: string): { providerID: string; modelID: string } {
   const [providerID, modelID] = spec.split("/");
@@ -41,7 +41,7 @@ async function setProviderApiKey(
   client: OpencodeClient,
   providerID: string,
 ): Promise<void> {
-  const key = config.opencode.apiKey;
+  const key = resolveApiKey();
   if (!key) return;
   unwrap(
     await client.auth.set({
@@ -56,7 +56,7 @@ export async function runReview(
   client: OpencodeClient,
   opts: RunOptions,
 ): Promise<RunResult> {
-  const model = parseModel(opts.model ?? config.review.defaultModel);
+  const model = parseModel(opts.model ?? resolveDefaultModel());
   await setProviderApiKey(client, model.providerID);
 
   const session = unwrap(

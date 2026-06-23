@@ -1,9 +1,11 @@
 import { Elysia } from "elysia";
 import { config } from "~/config";
+import { dashboard } from "~/server/dashboard";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 
 export function createServer() {
   return new Elysia()
+    .use(dashboard)
     .get("/health", () => ({ ok: true }))
     .post("/webhook/github", async ({ request, set }) => {
       const payload = await request.text();

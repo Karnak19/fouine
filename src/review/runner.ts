@@ -5,6 +5,7 @@ import { reviews, repos } from "~/db";
 import { runReview, withOpencode } from "~/review/opencode";
 import { registerCommentTool } from "~/mcp/register";
 import { buildPrompt } from "~/review/prompt";
+import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import type { PullRequestInfo, ReviewStatus } from "~/review/types";
 import { resolve } from "node:path";
 
@@ -45,7 +46,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     await addWorktree(pr.repoFullName, pr.headSha, worktree);
     log(`worktree ready at ${worktree}`);
 
-    const prompt = buildPrompt(pr, repo?.prompt ?? null);
+    const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null));
     const [owner, repoName] = pr.repoFullName.split("/");
     const result = await withOpencode(async (client) => {
       await registerCommentTool(client, {
@@ -57,7 +58,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       return runReview(client, {
         directory: worktree,
         prompt,
-        model: repo?.model ?? undefined,
+        model: repo?.model ?? resolveDefaultModel(),
       });
     });
     reviews.setSession.run({ $session: result.sessionId, $id: id });
