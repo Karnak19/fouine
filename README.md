@@ -43,20 +43,50 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 
 ## v1 scope
 
-- [ ] GitHub App setup (webhook receiver)
-- [ ] Bare repo + worktree management (clone, checkout, cleanup)
-- [ ] OpenCode integration (programmatic call with custom prompt)
-- [ ] Agent tool: post inline comments + review summary to PR
-- [ ] Dashboard: register repos, configure API key + review prompt
-- [ ] Docker Compose for self-hosting
+- [x] GitHub App setup (webhook receiver)
+- [x] Bare repo + worktree management (clone, checkout, cleanup)
+- [x] OpenCode integration (programmatic call with custom prompt)
+- [x] Agent tool: post inline comments + review summary to PR
+- [x] Dashboard: register repos, configure API key + review prompt
+- [x] Docker Compose for self-hosting
+
+## Configuration
+
+fouine reads configuration from environment variables (or, for the API key and
+prompts, from the dashboard — which take precedence over env).
+
+| Variable | Required | Description |
+|---|---|---|
+| `GITHUB_APP_ID` | yes | GitHub App ID |
+| `GITHUB_APP_PRIVATE_KEY` | yes* | App private key (literal `\n` are un-escaped) |
+| `GITHUB_APP_PRIVATE_KEY_PATH` | yes* | Path to the `.pem` — alternative to the above |
+| `GITHUB_WEBHOOK_SECRET` | yes | Webhook secret used to verify signatures |
+| `OPENCODE_API_KEY` | recommended | OpenCode provider key (or set via dashboard) |
+| `OPENCODE_MODEL` | no | Default model, e.g. `opencode-go/glm-5.2` |
+| `PORT` | no | HTTP port (default `3000`) |
+| `DATA_DIR` | no | Repos, worktrees, SQLite (default `./data`) |
+
+\* Provide the private key via one of the two variables.
+
+## Development
+
+```bash
+bun install
+bun run dev          # start the server with --watch
+bun run typecheck    # tsc --noEmit
+bun test             # run the test suite
+```
 
 ## Self-hosting
+
+Copy `.env.example` to `.env`, fill in the GitHub App credentials, then:
 
 ```bash
 docker compose up -d
 ```
 
-Register the GitHub App, point the webhook to your server, install on repos, configure your prompt on the dashboard. That's it.
+Register the GitHub App, point the webhook to your server, install on repos,
+configure your prompt on the dashboard. That's it.
 
 ## License
 
