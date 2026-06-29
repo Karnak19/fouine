@@ -1,3 +1,3 @@
 import { boot } from "~/server/app";
 
-boot();
+await boot();

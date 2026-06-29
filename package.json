@@ -11,10 +11,23 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@elysia/static": "^1.4.11",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opencode-ai/sdk": "^1.17.9",
+    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/react-router": "^1.170.16",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "bun-plugin-tailwind": "^0.1.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "elysia": "^1.4.29",
-    "octokit": "^5.0.5"
+    "lucide-react": "^1.22.0",
+    "octokit": "^5.0.5",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "4"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext", "DOM"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ESNext",
+    "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "allowSyntheticDefaultImports": true,
@@ -21,9 +22,10 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@/*": ["./public/*"]
     }
   },
-  "include": ["src/**/*.ts", "**/*.test.ts"],
+  "include": ["src/**/*.ts", "public/**/*.tsx", "public/**/*.ts", "**/*.test.ts"],
   "exclude": ["node_modules"]
 }

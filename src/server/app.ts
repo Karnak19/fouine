@@ -1,11 +1,13 @@
 import { Elysia } from "elysia";
+import { staticPlugin } from "@elysia/static";
 import { config } from "~/config";
-import { dashboard } from "~/server/dashboard";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
+import { apiRoutes } from "~/server/api";
 
-export function createServer() {
+export async function createServer() {
   return new Elysia()
-    .use(dashboard)
+    .use(apiRoutes)
+    .use(await staticPlugin({ prefix: "/" }))
     .get("/health", () => ({ ok: true }))
     .post("/webhook/github", async ({ request, set }) => {
       const payload = await request.text();
@@ -33,8 +35,8 @@ export function createServer() {
     });
 }
 
-export function boot(): void {
-  const app = createServer();
+export async function boot(): Promise<void> {
+  const app = await createServer();
   app.listen(config.port, () => {
     console.log(`fouine listening on http://localhost:${config.port}`);
   });

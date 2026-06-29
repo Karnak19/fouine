@@ -1,10 +1,11 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { repos } from "~/db";
-import { getApp } from "~/github";
+import { getApp, getInstallationOctokit } from "~/github";
 import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+const TRIGGER = "/review";
 
 let handlersRegistered = false;
 export function ensureHandlers(): void {
@@ -55,13 +56,69 @@ export function registerHandlers(): void {
       baseSha: payload.pull_request.base.sha,
     };
 
-    console.log(
-      `[webhook] pull_request.${payload.action} ${fullName}#${pr.number}`,
-    );
+    console.log(`[webhook] pull_request.${payload.action} ${fullName}#${pr.number}`);
 
     runReviewForPR(pr).catch((err) =>
       console.error(`[webhook] review failed for ${fullName}#${pr.number}:`, err),
     );
+  });
+
+  webhooks.on("issue_comment", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        action: string;
+        installation?: { id: number };
+        repository: { full_name: string };
+        comment: { body: string };
+        issue: { number: number; pull_request?: unknown };
+      };
+    };
+
+    const { payload } = e;
+    if (payload.action !== "created") return;
+    if (!payload.issue.pull_request) return;
+    if (!payload.comment.body.trim().startsWith(TRIGGER)) return;
+
+    const installationId = payload.installation?.id;
+    if (!installationId) return;
+
+    const fullName = payload.repository.full_name;
+    const prNumber = payload.issue.number;
+
+    console.log(`[webhook] /review triggered on ${fullName}#${prNumber}`);
+
+    try {
+      const octokit = await getInstallationOctokit(installationId);
+      const { data: prData } = await (octokit as any).rest.pulls.get({
+        owner: fullName.split("/")[0],
+        repo: fullName.split("/")[1],
+        pull_number: prNumber,
+      });
+
+      const pr: PullRequestInfo = {
+        installationId,
+        repoFullName: fullName,
+        number: prNumber,
+        title: prData.title,
+        headRef: prData.head.ref,
+        baseRef: prData.base.ref,
+        headSha: prData.head.sha,
+        baseSha: prData.base.sha,
+      };
+
+      repos.upsert.run({
+        $full_name: fullName,
+        $installation_id: installationId,
+        $prompt: null,
+        $model: null,
+      });
+
+      runReviewForPR(pr).catch((err) =>
+        console.error(`[webhook] review failed for ${fullName}#${prNumber}:`, err),
+      );
+    } catch (err) {
+      console.error(`[webhook] failed to fetch PR ${fullName}#${prNumber}:`, err);
+    }
   });
 }
 
