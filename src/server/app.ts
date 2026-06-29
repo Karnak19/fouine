@@ -4,16 +4,12 @@ import { config } from "~/config";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
 
-const isProd = process.env.NODE_ENV === "production";
-const assetsDir = isProd ? "dist" : "public";
-
 export async function createServer() {
   return new Elysia()
     .use(apiRoutes)
     .use(
       await staticPlugin({
         prefix: "/",
-        assets: assetsDir,
       }),
     )
     .get("/health", () => ({ ok: true }))
@@ -46,8 +42,6 @@ export async function createServer() {
 export async function boot(): Promise<void> {
   const app = await createServer();
   app.listen(config.port, () => {
-    console.log(
-      `fouine listening on http://localhost:${config.port} (${isProd ? "production" : "development"})`,
-    );
+    console.log(`fouine listening on http://localhost:${config.port}`);
   });
 }
