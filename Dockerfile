@@ -18,8 +18,9 @@ RUN curl -fsSL https://opencode.ai/install | bash \
     && opencode --version
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json bun.lock tsconfig.json ./
+COPY package.json bun.lock tsconfig.json bunfig.toml ./
 COPY src ./src
+COPY public ./public
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
