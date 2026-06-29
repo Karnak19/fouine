@@ -1,0 +1,19 @@
+services:
+  fouine:
+    build: .
+    image: fouine:latest
+    restart: unless-stopped
+    volumes:
+      - fouine-data:/data
+    environment:
+      DATA_DIR: /data
+      PORT: 3000
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
+      GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/glm-5.2}
+
+volumes:
+  fouine-data:
