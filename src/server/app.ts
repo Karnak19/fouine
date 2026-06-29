@@ -4,12 +4,17 @@ import { config } from "~/config";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
 
+const isProd = process.env.NODE_ENV === "production";
+const assetsDir = isProd ? "dist" : "public";
+
 export async function createServer() {
   return new Elysia()
     .use(apiRoutes)
     .use(
       await staticPlugin({
+        assets: assetsDir,
         prefix: "/",
+        indexHTML: true,
       }),
     )
     .get("/health", () => ({ ok: true }))

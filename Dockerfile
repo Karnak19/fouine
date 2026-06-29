@@ -5,6 +5,13 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+FROM oven/bun:1.3-debian AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json vite.config.ts tsconfig.json ./
+COPY public ./public
+RUN bunx vite build
+
 FROM oven/bun:1.3-debian
 WORKDIR /app
 
@@ -18,9 +25,9 @@ RUN curl -fsSL https://opencode.ai/install | bash \
     && opencode --version
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
 COPY package.json bun.lock tsconfig.json bunfig.toml ./
 COPY src ./src
-COPY public ./public
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
