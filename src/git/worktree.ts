@@ -4,22 +4,22 @@ import { dirname } from "node:path";
 import { config } from "~/config";
 
 async function git(args: string[], cwd?: string): Promise<string> {
-  const { stdout, exitCode } = await $`git ${args}`.cwd(cwd ?? config.dataDir).quiet().nothrow();
-  if (exitCode !== 0) {
-    const err = (await $`git ${args}`.cwd(cwd ?? config.dataDir).nothrow().text()).trim();
-    throw new Error(`git ${args.join(" ")} failed (${exitCode}):\n${err}`);
+  const proc = await $`git ${args}`
+    .cwd(cwd ?? config.dataDir)
+    .quiet()
+    .nothrow();
+  if (proc.exitCode !== 0) {
+    const stderr = proc.stderr.toString().trim();
+    throw new Error(`git ${args.join(" ")} failed (${proc.exitCode}): ${stderr || "(no stderr)"}`);
   }
-  return stdout.toString().trim();
+  return proc.stdout.toString().trim();
 }
 
 export function barePath(fullName: string): string {
   return `${config.reposDir}/${fullName}.git`;
 }
 
-export async function ensureBare(
-  fullName: string,
-  cloneUrl: string,
-): Promise<string> {
+export async function ensureBare(fullName: string, cloneUrl: string): Promise<string> {
   const bare = barePath(fullName);
   if (existsSync(bare)) {
     await git(["fetch", "origin", "--prune", "--quiet"], bare);
@@ -41,10 +41,7 @@ export async function addWorktree(
   await git(["worktree", "add", "--force", "--detach", targetPath, sha], bare);
 }
 
-export async function removeWorktree(
-  fullName: string,
-  targetPath: string,
-): Promise<void> {
+export async function removeWorktree(fullName: string, targetPath: string): Promise<void> {
   const bare = barePath(fullName);
   try {
     await git(["worktree", "remove", "--force", targetPath], bare);
@@ -54,10 +51,7 @@ export async function removeWorktree(
   await git(["worktree", "prune", "--quiet"], bare).catch(() => {});
 }
 
-export async function fetchRef(
-  fullName: string,
-  ref: string,
-): Promise<string> {
+export async function fetchRef(fullName: string, ref: string): Promise<string> {
   const bare = barePath(fullName);
   await git(["fetch", "origin", `${ref}:ref`, "--quiet", "--force"], bare).catch(() =>
     git(["fetch", "origin", `${ref}`, "--quiet", "--force"], bare),
