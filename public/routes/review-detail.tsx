@@ -13,6 +13,7 @@ import {
   Bot,
   Radio,
   RotateCw,
+  Square,
 } from "lucide-react";
 
 interface Part {
@@ -49,6 +50,11 @@ export default function ReviewDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       navigate({ to: "/reviews" });
     },
+  });
+
+  const stopMut = useMutation({
+    mutationFn: () => api.reviews.stop(numId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] }),
   });
 
   const { data: review } = useQuery({
@@ -114,6 +120,17 @@ export default function ReviewDetailPage() {
           </div>
         </div>
         <Badge status={review.status} />
+        {(review.status === "running" || review.status === "pending") && (
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={stopMut.isPending}
+            onClick={() => stopMut.mutate()}
+          >
+            <Square size={13} />
+            Stop
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"

@@ -1,1 +1,1 @@
-export { runReviewForPR } from "~/review/runner";
+export { runReviewForPR, abortReview } from "~/review/runner";

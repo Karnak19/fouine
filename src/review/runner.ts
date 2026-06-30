@@ -15,6 +15,19 @@ function cloneUrl(token: string, fullName: string): string {
   return `https://x-access-token:${token}@github.com/${fullName}.git`;
 }
 
+// ponytail: tracks live reviews so the dashboard Stop button can abort the
+// underlying opencode server — not just flip the DB row (which would leave a
+// still-alive review free to post stale comments after the user stopped it).
+// A missing entry means the review already finished or the process died; the
+// latter is a true zombie the Stop route has to clean up in the DB alone.
+const activeReviews = new Map<number, AbortController>();
+export function abortReview(id: number): boolean {
+  const ctrl = activeReviews.get(id);
+  if (!ctrl) return false;
+  ctrl.abort();
+  return true;
+}
+
 const CHECK_NAME = "fouine";
 const MAX_SUMMARY = 65000;
 
@@ -92,6 +105,9 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
   log.info("review starting", { repo: pr.repoFullName, number: pr.number, review: id });
   setStatus("running");
 
+  const ctrl = new AbortController();
+  activeReviews.set(id, ctrl);
+
   let checkRunId: number | undefined;
   let octokit: Octokit | undefined;
   try {
@@ -135,7 +151,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
           reviews.setSession.run({ $session: sessionId, $id: id });
         },
       );
-    });
+    }, ctrl.signal);
     log.info("review done", {
       repo: pr.repoFullName,
       number: pr.number,
@@ -147,18 +163,23 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     setStatus("completed", true);
     await finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
   } catch (err) {
-    log.error("review failed", {
+    const aborted = ctrl.signal.aborted;
+    const message = aborted ? "Stopped by user" : String(err);
+    // A user-initiated stop isn't an error — don't pollute error monitoring.
+    const lvl = aborted ? log.info : log.error;
+    lvl(aborted ? "review stopped" : "review failed", {
       repo: pr.repoFullName,
       number: pr.number,
       review: id,
-      error: String(err),
+      ...(aborted ? {} : { error: message }),
     });
-    setStatus("failed", true);
-    reviews.fail.run({ $id: id, $error: String(err) });
+    reviews.fail.run({ $id: id, $error: message });
     // finishCheck swallows its own errors; octokit is undefined if the fetch itself threw.
-    if (octokit) await finishCheck(octokit, owner, repoName, checkRunId, "failure", String(err));
+    if (octokit) await finishCheck(octokit, owner, repoName, checkRunId, "failure", message);
+    if (aborted) return; // intentional stop — don't surface as an unexpected failure
     throw err;
   } finally {
+    activeReviews.delete(id);
     await removeWorktree(pr.repoFullName, worktree);
   }
 }
