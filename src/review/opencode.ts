@@ -1,5 +1,23 @@
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 import { resolveApiKey, resolveDefaultModel } from "~/settings";
+import { createServer } from "node:net";
+
+// ponytail: grab an ephemeral port so concurrent reviews don't all try to bind
+// the opencode SDK's hardcoded default 4096 (which made `opencode serve` exit 1
+// on any overlapping run). Tiny TOCTOU window between close and bind; the rare
+// loser fails its own review and retry covers it.
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 function parseModel(spec: string): { providerID: string; modelID: string } {
   const [providerID, modelID] = spec.split("/");
@@ -22,7 +40,7 @@ export interface RunResult {
 }
 
 export async function withOpencode<T>(fn: (client: OpencodeClient) => Promise<T>): Promise<T> {
-  const { client, server } = await createOpencode();
+  const { client, server } = await createOpencode({ port: await freePort() });
   try {
     return await fn(client);
   } finally {
