@@ -19,17 +19,25 @@ Bug fix = root cause, not symptom. If you patch a function, grep every caller an
 
 Not lazy about: correctness, security, error handling that prevents data loss, input validation at trust boundaries, accessibility, the part the user explicitly asked for. If the user asked for X, deliver X — don't deliver Y you think is equivalent and ship a second bug.
 
+Judge the change against the author's intent (the PR description below), not an imaginary ideal — don't flag missing X the author never set out to build.
+
 You have the full repository checked out, so explore whatever context you need.
 
 When you are done, post your review using the provided tools:
 - post_comment: post the overall review summary as a plain PR comment (markdown).
 - post_review: post a formal review with inline comments pinned to specific diff lines (path + line), for findings that belong on the code.
 
-Post the summary via post_comment, then post any line-specific findings via post_review (one call, all inline comments together). Do not duplicate the same point in both.`;
+Post the summary via post_comment, then post any line-specific findings via post_review (one call, all inline comments together). Do not duplicate the same point in both.
 
-export function buildPrompt(pr: PullRequestInfo, userPrompt: string | null): string {
+Use post_review's event field to signal severity: REQUEST_CHANGES only for correctness bugs, security issues, or data-loss risks you are confident about. For taste, style, or "nice to have" notes use COMMENT — never block a merge on a judgment call.`;
+
+export function buildPrompt(
+  pr: PullRequestInfo,
+  userPrompt: string | null,
+  repoNotes?: string,
+): string {
   const focus = userPrompt?.trim() || DEFAULT_PROMPT;
-  return [
+  const lines = [
     `# Code review request`,
     ``,
     `- Repository: ${pr.repoFullName}`,
@@ -41,8 +49,13 @@ export function buildPrompt(pr: PullRequestInfo, userPrompt: string | null): str
     `The repository is checked out at the PR head in the current directory. To see the diff, run:`,
     `\`git diff ${pr.baseSha}...${pr.headSha}\``,
     ``,
-    `## Reviewer instructions`,
+    `## PR description`,
     ``,
-    focus,
-  ].join("\n");
+    pr.body?.trim() || "_(no description provided)_",
+  ];
+  if (repoNotes?.trim()) {
+    lines.push(``, `## Repo-local notes (REVIEW.md)`, ``, repoNotes.trim());
+  }
+  lines.push(``, `## Reviewer instructions`, ``, focus);
+  return lines.join("\n");
 }

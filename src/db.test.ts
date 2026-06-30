@@ -16,7 +16,12 @@ test("upsert then get a repo", () => {
 test("upsert does not clobber a dashboard-edited prompt/model", () => {
   const full = "acme/clobber";
   repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
-  repos.update.run({ $full_name: full, $prompt: "focus on perf", $model: "opencode-go/glm-5.1" });
+  repos.update.run({
+    $full_name: full,
+    $prompt: "focus on perf",
+    $model: "opencode-go/glm-5.1",
+    $enabled: 0,
+  });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
   // dashboard prompt/model overrides must survive.
@@ -25,6 +30,7 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
   expect(got?.installation_id).toBe(2);
   expect(got?.prompt).toBe("focus on perf");
   expect(got?.model).toBe("opencode-go/glm-5.1");
+  expect(got?.enabled).toBe(0);
 });
 
 test("review lifecycle: pending -> running -> completed", () => {

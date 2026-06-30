@@ -1,9 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ExternalLink, CircleAlert, Terminal, User, Bot, Radio } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  ArrowLeft,
+  ExternalLink,
+  CircleAlert,
+  Terminal,
+  User,
+  Bot,
+  Radio,
+  RotateCw,
+} from "lucide-react";
 
 interface Part {
   id?: string;
@@ -30,6 +40,16 @@ interface Session {
 export default function ReviewDetailPage() {
   const { id } = useParams({ from: "/reviews/$id" });
   const numId = Number(id);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const retryMut = useMutation({
+    mutationFn: () => api.reviews.retry(numId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      navigate({ to: "/reviews" });
+    },
+  });
 
   const { data: review } = useQuery({
     queryKey: ["reviews", numId],
@@ -94,6 +114,17 @@ export default function ReviewDetailPage() {
           </div>
         </div>
         <Badge status={review.status} />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={
+            retryMut.isPending || review.status === "running" || review.status === "pending"
+          }
+          onClick={() => retryMut.mutate()}
+        >
+          <RotateCw size={14} />
+          Retry
+        </Button>
       </div>
 
       {session?.info && (

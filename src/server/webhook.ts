@@ -1,6 +1,6 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { repos } from "~/db";
-import { getApp, getInstallationOctokit } from "~/github";
+import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { log } from "~/server/log";
@@ -27,6 +27,8 @@ export function registerHandlers(): void {
         pull_request: {
           number: number;
           title: string;
+          body?: string;
+          draft?: boolean;
           head: { ref: string; sha: string };
           base: { ref: string; sha: string };
         };
@@ -46,6 +48,10 @@ export function registerHandlers(): void {
       });
       return;
     }
+    if (payload.pull_request.draft) {
+      log.debug("pull_request skipped", { repo: fullName, number, reason: "draft PR" });
+      return;
+    }
     const installationId = payload.installation?.id;
     if (!installationId) {
       log.warn("pull_request skipped", { repo: fullName, number, reason: "no installation id" });
@@ -59,11 +65,18 @@ export function registerHandlers(): void {
       $model: null,
     });
 
+    const repoRow = repos.get.get({ $full_name: fullName });
+    if (repoRow && !repoRow.enabled) {
+      log.debug("pull_request skipped", { repo: fullName, number, reason: "repo disabled" });
+      return;
+    }
+
     const pr: PullRequestInfo = {
       installationId,
       repoFullName: fullName,
       number,
       title: payload.pull_request.title,
+      body: payload.pull_request.body,
       headRef: payload.pull_request.head.ref,
       baseRef: payload.pull_request.base.ref,
       headSha: payload.pull_request.head.sha,
@@ -120,36 +133,20 @@ export function registerHandlers(): void {
       return;
     }
 
-    const installationId = payload.installation?.id;
-    if (!installationId) {
-      log.warn("issue_comment skipped", {
-        repo: fullName,
-        number: prNumber,
-        reason: "no installation id",
-      });
-      return;
-    }
-
     log.info("/review triggered", { repo: fullName, number: prNumber });
 
     try {
+      const installationId = payload.installation?.id;
+      if (!installationId) {
+        log.warn("/review skipped", {
+          repo: fullName,
+          number: prNumber,
+          reason: "no installation id",
+        });
+        return;
+      }
       const octokit = await getInstallationOctokit(installationId);
-      const { data: prData } = await (octokit as any).rest.pulls.get({
-        owner: fullName.split("/")[0],
-        repo: fullName.split("/")[1],
-        pull_number: prNumber,
-      });
-
-      const pr: PullRequestInfo = {
-        installationId,
-        repoFullName: fullName,
-        number: prNumber,
-        title: prData.title,
-        headRef: prData.head.ref,
-        baseRef: prData.base.ref,
-        headSha: prData.head.sha,
-        baseSha: prData.base.sha,
-      };
+      const pr = await fetchPRInfo(octokit, installationId, fullName, prNumber);
 
       repos.upsert.run({
         $full_name: fullName,

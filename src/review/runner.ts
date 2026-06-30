@@ -6,11 +6,67 @@ import { runReview, withOpencode } from "~/review/opencode";
 import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import type { PullRequestInfo, ReviewStatus } from "~/review/types";
+import type { Octokit } from "octokit";
 import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { log } from "~/server/log";
 
 function cloneUrl(token: string, fullName: string): string {
   return `https://x-access-token:${token}@github.com/${fullName}.git`;
+}
+
+const CHECK_NAME = "fouine";
+const MAX_SUMMARY = 65000;
+
+// ponytail: check conclusion is process-based (ran vs crashed), not verdict-based.
+// Wiring the agent's REQUEST_CHANGES event => conclusion "failure" needs its event
+// to flow back here; add then.
+async function startCheck(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  headSha: string,
+): Promise<number | undefined> {
+  try {
+    const { data } = await octokit.rest.checks.create({
+      owner,
+      repo,
+      name: CHECK_NAME,
+      head_sha: headSha,
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+    });
+    return data.id;
+  } catch (err) {
+    log.warn("check create failed (needs checks:write permission?)", { error: String(err) });
+  }
+}
+
+async function finishCheck(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  checkRunId: number | undefined,
+  conclusion: "success" | "failure",
+  summary: string,
+): Promise<void> {
+  if (!checkRunId) return;
+  try {
+    await octokit.rest.checks.update({
+      owner,
+      repo,
+      check_run_id: checkRunId,
+      status: "completed",
+      conclusion,
+      completed_at: new Date().toISOString(),
+      output: {
+        title: conclusion === "success" ? "Review completed" : "Review failed",
+        summary: summary.slice(0, MAX_SUMMARY) || "(no output)",
+      },
+    });
+  } catch (err) {
+    log.warn("check update failed", { error: String(err) });
+  }
 }
 
 export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
@@ -31,12 +87,15 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     "worktrees",
     `${pr.repoFullName.replace("/", "__")}#${pr.number}-${id}`,
   );
+  const [owner, repoName] = pr.repoFullName.split("/");
 
   log.info("review starting", { repo: pr.repoFullName, number: pr.number, review: id });
   setStatus("running");
 
+  let checkRunId: number | undefined;
   try {
     const octokit = await getInstallationOctokit(pr.installationId);
+    checkRunId = await startCheck(octokit, owner, repoName, pr.headSha);
     const auth = (await octokit.auth({ type: "installation" })) as { token: string };
 
     await ensureBare(pr.repoFullName, cloneUrl(auth.token, pr.repoFullName));
@@ -45,8 +104,17 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     await addWorktree(pr.repoFullName, pr.headSha, worktree);
     log.info("worktree ready", { repo: pr.repoFullName, number: pr.number, path: worktree });
 
-    const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null));
-    const [owner, repoName] = pr.repoFullName.split("/");
+    // Repo-local REVIEW.md, if the repo ships one — additive guidance on top of
+    // the chosen reviewer instructions.
+    let repoNotes: string | undefined;
+    try {
+      const notes = (await readFile(resolve(worktree, "REVIEW.md"), "utf8")).trim();
+      if (notes) repoNotes = notes;
+    } catch {
+      // no REVIEW.md
+    }
+
+    const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes);
     // Custom tools (opencode-config/tools) read these to post to GitHub.
     process.env.FOUINE_GITHUB_TOKEN = auth.token;
     process.env.FOUINE_REPO_OWNER = owner;
@@ -76,6 +144,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       preview: result.text.slice(0, 500),
     });
     setStatus("completed", true);
+    await finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
   } catch (err) {
     log.error("review failed", {
       repo: pr.repoFullName,
@@ -85,6 +154,12 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     });
     setStatus("failed", true);
     reviews.fail.run({ $id: id, $error: String(err) });
+    try {
+      const octokit = await getInstallationOctokit(pr.installationId);
+      await finishCheck(octokit, owner, repoName, checkRunId, "failure", String(err));
+    } catch (inner) {
+      log.warn("check finish on failure failed", { error: String(inner) });
+    }
     throw err;
   } finally {
     await removeWorktree(pr.repoFullName, worktree);

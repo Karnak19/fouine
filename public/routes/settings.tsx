@@ -39,6 +39,16 @@ export default function SettingsPage() {
     },
   });
 
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    text?: string;
+    error?: string;
+  } | null>(null);
+  const testMut = useMutation({
+    mutationFn: api.settings.test,
+    onSuccess: setTestResult,
+  });
+
   return (
     <div className="space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -89,6 +99,33 @@ export default function SettingsPage() {
               Save settings
             </Button>
           </form>
+          <div className="border-t border-zinc-800 pt-4">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={testMut.isPending}
+                onClick={() => {
+                  setTestResult(null);
+                  testMut.mutate();
+                }}
+              >
+                {testMut.isPending ? "Testing…" : "Test connection"}
+              </Button>
+              <span className="text-xs text-zinc-500">
+                Sends one tiny request to the configured model.
+              </span>
+            </div>
+            {testResult && (
+              <p
+                className={`mt-2 text-xs font-mono ${testResult.ok ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {testResult.ok
+                  ? `OK — model replied: ${testResult.text ?? ""}`
+                  : `Failed: ${testResult.error ?? "unknown error"}`}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

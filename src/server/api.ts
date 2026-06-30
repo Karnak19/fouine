@@ -1,7 +1,12 @@
 import { Elysia, t } from "elysia";
 import { $ } from "bun";
 import { repos, reviews, settings } from "~/db";
-import { SETTINGS } from "~/settings";
+import { SETTINGS, resolveDefaultModel } from "~/settings";
+import { config } from "~/config";
+import { getInstallationOctokit, fetchPRInfo } from "~/github";
+import { runReviewForPR } from "~/review";
+import { withOpencode, runReview } from "~/review/opencode";
+import { log } from "~/server/log";
 
 export const apiRoutes = new Elysia({ prefix: "/api" })
   .get("/repos", () => repos.list.all())
@@ -37,6 +42,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $full_name: full,
         $prompt: body.prompt ?? null,
         $model: body.model ?? null,
+        $enabled: body.enabled ?? existing.enabled,
       });
       return repos.get.get({ $full_name: full });
     },
@@ -44,6 +50,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       body: t.Object({
         prompt: t.Optional(t.String()),
         model: t.Optional(t.String()),
+        enabled: t.Optional(t.Number()),
       }),
     },
   )
@@ -56,7 +63,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .get("/repos/:owner/:name/reviews", ({ params }) => {
     const full = `${params.owner}/${params.name}`;
-    return reviews.recent.all({ $limit: 999 }).filter((r) => r.repo_full_name === full);
+    return reviews.byRepo.all({ $repo: full, $limit: 200 });
   })
 
   .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
@@ -79,6 +86,25 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       return JSON.parse(out);
     } catch {
       return { error: "session-unparseable", raw: out.slice(0, 1000) };
+    }
+  })
+
+  .post("/reviews/:id/retry", async ({ params, set }) => {
+    const r = reviews.byId.get({ $id: Number(params.id) });
+    if (!r) return new Response("Not found", { status: 404 });
+    const repo = repos.get.get({ $full_name: r.repo_full_name });
+    if (!repo) return new Response("repo not found", { status: 404 });
+    try {
+      const octokit = await getInstallationOctokit(repo.installation_id);
+      const pr = await fetchPRInfo(octokit, repo.installation_id, r.repo_full_name, r.pr_number);
+      runReviewForPR(pr).catch((err) =>
+        log.error("retry failed", { review: r.id, error: String(err) }),
+      );
+      set.status = 202;
+      return { ok: true };
+    } catch (err) {
+      set.status = 502;
+      return { ok: false, error: String((err as Error)?.message ?? err) };
     }
   })
 
@@ -109,4 +135,21 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         default_prompt: t.Optional(t.String()),
       }),
     },
-  );
+  )
+
+  // ponytail: sends one tiny real prompt through the configured model — only way
+  // to actually verify the key + model resolve. Costs ~1 request.
+  .get("/settings/test", async () => {
+    try {
+      const res = await withOpencode((client) =>
+        runReview(client, {
+          directory: config.dataDir,
+          prompt: "Reply with exactly: OK",
+          model: resolveDefaultModel(),
+        }),
+      );
+      return { ok: true, text: res.text.slice(0, 200) };
+    } catch (err) {
+      return { ok: false, error: String((err as Error)?.message ?? err) };
+    }
+  });

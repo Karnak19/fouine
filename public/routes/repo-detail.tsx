@@ -36,11 +36,13 @@ export default function RepoDetailPage() {
 
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [enabled, setEnabled] = useState(true);
 
   useEffect(() => {
     if (repo) {
       setModel(repo.model ?? "");
       setPrompt(repo.prompt ?? "");
+      setEnabled(repo.enabled !== 0);
     }
   }, [repo]);
 
@@ -49,6 +51,7 @@ export default function RepoDetailPage() {
       api.repos.update(owner, name, {
         model: model.trim() || undefined,
         prompt: prompt.trim() || undefined,
+        enabled: enabled ? 1 : 0,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
   });
@@ -116,6 +119,16 @@ export default function RepoDetailPage() {
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+              <input
+                id="enabled"
+                type="checkbox"
+                className="h-4 w-4 accent-zinc-200"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+              />
+              Auto-review new PRs on this repo
+            </label>
             <div className="flex gap-2">
               <Button type="submit" disabled={updateMut.isPending}>
                 Save
