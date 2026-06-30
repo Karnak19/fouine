@@ -8,6 +8,10 @@ import { errName, log } from "~/server/log";
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
 
+const authUser = process.env.BASIC_AUTH_USER;
+const authPass = process.env.BASIC_AUTH_PASSWORD;
+const authEnabled = !!(authUser && authPass);
+
 function pathname(url: string): string {
   try {
     return new URL(url).pathname;
@@ -39,6 +43,20 @@ export async function createServer() {
         status,
         ms,
       });
+    })
+    .onBeforeHandle(({ request, set }) => {
+      if (!authEnabled) return;
+      const path = pathname(request.url);
+      if (path.startsWith("/webhook/") || path === "/health") return;
+      const header = request.headers.get("authorization");
+      if (header?.startsWith("Basic ")) {
+        const decoded = atob(header.slice(6));
+        const i = decoded.indexOf(":");
+        if (i >= 0 && decoded.slice(0, i) === authUser && decoded.slice(i + 1) === authPass) return;
+      }
+      set.status = 401;
+      set.headers["WWW-Authenticate"] = 'Basic realm="fouine"';
+      return "Unauthorized";
     })
     .use(apiRoutes)
     .use(
