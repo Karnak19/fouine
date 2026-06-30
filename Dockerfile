@@ -28,10 +28,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json bun.lock tsconfig.json bunfig.toml ./
 COPY src ./src
+COPY opencode-config ./opencode-config
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
-    PORT=3000
+    PORT=3000 \
+    OPENCODE_CONFIG_DIR=/app/opencode-config
 
 VOLUME ["/data"]
 EXPOSE 3000

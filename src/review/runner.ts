@@ -3,7 +3,6 @@ import { getInstallationOctokit } from "~/github";
 import { addWorktree, ensureBare, fetchRef, removeWorktree } from "~/git/worktree";
 import { reviews, repos } from "~/db";
 import { runReview, withOpencode } from "~/review/opencode";
-import { registerCommentTool } from "~/mcp/register";
 import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import type { PullRequestInfo, ReviewStatus } from "~/review/types";
@@ -48,13 +47,12 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
 
     const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null));
     const [owner, repoName] = pr.repoFullName.split("/");
+    // Custom tools (opencode-config/tools) read these to post to GitHub.
+    process.env.FOUINE_GITHUB_TOKEN = auth.token;
+    process.env.FOUINE_REPO_OWNER = owner;
+    process.env.FOUINE_REPO_NAME = repoName;
+    process.env.FOUINE_PR_NUMBER = String(pr.number);
     const result = await withOpencode(async (client) => {
-      await registerCommentTool(client, {
-        token: auth.token,
-        owner,
-        repo: repoName,
-        prNumber: pr.number,
-      });
       return runReview(client, {
         directory: worktree,
         prompt,
