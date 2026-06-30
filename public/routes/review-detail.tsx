@@ -3,23 +3,27 @@ import { Link, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ExternalLink, CircleAlert, Terminal } from "lucide-react";
+import { ArrowLeft, ExternalLink, CircleAlert, Terminal, User, Bot } from "lucide-react";
 
-interface LoosePart {
+interface Part {
   type?: string;
-  tool?: string;
   text?: string;
+  tool?: string;
   state?: { status?: string; title?: string; output?: string; error?: string };
 }
-
-function extractParts(data: unknown): LoosePart[] {
-  if (Array.isArray(data)) return data as LoosePart[];
-  if (data && typeof data === "object") {
-    const o = data as Record<string, unknown>;
-    if (Array.isArray(o.parts)) return o.parts as LoosePart[];
-    if (Array.isArray(o.messages)) return o.messages as LoosePart[];
-  }
-  return [];
+interface Message {
+  info?: { role?: string; modelID?: string };
+  parts?: Part[];
+}
+interface Session {
+  info?: {
+    title?: string;
+    model?: { id?: string; providerID?: string };
+    cost?: number;
+    tokens?: { input?: number; output?: number; reasoning?: number };
+    time?: { created?: number; updated?: number };
+  };
+  messages?: Message[];
 }
 
 export default function ReviewDetailPage() {
@@ -32,7 +36,7 @@ export default function ReviewDetailPage() {
   });
   const { data: session } = useQuery({
     queryKey: ["reviews", numId, "session"],
-    queryFn: () => api.reviews.session(numId),
+    queryFn: () => api.reviews.session(numId) as Promise<Session>,
     retry: false,
   });
 
@@ -46,8 +50,7 @@ export default function ReviewDetailPage() {
   }
 
   const [owner, name] = review.repo_full_name.split("/");
-  const parts = extractParts(session);
-  const noShape = parts.length === 0 && session != null;
+  const messages = session?.messages ?? [];
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -63,7 +66,7 @@ export default function ReviewDetailPage() {
           <h1 className="text-xl font-bold tracking-tight truncate">
             {review.title ?? `Review #${review.id}`}
           </h1>
-          <div className="mt-1 flex items-center gap-3 text-sm text-zinc-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
             <a
               href={`https://github.com/${owner}/${name}/pull/${review.pr_number}`}
               target="_blank"
@@ -86,6 +89,30 @@ export default function ReviewDetailPage() {
         <Badge status={review.status} />
       </div>
 
+      {session?.info && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-500 tabular-nums">
+          {session.info.model?.id && (
+            <span>
+              model: <span className="text-zinc-300">{session.info.model.id}</span>
+            </span>
+          )}
+          {session.info.cost != null && (
+            <span>
+              cost: <span className="text-zinc-300">${session.info.cost.toFixed(4)}</span>
+            </span>
+          )}
+          {session.info.tokens && (
+            <span>
+              tokens:{" "}
+              <span className="text-zinc-300">
+                {session.info.tokens.input ?? 0}→{session.info.tokens.output ?? 0}
+              </span>
+              {session.info.tokens.reasoning ? ` (r:${session.info.tokens.reasoning})` : ""}
+            </span>
+          )}
+        </div>
+      )}
+
       {review.status === "failed" && review.error && (
         <div className="flex items-start gap-2 rounded-md border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
           <CircleAlert size={16} className="mt-0.5 shrink-0" />
@@ -97,19 +124,12 @@ export default function ReviewDetailPage() {
         <h2 className="mb-3 text-sm font-medium text-zinc-400">Session</h2>
         {session == null ? (
           <p className="text-sm text-zinc-600">Loading transcript…</p>
-        ) : noShape ? (
-          <details className="rounded-md border border-zinc-800 bg-zinc-950">
-            <summary className="cursor-pointer px-3 py-2 text-xs text-zinc-500">
-              Raw session JSON (renderer refines once shape is confirmed)
-            </summary>
-            <pre className="overflow-auto px-3 pb-3 text-xs text-zinc-400">
-              {JSON.stringify(session, null, 2)}
-            </pre>
-          </details>
+        ) : messages.length === 0 ? (
+          <p className="text-sm text-zinc-600">No transcript available for this review.</p>
         ) : (
-          <div className="space-y-2">
-            {parts.map((p, i) => (
-              <PartView key={i} p={p} />
+          <div className="space-y-4">
+            {messages.map((m, i) => (
+              <MessageView key={i} m={m} />
             ))}
           </div>
         )}
@@ -118,11 +138,28 @@ export default function ReviewDetailPage() {
   );
 }
 
-function PartView({ p }: { p: LoosePart }) {
+function MessageView({ m }: { m: Message }) {
+  const isUser = m.info?.role === "user";
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+        {isUser ? <User size={12} /> : <Bot size={12} />}
+        {isUser ? "You" : "Assistant"}
+      </div>
+      <div className="space-y-2">
+        {(m.parts ?? []).map((p, i) => (
+          <PartView key={i} p={p} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PartView({ p }: { p: Part }) {
   switch (p.type) {
     case "text":
       return (
-        <div className="rounded-md bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap">
+        <div className="max-h-80 overflow-auto rounded-md bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap">
           {p.text}
         </div>
       );
@@ -143,11 +180,16 @@ function PartView({ p }: { p: LoosePart }) {
             {p.state?.status && <span className="ml-auto text-zinc-600">{p.state.status}</span>}
           </summary>
           {p.state?.output && (
-            <pre className="overflow-auto px-3 pb-2 text-xs text-zinc-400">{p.state.output}</pre>
+            <pre className="overflow-auto max-h-60 px-3 pb-2 text-xs text-zinc-400">
+              {p.state.output}
+            </pre>
           )}
           {p.state?.error && <pre className="px-3 pb-2 text-xs text-red-300">{p.state.error}</pre>}
         </details>
       );
+    case "step-start":
+    case "step-finish":
+      return null;
     default:
       return null;
   }
