@@ -66,6 +66,8 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       number: pr.number,
       review: id,
       session: result.sessionId,
+      textChars: result.text.length,
+      preview: result.text.slice(0, 500),
     });
     setStatus("completed", true);
   } catch (err) {
