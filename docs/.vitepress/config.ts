@@ -3,6 +3,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   title: "fouine",
   description: "Self-hosted AI code reviewer for GitHub",
+  base: "/fouine/",
   cleanUrls: true,
   head: [["link", { rel: "icon", type: "image/png", href: "/logo.png" }]],
 
