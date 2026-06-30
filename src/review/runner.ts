@@ -8,8 +8,7 @@ import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import type { PullRequestInfo, ReviewStatus } from "~/review/types";
 import { resolve } from "node:path";
-
-const log = (msg: string) => console.log(`[review] ${msg}`);
+import { log } from "~/server/log";
 
 function cloneUrl(token: string, fullName: string): string {
   return `https://x-access-token:${token}@github.com/${fullName}.git`;
@@ -33,7 +32,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     `${pr.repoFullName.replace("/", "__")}#${pr.number}-${id}`,
   );
 
-  log(`${pr.repoFullName}#${pr.number} starting (review #${id})`);
+  log.info("review starting", { repo: pr.repoFullName, number: pr.number, review: id });
   setStatus("running");
 
   try {
@@ -44,7 +43,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     await fetchRef(pr.repoFullName, `refs/pull/${pr.number}/head`);
 
     await addWorktree(pr.repoFullName, pr.headSha, worktree);
-    log(`worktree ready at ${worktree}`);
+    log.info("worktree ready", { repo: pr.repoFullName, number: pr.number, path: worktree });
 
     const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null));
     const [owner, repoName] = pr.repoFullName.split("/");
@@ -62,10 +61,20 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       });
     });
     reviews.setSession.run({ $session: result.sessionId, $id: id });
-    log(`${pr.repoFullName}#${pr.number} done (session ${result.sessionId})`);
+    log.info("review done", {
+      repo: pr.repoFullName,
+      number: pr.number,
+      review: id,
+      session: result.sessionId,
+    });
     setStatus("completed", true);
   } catch (err) {
-    log(`${pr.repoFullName}#${pr.number} failed: ${String(err)}`);
+    log.error("review failed", {
+      repo: pr.repoFullName,
+      number: pr.number,
+      review: id,
+      error: String(err),
+    });
     setStatus("failed", true);
     throw err;
   } finally {

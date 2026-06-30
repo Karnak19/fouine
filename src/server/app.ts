@@ -3,12 +3,36 @@ import { staticPlugin } from "@elysia/static";
 import { config } from "~/config";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
+import { errName, log } from "~/server/log";
 
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
 
+function pathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+const startedAt = new WeakMap<Request, number>();
+
 export async function createServer() {
   return new Elysia()
+    .onRequest(({ request }) => {
+      startedAt.set(request, Date.now());
+    })
+    .onAfterHandle(({ request, set }) => {
+      const ms = Date.now() - (startedAt.get(request) ?? Date.now());
+      const status = typeof set.status === "number" ? set.status : 200;
+      log.info("request", {
+        method: request.method,
+        path: pathname(request.url),
+        status,
+        ms,
+      });
+    })
     .use(apiRoutes)
     .use(
       await staticPlugin({
@@ -37,16 +61,31 @@ export async function createServer() {
       set.status = 200;
       return { ok: true };
     })
-    .onError(({ error, set }) => {
-      console.error("[server] error:", error);
-      set.status = 500;
-      return { error: "internal error" };
+    .onError(({ request, error, set }) => {
+      const status =
+        error &&
+        typeof error === "object" &&
+        "status" in error &&
+        typeof (error as { status: unknown }).status === "number"
+          ? (error as { status: number }).status
+          : 500;
+      const ms = Date.now() - (startedAt.get(request) ?? Date.now());
+      set.status = status;
+      log.warn("request error", {
+        method: request.method,
+        path: pathname(request.url),
+        status,
+        ms,
+        error: errName(error),
+        message: String((error as Error)?.message ?? error),
+      });
+      return status >= 500 ? { error: "internal error" } : { error: "not found" };
     });
 }
 
 export async function boot(): Promise<void> {
   const app = await createServer();
   app.listen(config.port, () => {
-    console.log(`fouine listening on http://localhost:${config.port}`);
+    log.info("server started", { port: config.port });
   });
 }

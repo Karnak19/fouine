@@ -3,6 +3,7 @@ import { repos } from "~/db";
 import { getApp, getInstallationOctokit } from "~/github";
 import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
+import { log } from "~/server/log";
 
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 const TRIGGER = "/review";
@@ -33,11 +34,24 @@ export function registerHandlers(): void {
     };
 
     const { payload } = e;
-    if (!HANDLED_ACTIONS.has(payload.action)) return;
-    const installationId = payload.installation?.id;
-    if (!installationId) return;
-
     const fullName = payload.repository.full_name;
+    const number = payload.pull_request.number;
+
+    if (!HANDLED_ACTIONS.has(payload.action)) {
+      log.debug("pull_request skipped", {
+        repo: fullName,
+        number,
+        action: payload.action,
+        reason: "action not handled",
+      });
+      return;
+    }
+    const installationId = payload.installation?.id;
+    if (!installationId) {
+      log.warn("pull_request skipped", { repo: fullName, number, reason: "no installation id" });
+      return;
+    }
+
     repos.upsert.run({
       $full_name: fullName,
       $installation_id: installationId,
@@ -48,7 +62,7 @@ export function registerHandlers(): void {
     const pr: PullRequestInfo = {
       installationId,
       repoFullName: fullName,
-      number: payload.pull_request.number,
+      number,
       title: payload.pull_request.title,
       headRef: payload.pull_request.head.ref,
       baseRef: payload.pull_request.base.ref,
@@ -56,10 +70,10 @@ export function registerHandlers(): void {
       baseSha: payload.pull_request.base.sha,
     };
 
-    console.log(`[webhook] pull_request.${payload.action} ${fullName}#${pr.number}`);
+    log.info("pull_request review queued", { repo: fullName, number, action: payload.action });
 
     runReviewForPR(pr).catch((err) =>
-      console.error(`[webhook] review failed for ${fullName}#${pr.number}:`, err),
+      log.error("review failed", { repo: fullName, number, error: String(err) }),
     );
   });
 
@@ -75,17 +89,48 @@ export function registerHandlers(): void {
     };
 
     const { payload } = e;
-    if (payload.action !== "created") return;
-    if (!payload.issue.pull_request) return;
-    if (!payload.comment.body.trim().startsWith(TRIGGER)) return;
-
-    const installationId = payload.installation?.id;
-    if (!installationId) return;
-
     const fullName = payload.repository.full_name;
     const prNumber = payload.issue.number;
 
-    console.log(`[webhook] /review triggered on ${fullName}#${prNumber}`);
+    if (payload.action !== "created") {
+      log.debug("issue_comment skipped", {
+        repo: fullName,
+        number: prNumber,
+        action: payload.action,
+        reason: "action not created",
+      });
+      return;
+    }
+    if (!payload.issue.pull_request) {
+      log.debug("issue_comment skipped", {
+        repo: fullName,
+        number: prNumber,
+        reason: "not on a pull request",
+      });
+      return;
+    }
+    const body = payload.comment.body.trim();
+    if (!body.startsWith(TRIGGER)) {
+      log.debug("issue_comment skipped", {
+        repo: fullName,
+        number: prNumber,
+        reason: "no /review trigger",
+        body: body.slice(0, 80),
+      });
+      return;
+    }
+
+    const installationId = payload.installation?.id;
+    if (!installationId) {
+      log.warn("issue_comment skipped", {
+        repo: fullName,
+        number: prNumber,
+        reason: "no installation id",
+      });
+      return;
+    }
+
+    log.info("/review triggered", { repo: fullName, number: prNumber });
 
     try {
       const octokit = await getInstallationOctokit(installationId);
@@ -113,11 +158,17 @@ export function registerHandlers(): void {
         $model: null,
       });
 
+      log.info("/review review queued", { repo: fullName, number: prNumber });
+
       runReviewForPR(pr).catch((err) =>
-        console.error(`[webhook] review failed for ${fullName}#${prNumber}:`, err),
+        log.error("review failed", { repo: fullName, number: prNumber, error: String(err) }),
       );
     } catch (err) {
-      console.error(`[webhook] failed to fetch PR ${fullName}#${prNumber}:`, err);
+      log.error("failed to fetch PR for /review", {
+        repo: fullName,
+        number: prNumber,
+        error: String(err),
+      });
     }
   });
 }
@@ -130,9 +181,33 @@ export async function verifyAndDispatch(opts: {
 }): Promise<void> {
   const { webhooks } = getApp();
   ensureHandlers();
-  if (!opts.signature || !(await webhooks.verify(opts.payload, opts.signature))) {
+
+  log.info("webhook received", {
+    delivery: opts.id,
+    event: opts.name,
+    signed: !!opts.signature,
+    bytes: opts.payload.length,
+  });
+
+  if (!opts.signature) {
+    log.warn("webhook rejected", {
+      delivery: opts.id,
+      event: opts.name,
+      reason: "no signature header",
+    });
     throw new VerificationError();
   }
+  if (!(await webhooks.verify(opts.payload, opts.signature))) {
+    log.warn("webhook rejected", {
+      delivery: opts.id,
+      event: opts.name,
+      reason: "signature mismatch (check GITHUB_WEBHOOK_SECRET)",
+    });
+    throw new VerificationError();
+  }
+
+  log.info("webhook verified", { delivery: opts.id, event: opts.name });
+
   await webhooks.verifyAndReceive({
     id: opts.id,
     name: opts.name,
