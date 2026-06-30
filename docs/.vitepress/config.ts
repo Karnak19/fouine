@@ -67,7 +67,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: "https://github.com/basilevernouillet/fouine/edit/docs/initial/docs/:path",
+      pattern: "https://github.com/basilevernouillet/fouine/edit/main/docs/:path",
     },
 
     footer: {
