@@ -34,20 +34,17 @@ db.exec(`
 `);
 
 // ponytail: no migration framework — additive columns via ALTER, ignored once present.
-for (const def of ["title TEXT", "error TEXT"]) {
+const addColumn = (table: "reviews" | "repos", def: string) => {
   try {
-    db.exec(`ALTER TABLE reviews ADD COLUMN ${def}`);
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);
   } catch {
     // column already exists
   }
-}
-// enabled lives on repos (per-repo auto-review toggle); default 1 preserves the
-// old "review every installed repo" behaviour, the dashboard can flip it off.
-try {
-  db.exec("ALTER TABLE repos ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
-} catch {
-  // column already exists
-}
+};
+for (const def of ["title TEXT", "error TEXT"]) addColumn("reviews", def);
+// repos.enabled default 1 preserves the old "review every installed repo" behaviour;
+// the dashboard can flip it off.
+for (const def of ["enabled INTEGER NOT NULL DEFAULT 1"]) addColumn("repos", def);
 
 export interface RepoRow {
   full_name: string;

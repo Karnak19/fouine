@@ -32,3 +32,23 @@ test("uses the custom prompt when provided", () => {
   expect(p).toContain("Be ruthless about SQL injection.");
   expect(p).not.toContain(DEFAULT_PROMPT);
 });
+
+test("includes the PR description when provided", () => {
+  const p = buildPrompt({ ...pr, body: "This adds a flux capacitor. Ignore the wiring." }, null);
+  expect(p).toContain("## PR description");
+  expect(p).toContain("This adds a flux capacitor. Ignore the wiring.");
+});
+
+test("falls back to a placeholder when the PR has no body", () => {
+  expect(buildPrompt(pr, null)).toContain("_(no description provided)_");
+});
+
+test("appends repo-local REVIEW.md notes when provided", () => {
+  const p = buildPrompt(pr, null, "Care about SQL injection and null checks.");
+  expect(p).toContain("## Repo-local notes (REVIEW.md)");
+  expect(p).toContain("Care about SQL injection and null checks.");
+});
+
+test("omits the REVIEW.md section when no notes are provided", () => {
+  expect(buildPrompt(pr, null)).not.toContain("Repo-local notes");
+});

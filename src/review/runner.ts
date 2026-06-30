@@ -93,8 +93,9 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
   setStatus("running");
 
   let checkRunId: number | undefined;
+  let octokit: Octokit | undefined;
   try {
-    const octokit = await getInstallationOctokit(pr.installationId);
+    octokit = await getInstallationOctokit(pr.installationId);
     checkRunId = await startCheck(octokit, owner, repoName, pr.headSha);
     const auth = (await octokit.auth({ type: "installation" })) as { token: string };
 
@@ -154,12 +155,8 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     });
     setStatus("failed", true);
     reviews.fail.run({ $id: id, $error: String(err) });
-    try {
-      const octokit = await getInstallationOctokit(pr.installationId);
-      await finishCheck(octokit, owner, repoName, checkRunId, "failure", String(err));
-    } catch (inner) {
-      log.warn("check finish on failure failed", { error: String(inner) });
-    }
+    // finishCheck swallows its own errors; octokit is undefined if the fetch itself threw.
+    if (octokit) await finishCheck(octokit, owner, repoName, checkRunId, "failure", String(err));
     throw err;
   } finally {
     await removeWorktree(pr.repoFullName, worktree);

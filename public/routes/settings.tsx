@@ -39,14 +39,8 @@ export default function SettingsPage() {
     },
   });
 
-  const [testResult, setTestResult] = useState<{
-    ok: boolean;
-    text?: string;
-    error?: string;
-  } | null>(null);
   const testMut = useMutation({
     mutationFn: api.settings.test,
-    onSuccess: setTestResult,
   });
 
   return (
@@ -106,7 +100,7 @@ export default function SettingsPage() {
                 variant="outline"
                 disabled={testMut.isPending}
                 onClick={() => {
-                  setTestResult(null);
+                  testMut.reset();
                   testMut.mutate();
                 }}
               >
@@ -116,13 +110,13 @@ export default function SettingsPage() {
                 Sends one tiny request to the configured model.
               </span>
             </div>
-            {testResult && (
+            {testMut.data && (
               <p
-                className={`mt-2 text-xs font-mono ${testResult.ok ? "text-emerald-400" : "text-red-400"}`}
+                className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
               >
-                {testResult.ok
-                  ? `OK — model replied: ${testResult.text ?? ""}`
-                  : `Failed: ${testResult.error ?? "unknown error"}`}
+                {testMut.data.ok
+                  ? `OK — model replied: ${testMut.data.text ?? ""}`
+                  : `Failed: ${testMut.data.error ?? "unknown error"}`}
               </p>
             )}
           </div>
