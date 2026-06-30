@@ -16,6 +16,13 @@ function pathname(url: string): string {
   }
 }
 
+// ponytail: SPA fallback heuristic — last path segment with a dot looks like a
+// file (asset), so let it 404 normally; everything else is a client route.
+function isAssetPath(p: string): boolean {
+  const seg = p.slice(p.lastIndexOf("/") + 1);
+  return seg.includes(".");
+}
+
 const startedAt = new WeakMap<Request, number>();
 
 export async function createServer() {
@@ -69,6 +76,18 @@ export async function createServer() {
         typeof (error as { status: unknown }).status === "number"
           ? (error as { status: number }).status
           : 500;
+      const p = pathname(request.url);
+      if (
+        status === 404 &&
+        request.method === "GET" &&
+        !p.startsWith("/api") &&
+        !p.startsWith("/webhook") &&
+        !isAssetPath(p)
+      ) {
+        return new Response(Bun.file(`${assetsDir}/index.html`), {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
       const ms = Date.now() - (startedAt.get(request) ?? Date.now());
       set.status = status;
       log.warn("request error", {
