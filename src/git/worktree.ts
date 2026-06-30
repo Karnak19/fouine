@@ -22,6 +22,10 @@ export function barePath(fullName: string): string {
 export async function ensureBare(fullName: string, cloneUrl: string): Promise<string> {
   const bare = barePath(fullName);
   if (existsSync(bare)) {
+    // ponytail: installation tokens expire (~1h), so refresh the stored remote
+    // URL with the fresh token before fetching. Upgrade to http.extraHeader if
+    // token-in-config becomes a concern.
+    await git(["remote", "set-url", "origin", cloneUrl], bare);
     await git(["fetch", "origin", "--prune", "--quiet"], bare);
     return bare;
   }
