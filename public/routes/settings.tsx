@@ -39,6 +39,10 @@ export default function SettingsPage() {
     },
   });
 
+  const testMut = useMutation({
+    mutationFn: api.settings.test,
+  });
+
   return (
     <div className="space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -89,6 +93,33 @@ export default function SettingsPage() {
               Save settings
             </Button>
           </form>
+          <div className="border-t border-zinc-800 pt-4">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={testMut.isPending}
+                onClick={() => {
+                  testMut.reset();
+                  testMut.mutate();
+                }}
+              >
+                {testMut.isPending ? "Testing…" : "Test connection"}
+              </Button>
+              <span className="text-xs text-zinc-500">
+                Sends one tiny request to the configured model.
+              </span>
+            </div>
+            {testMut.data && (
+              <p
+                className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {testMut.data.ok
+                  ? `OK — model replied: ${testMut.data.text ?? ""}`
+                  : `Failed: ${testMut.data.error ?? "unknown error"}`}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

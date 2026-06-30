@@ -34,19 +34,24 @@ db.exec(`
 `);
 
 // ponytail: no migration framework — additive columns via ALTER, ignored once present.
-for (const def of ["title TEXT", "error TEXT"]) {
+const addColumn = (table: "reviews" | "repos", def: string) => {
   try {
-    db.exec(`ALTER TABLE reviews ADD COLUMN ${def}`);
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);
   } catch {
     // column already exists
   }
-}
+};
+for (const def of ["title TEXT", "error TEXT"]) addColumn("reviews", def);
+// repos.enabled default 1 preserves the old "review every installed repo" behaviour;
+// the dashboard can flip it off.
+for (const def of ["enabled INTEGER NOT NULL DEFAULT 1"]) addColumn("repos", def);
 
 export interface RepoRow {
   full_name: string;
   installation_id: number;
   prompt: string | null;
   model: string | null;
+  enabled: number;
   created_at: number;
 }
 
@@ -80,8 +85,11 @@ export const repos = {
      ON CONFLICT(full_name) DO UPDATE SET
        installation_id = excluded.installation_id`,
   ),
-  update: db.prepare<null, { $full_name: string; $prompt: string | null; $model: string | null }>(
-    `UPDATE repos SET prompt = $prompt, model = $model WHERE full_name = $full_name`,
+  update: db.prepare<
+    null,
+    { $full_name: string; $prompt: string | null; $model: string | null; $enabled: number }
+  >(
+    `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",
@@ -112,6 +120,9 @@ export const reviews = {
   ),
   recent: db.prepare<ReviewRow, { $limit: number }>(
     "SELECT * FROM reviews ORDER BY id DESC LIMIT $limit",
+  ),
+  byRepo: db.prepare<ReviewRow, { $repo: string; $limit: number }>(
+    "SELECT * FROM reviews WHERE repo_full_name = $repo ORDER BY id DESC LIMIT $limit",
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
 };

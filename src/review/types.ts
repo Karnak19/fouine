@@ -3,6 +3,7 @@ export interface PullRequestInfo {
   repoFullName: string;
   number: number;
   title: string;
+  body?: string;
   headRef: string;
   baseRef: string;
   headSha: string;

@@ -17,6 +17,7 @@ export interface RepoRow {
   installation_id: number;
   prompt: string | null;
   model: string | null;
+  enabled: number;
   created_at: number;
 }
 
@@ -44,7 +45,11 @@ export const api = {
     get: (owner: string, name: string) => request<RepoRow>(`/repos/${owner}/${name}`),
     create: (data: { full_name: string; installation_id: number }) =>
       request<RepoRow>("/repos", { method: "POST", body: JSON.stringify(data) }),
-    update: (owner: string, name: string, data: { prompt?: string; model?: string }) =>
+    update: (
+      owner: string,
+      name: string,
+      data: { prompt?: string; model?: string; enabled?: number },
+    ) =>
       request<RepoRow>(`/repos/${owner}/${name}`, {
         method: "PUT",
         body: JSON.stringify(data),
@@ -58,10 +63,12 @@ export const api = {
     list: () => request<ReviewRow[]>("/reviews"),
     get: (id: number) => request<ReviewRow>(`/reviews/${id}`),
     session: (id: number) => request<unknown>(`/reviews/${id}/session`),
+    retry: (id: number) => request<{ ok: boolean }>(`/reviews/${id}/retry`, { method: "POST" }),
   },
   settings: {
     get: () => request<Settings>("/settings"),
     update: (data: Settings) =>
       request<Settings>("/settings", { method: "PUT", body: JSON.stringify(data) }),
+    test: () => request<{ ok: boolean; text?: string; error?: string }>("/settings/test"),
   },
 };
