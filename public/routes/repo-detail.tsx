@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, ChevronRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo } from "@/lib/format";
 
@@ -147,6 +147,7 @@ export default function RepoDetailPage() {
                   <TableHead>PR</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Started</TableHead>
+                  <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -172,6 +173,11 @@ export default function RepoDetailPage() {
                       title={new Date(r.created_at * 1000).toLocaleString()}
                     >
                       {timeAgo(r.created_at)}
+                    </TableCell>
+                    <TableCell className="text-zinc-600">
+                      <Link to="/reviews/$id" params={{ id: String(r.id) }}>
+                        <ChevronRight size={16} />
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}
