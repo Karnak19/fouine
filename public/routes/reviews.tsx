@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { api, type ReviewRow } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ExternalLink, GitPullRequest } from "lucide-react";
+import { ExternalLink, GitPullRequest, ChevronRight } from "lucide-react";
 
 export default function ReviewsPage() {
   const { data: reviews, isLoading } = useQuery({
@@ -38,6 +39,7 @@ export default function ReviewsPage() {
               <TableHead>PR</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Started</TableHead>
+              <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -76,6 +78,11 @@ function ReviewRow({ r }: { r: ReviewRow }) {
         title={new Date(r.created_at * 1000).toLocaleString()}
       >
         {timeAgo(r.created_at)}
+      </TableCell>
+      <TableCell className="text-zinc-600">
+        <Link to="/reviews/$id" params={{ id: String(r.id) }}>
+          <ChevronRight size={16} />
+        </Link>
       </TableCell>
     </TableRow>
   );

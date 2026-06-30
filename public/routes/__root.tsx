@@ -44,6 +44,7 @@ const rootRoute = createRootRoute({ component: RootLayout });
 import ReposPage from "./index";
 import RepoDetailPage from "./repo-detail";
 import ReviewsPage from "./reviews";
+import ReviewDetailPage from "./review-detail";
 import SettingsPage from "./settings";
 
 const indexRoute = createRoute({
@@ -61,6 +62,11 @@ const reviewsRoute = createRoute({
   path: "/reviews",
   component: ReviewsPage,
 });
+const reviewDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reviews/$id",
+  component: ReviewDetailPage,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -71,5 +77,6 @@ export const routeTree = rootRoute.addChildren([
   indexRoute,
   repoRoute,
   reviewsRoute,
+  reviewDetailRoute,
   settingsRoute,
 ]);

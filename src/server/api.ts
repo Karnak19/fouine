@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { $ } from "bun";
 import { repos, reviews, settings } from "~/db";
 import { SETTINGS } from "~/settings";
 
@@ -59,6 +60,27 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   })
 
   .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
+
+  .get("/reviews/:id", ({ params }) => {
+    const r = reviews.byId.get({ $id: Number(params.id) });
+    if (!r) return new Response("Not found", { status: 404 });
+    return r;
+  })
+
+  .get("/reviews/:id/session", async ({ params }) => {
+    const r = reviews.byId.get({ $id: Number(params.id) });
+    if (!r?.session_id) return new Response("Not found", { status: 404 });
+    const res = await $`opencode export ${r.session_id}`.nothrow().quiet();
+    const out = res.stdout.toString().trim();
+    if (res.exitCode !== 0 || !out) {
+      return { error: "session-unavailable", detail: res.stderr.toString().trim() };
+    }
+    try {
+      return JSON.parse(out);
+    } catch {
+      return { error: "session-unparseable", raw: out.slice(0, 1000) };
+    }
+  })
 
   .get("/settings", () => {
     const all = settings.all.all();

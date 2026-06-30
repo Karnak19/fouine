@@ -7,6 +7,9 @@ services:
       - fouine-data:/data
     environment:
       DATA_DIR: /data
+      # Route opencode's data dir (~/.local/share/opencode) onto the /data volume
+      # so sessions survive redeploys without a separate mount.
+      XDG_DATA_HOME: /data/.local/share
       PORT: 3000
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}

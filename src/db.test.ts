@@ -34,6 +34,7 @@ test("review lifecycle: pending -> running -> completed", () => {
   const row = reviews.insert.get({
     $repo: full,
     $pr: 7,
+    $title: "Test PR",
     $session: null,
     $status: "pending",
   })!;

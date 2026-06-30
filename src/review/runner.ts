@@ -19,6 +19,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
   const row = reviews.insert.get({
     $repo: pr.repoFullName,
     $pr: pr.number,
+    $title: pr.title,
     $session: null,
     $status: "pending",
   })!;
@@ -78,6 +79,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       error: String(err),
     });
     setStatus("failed", true);
+    reviews.fail.run({ $id: id, $error: String(err) });
     throw err;
   } finally {
     await removeWorktree(pr.repoFullName, worktree);

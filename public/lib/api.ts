@@ -24,8 +24,10 @@ export interface ReviewRow {
   id: number;
   repo_full_name: string;
   pr_number: number;
+  title: string | null;
   session_id: string | null;
   status: string;
+  error: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -54,6 +56,8 @@ export const api = {
   },
   reviews: {
     list: () => request<ReviewRow[]>("/reviews"),
+    get: (id: number) => request<ReviewRow>(`/reviews/${id}`),
+    session: (id: number) => request<unknown>(`/reviews/${id}/session`),
   },
   settings: {
     get: () => request<Settings>("/settings"),

@@ -33,6 +33,15 @@ db.exec(`
   );
 `);
 
+// ponytail: no migration framework — additive columns via ALTER, ignored once present.
+for (const def of ["title TEXT", "error TEXT"]) {
+  try {
+    db.exec(`ALTER TABLE reviews ADD COLUMN ${def}`);
+  } catch {
+    // column already exists
+  }
+}
+
 export interface RepoRow {
   full_name: string;
   installation_id: number;
@@ -45,8 +54,10 @@ export interface ReviewRow {
   id: number;
   repo_full_name: string;
   pr_number: number;
+  title: string | null;
   session_id: string | null;
   status: string;
+  error: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -60,7 +71,10 @@ export const repos = {
   get: db.prepare<RepoRow, { $full_name: string }>(
     "SELECT * FROM repos WHERE full_name = $full_name",
   ),
-  upsert: db.prepare<null, { $full_name: string; $installation_id: number; $prompt: string | null; $model: string | null }>(
+  upsert: db.prepare<
+    null,
+    { $full_name: string; $installation_id: number; $prompt: string | null; $model: string | null }
+  >(
     `INSERT INTO repos (full_name, installation_id, prompt, model)
      VALUES ($full_name, $installation_id, $prompt, $model)
      ON CONFLICT(full_name) DO UPDATE SET
@@ -76,14 +90,21 @@ export const repos = {
 };
 
 export const reviews = {
-  insert: db.prepare<ReviewRow, { $repo: string; $pr: number; $session: string | null; $status: string }>(
-    `INSERT INTO reviews (repo_full_name, pr_number, session_id, status)
-     VALUES ($repo, $pr, $session, $status)
+  insert: db.prepare<
+    ReviewRow,
+    { $repo: string; $pr: number; $title: string; $session: string | null; $status: string }
+  >(
+    `INSERT INTO reviews (repo_full_name, pr_number, title, session_id, status)
+     VALUES ($repo, $pr, $title, $session, $status)
      RETURNING *`,
   ),
   updateStatus: db.prepare<null, { $status: string; $done: number; $id: number }>(
     `UPDATE reviews SET status = $status,
        completed_at = CASE WHEN $done THEN unixepoch() ELSE completed_at END
+     WHERE id = $id`,
+  ),
+  fail: db.prepare<null, { $id: number; $error: string }>(
+    `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
      WHERE id = $id`,
   ),
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
@@ -92,12 +113,11 @@ export const reviews = {
   recent: db.prepare<ReviewRow, { $limit: number }>(
     "SELECT * FROM reviews ORDER BY id DESC LIMIT $limit",
   ),
+  byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
 };
 
 export const settings = {
-  get: db.prepare<SettingRow, { $key: string }>(
-    "SELECT * FROM settings WHERE key = $key",
-  ),
+  get: db.prepare<SettingRow, { $key: string }>("SELECT * FROM settings WHERE key = $key"),
   set: db.prepare<null, { $key: string; $value: string }>(
     `INSERT INTO settings (key, value) VALUES ($key, $value)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
