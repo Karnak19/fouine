@@ -3,16 +3,17 @@ import { Link, useParams } from "@tanstack/react-router";
 import { api } from "@/lib/api";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ExternalLink, CircleAlert, Terminal, User, Bot } from "lucide-react";
+import { ArrowLeft, ExternalLink, CircleAlert, Terminal, User, Bot, Radio } from "lucide-react";
 
 interface Part {
+  id?: string;
   type?: string;
   text?: string;
   tool?: string;
   state?: { status?: string; title?: string; output?: string; error?: string };
 }
 interface Message {
-  info?: { role?: string; modelID?: string };
+  info?: { id?: string; role?: string; modelID?: string };
   parts?: Part[];
 }
 interface Session {
@@ -33,11 +34,17 @@ export default function ReviewDetailPage() {
   const { data: review } = useQuery({
     queryKey: ["reviews", numId],
     queryFn: () => api.reviews.get(numId),
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "running" || s === "pending" ? 2000 : false;
+    },
   });
   const { data: session } = useQuery({
     queryKey: ["reviews", numId, "session"],
     queryFn: () => api.reviews.session(numId) as Promise<Session>,
     retry: false,
+    refetchInterval: () =>
+      review?.status === "running" || review?.status === "pending" ? 2000 : false,
   });
 
   if (!review) {
@@ -121,7 +128,18 @@ export default function ReviewDetailPage() {
       )}
 
       <div>
-        <h2 className="mb-3 text-sm font-medium text-zinc-400">Session</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-zinc-400">Session</h2>
+          {(review?.status === "running" || review?.status === "pending") && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="relative grid place-items-center">
+                <Radio size={12} />
+                <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
+              </span>
+              live · polling every 2s
+            </span>
+          )}
+        </div>
         {session == null ? (
           <p className="text-sm text-zinc-600">Loading transcript…</p>
         ) : messages.length === 0 ? (
@@ -129,7 +147,7 @@ export default function ReviewDetailPage() {
         ) : (
           <div className="space-y-4">
             {messages.map((m, i) => (
-              <MessageView key={i} m={m} />
+              <MessageView key={m.info?.id ?? `m-${i}`} m={m} />
             ))}
           </div>
         )}
@@ -148,7 +166,7 @@ function MessageView({ m }: { m: Message }) {
       </div>
       <div className="space-y-2">
         {(m.parts ?? []).map((p, i) => (
-          <PartView key={i} p={p} />
+          <PartView key={p.id ?? `${m.info?.id}-p-${i}`} p={p} />
         ))}
       </div>
     </div>

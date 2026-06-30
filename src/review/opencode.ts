@@ -21,9 +21,7 @@ export interface RunResult {
   text: string;
 }
 
-export async function withOpencode<T>(
-  fn: (client: OpencodeClient) => Promise<T>,
-): Promise<T> {
+export async function withOpencode<T>(fn: (client: OpencodeClient) => Promise<T>): Promise<T> {
   const { client, server } = await createOpencode();
   try {
     return await fn(client);
@@ -37,10 +35,7 @@ function unwrap<T, E>(res: { data?: T; error?: E }, op: string): T {
   return res.data;
 }
 
-async function setProviderApiKey(
-  client: OpencodeClient,
-  providerID: string,
-): Promise<void> {
+async function setProviderApiKey(client: OpencodeClient, providerID: string): Promise<void> {
   const key = resolveApiKey();
   if (!key) return;
   unwrap(
@@ -55,6 +50,7 @@ async function setProviderApiKey(
 export async function runReview(
   client: OpencodeClient,
   opts: RunOptions,
+  onSession?: (id: string) => Promise<void> | void,
 ): Promise<RunResult> {
   const model = parseModel(opts.model ?? resolveDefaultModel());
   await setProviderApiKey(client, model.providerID);
@@ -66,6 +62,8 @@ export async function runReview(
     }),
     "session.create",
   );
+
+  if (onSession) await onSession(session.id);
 
   const res = unwrap(
     await client.session.prompt({

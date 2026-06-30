@@ -53,13 +53,20 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     process.env.FOUINE_REPO_NAME = repoName;
     process.env.FOUINE_PR_NUMBER = String(pr.number);
     const result = await withOpencode(async (client) => {
-      return runReview(client, {
-        directory: worktree,
-        prompt,
-        model: repo?.model ?? resolveDefaultModel(),
-      });
+      return runReview(
+        client,
+        {
+          directory: worktree,
+          prompt,
+          model: repo?.model ?? resolveDefaultModel(),
+        },
+        async (sessionId) => {
+          // Persist the id as soon as the session exists, so the dashboard can
+          // stream `opencode export` while the review is still in flight.
+          reviews.setSession.run({ $session: sessionId, $id: id });
+        },
+      );
     });
-    reviews.setSession.run({ $session: result.sessionId, $id: id });
     log.info("review done", {
       repo: pr.repoFullName,
       number: pr.number,
