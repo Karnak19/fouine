@@ -4,7 +4,12 @@ import { Octokit } from "octokit";
 import { z } from "zod";
 
 const env = process.env;
-const required = ["FOUINE_GITHUB_TOKEN", "FOUINE_REPO_OWNER", "FOUINE_REPO_NAME", "FOUINE_PR_NUMBER"];
+const required = [
+  "FOUINE_GITHUB_TOKEN",
+  "FOUINE_REPO_OWNER",
+  "FOUINE_REPO_NAME",
+  "FOUINE_PR_NUMBER",
+];
 const missing = required.filter((k) => !env[k]);
 if (missing.length) {
   console.error(`[fouine-mcp] missing env: ${missing.join(", ")}`);
@@ -16,20 +21,44 @@ const owner = env.FOUINE_REPO_OWNER!;
 const repo = env.FOUINE_REPO_NAME!;
 const pull_number = Number(env.FOUINE_PR_NUMBER);
 
-const server = new McpServer(
-  { name: "fouine", version: "0.1.0" },
-  { capabilities: { tools: {} } },
-);
+const server = new McpServer({ name: "fouine", version: "0.1.0" }, { capabilities: { tools: {} } });
 
+function text(msg: string) {
+  return { content: [{ type: "text" as const, text: msg }] };
+}
+
+// Simple PR comment: overview / discussion, no line anchoring.
 server.registerTool(
-  "post_pr_review",
+  "post_comment",
   {
     description:
-      "Post the code review as a PR review with a summary and inline line comments. " +
-      "Call this exactly once when the review is complete. Use COMMENT event unless " +
-      "requesting changes or approving.",
+      "Post a plain comment on the pull request (markdown). Use for the overall review summary " +
+      "or general discussion. Call as many times as needed.",
     inputSchema: {
-      summary: z.string().describe("The review summary shown at the top of the review."),
+      body: z.string().describe("The comment text (markdown)."),
+    },
+  },
+  async (args) => {
+    const { data } = await octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pull_number,
+      body: args.body,
+    });
+    return text(`Comment posted (id ${data.id}).`);
+  },
+);
+
+// Formal review with optional inline line comments pinned to the diff.
+server.registerTool(
+  "post_review",
+  {
+    description:
+      "Post a formal PR review: a summary plus optional inline comments pinned to specific " +
+      "file lines in the diff. Call once with all inline findings. Use event COMMENT unless " +
+      "approving or requesting changes.",
+    inputSchema: {
+      summary: z.string().describe("Review summary shown at the top of the review."),
       event: z
         .enum(["COMMENT", "APPROVE", "REQUEST_CHANGES"])
         .default("COMMENT")
@@ -64,7 +93,7 @@ server.registerTool(
       ...(c.startLine ? { start_line: c.startLine, line: c.line } : {}),
     }));
 
-    const review = await octokit.rest.pulls.createReview({
+    const { data } = await octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number,
@@ -73,14 +102,7 @@ server.registerTool(
       comments,
     });
 
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Review posted (id ${review.data.id}) with ${comments.length} inline comment(s).`,
-        },
-      ],
-    };
+    return text(`Review posted (id ${data.id}) with ${comments.length} inline comment(s).`);
   },
 );
 

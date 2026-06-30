@@ -9,23 +9,22 @@ export interface CommentToolInfo {
 }
 
 const SERVER_NAME = "fouine";
-const TOOL_NAME = "post_pr_review";
+const TOOLS = ["post_comment", "post_review"];
 const serverScript = `${import.meta.dir}/server.ts`;
 
-async function waitForTool(
+async function waitForTools(
   client: OpencodeClient,
-  needle: string,
+  needles: string[],
   timeoutMs: number,
-): Promise<string> {
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const res = await client.tool.ids();
-    const ids = (res.data as string[] | undefined) ?? [];
-    const found = ids.find((id) => id.includes(needle));
-    if (found) return found;
+    const ids = ((res.data as string[] | undefined) ?? []).map((id) => id.toLowerCase());
+    if (needles.every((n) => ids.some((id) => id.includes(n)))) return;
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error(`MCP tool "${needle}" not discovered within ${timeoutMs}ms`);
+  throw new Error(`MCP tools not discovered within ${timeoutMs}ms: ${needles.join(", ")}`);
 }
 
 export async function registerCommentTool(
@@ -58,9 +57,9 @@ export async function registerCommentTool(
     throw new Error(`failed to connect fouine MCP server: ${JSON.stringify(conn.error)}`);
   }
 
-  const toolId = await waitForTool(client, TOOL_NAME, 15_000);
-  log.info("comment tool ready", {
-    tool: toolId,
+  await waitForTools(client, TOOLS, 15_000);
+  log.info("comment tools ready", {
+    tools: TOOLS.join(","),
     repo: `${info.owner}/${info.repo}`,
     pr: info.prNumber,
   });
