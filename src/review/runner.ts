@@ -37,7 +37,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
 
   try {
     const octokit = await getInstallationOctokit(pr.installationId);
-    const auth = (await octokit.auth()) as { token: string };
+    const auth = (await octokit.auth({ type: "installation" })) as { token: string };
 
     await ensureBare(pr.repoFullName, cloneUrl(auth.token, pr.repoFullName));
     await fetchRef(pr.repoFullName, `refs/pull/${pr.number}/head`);
