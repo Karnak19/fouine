@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
-import { GitPullRequest, Settings, LayoutDashboard, Search } from "lucide-react";
+import { GitPullRequest, Settings, LayoutDashboard, Search, FolderGit2 } from "lucide-react";
 
 function RootLayout() {
   return (
@@ -13,7 +13,8 @@ function RootLayout() {
           <span className="text-base font-bold tracking-tight">fouine</span>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
-          <NavLink to="/" label="Repositories" icon={<LayoutDashboard size={16} />} />
+          <NavLink to="/" label="Dashboard" icon={<LayoutDashboard size={16} />} />
+          <NavLink to="/repos" label="Repositories" icon={<FolderGit2 size={16} />} />
           <NavLink to="/reviews" label="Reviews" icon={<GitPullRequest size={16} />} />
           <NavLink to="/settings" label="Settings" icon={<Settings size={16} />} />
         </nav>
@@ -41,15 +42,21 @@ function NavLink({ to, label, icon }: { to: string; label: string; icon: React.R
 
 const rootRoute = createRootRoute({ component: RootLayout });
 
-import ReposPage from "./index";
+import ReposPage from "./repos";
 import RepoDetailPage from "./repo-detail";
 import ReviewsPage from "./reviews";
 import ReviewDetailPage from "./review-detail";
 import SettingsPage from "./settings";
+import DashboardPage from "./dashboard";
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  component: DashboardPage,
+});
+const reposRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/repos",
   component: ReposPage,
 });
 const repoRoute = createRoute({
@@ -75,6 +82,7 @@ const settingsRoute = createRoute({
 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
+  reposRoute,
   repoRoute,
   reviewsRoute,
   reviewDetailRoute,

@@ -73,7 +73,10 @@ export default function RepoDetailPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <Link to="/" className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1">
+      <Link
+        to="/repos"
+        className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
+      >
         <ArrowLeft size={14} /> Repositories
       </Link>
 
