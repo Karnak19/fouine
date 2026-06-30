@@ -25,4 +25,15 @@
 
 body {
   font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+@keyframes fouine-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }

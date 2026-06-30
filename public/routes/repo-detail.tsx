@@ -16,8 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { timeAgo } from "@/lib/format";
 
 export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
@@ -60,7 +61,15 @@ export default function RepoDetailPage() {
     },
   });
 
-  if (!repo) return null;
+  if (!repo) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
+        <div className="h-8 w-64 rounded bg-zinc-900/60 animate-pulse" />
+        <div className="h-64 rounded-lg bg-zinc-900/60 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -143,13 +152,26 @@ export default function RepoDetailPage() {
               <TableBody>
                 {reviews.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="text-zinc-400">{r.id}</TableCell>
-                    <TableCell>#{r.pr_number}</TableCell>
+                    <TableCell className="text-zinc-500 tabular-nums">{r.id}</TableCell>
+                    <TableCell>
+                      <a
+                        href={`https://github.com/${owner}/${name}/pull/${r.pr_number}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-zinc-300 hover:text-zinc-100 tabular-nums"
+                      >
+                        #{r.pr_number}
+                        <ExternalLink size={12} className="opacity-50" />
+                      </a>
+                    </TableCell>
                     <TableCell>
                       <Badge status={r.status} />
                     </TableCell>
-                    <TableCell className="text-zinc-500 text-sm">
-                      {new Date(r.created_at * 1000).toLocaleString()}
+                    <TableCell
+                      className="text-zinc-500 text-sm text-right"
+                      title={new Date(r.created_at * 1000).toLocaleString()}
+                    >
+                      {timeAgo(r.created_at)}
                     </TableCell>
                   </TableRow>
                 ))}

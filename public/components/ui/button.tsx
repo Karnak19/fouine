@@ -25,7 +25,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
+        "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-[color,background-color,transform] active:scale-[0.96] disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
         variants[variant],
         sizes[size],
         className,

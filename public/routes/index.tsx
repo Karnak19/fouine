@@ -14,11 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus } from "lucide-react";
+import { Plus, ChevronRight, FolderGit2 } from "lucide-react";
+import { timeAgo } from "@/lib/format";
 
 export default function ReposPage() {
   const queryClient = useQueryClient();
-  const { data: repos = [] as RepoRow[] } = useQuery({
+  const { data: repos, isLoading } = useQuery({
     queryKey: ["repos"],
     queryFn: api.repos.list,
   });
@@ -36,8 +37,11 @@ export default function ReposPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <h1 className="text-2xl font-bold">Repositories</h1>
+    <div className="space-y-6 max-w-4xl">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>
+        <p className="text-sm text-zinc-500 mt-1">Repos fouine watches for pull requests.</p>
+      </div>
 
       <Card>
         <CardHeader>
@@ -81,14 +85,27 @@ export default function ReposPage() {
         </CardContent>
       </Card>
 
-      {repos.length > 0 && (
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-12 rounded-md bg-zinc-900/60 animate-pulse" />
+          ))}
+        </div>
+      ) : !repos?.length ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
+          <FolderGit2 size={28} className="text-zinc-700" />
+          <p className="mt-3 text-sm text-zinc-400">No repositories registered</p>
+          <p className="text-xs text-zinc-600 mt-1">Add one above to get started.</p>
+        </div>
+      ) : (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Repository</TableHead>
               <TableHead>Installation</TableHead>
               <TableHead>Model</TableHead>
-              <TableHead>Registered</TableHead>
+              <TableHead className="text-right">Registered</TableHead>
+              <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -115,10 +132,13 @@ function RepoRow({ repo }: { repo: RepoRow }) {
           {repo.full_name}
         </Link>
       </TableCell>
-      <TableCell className="text-zinc-400 text-sm">{repo.installation_id}</TableCell>
+      <TableCell className="text-zinc-400 text-sm tabular-nums">{repo.installation_id}</TableCell>
       <TableCell className="text-zinc-400 text-sm font-mono">{repo.model ?? "default"}</TableCell>
-      <TableCell className="text-zinc-500 text-sm">
-        {new Date(repo.created_at * 1000).toLocaleDateString()}
+      <TableCell className="text-zinc-500 text-sm text-right tabular-nums">
+        {timeAgo(repo.created_at)}
+      </TableCell>
+      <TableCell className="text-zinc-600">
+        <ChevronRight size={16} />
       </TableCell>
     </TableRow>
   );

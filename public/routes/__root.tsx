@@ -1,15 +1,16 @@
 import * as React from "react";
 import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
-import { GitPullRequest, Settings, LayoutDashboard } from "lucide-react";
+import { GitPullRequest, Settings, LayoutDashboard, Search } from "lucide-react";
 
 function RootLayout() {
   return (
     <div className="flex h-screen">
-      <aside className="w-56 border-r border-zinc-800 bg-zinc-900/30 flex flex-col">
-        <div className="p-4 border-b border-zinc-800">
-          <Link to="/" className="text-lg font-bold tracking-tight">
-            fouine
-          </Link>
+      <aside className="w-56 shrink-0 border-r border-zinc-800/80 bg-zinc-950 flex flex-col">
+        <div className="flex items-center gap-2 px-4 h-14 border-b border-zinc-800/80">
+          <span className="grid place-items-center h-7 w-7 rounded-md bg-zinc-100 text-zinc-900">
+            <Search size={15} strokeWidth={2.5} />
+          </span>
+          <span className="text-base font-bold tracking-tight">fouine</span>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           <NavLink to="/" label="Repositories" icon={<LayoutDashboard size={16} />} />
@@ -17,8 +18,10 @@ function RootLayout() {
           <NavLink to="/settings" label="Settings" icon={<Settings size={16} />} />
         </nav>
       </aside>
-      <main className="flex-1 overflow-auto p-6">
-        <Outlet />
+      <main className="flex-1 overflow-auto">
+        <div className="mx-auto max-w-5xl px-8 py-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
@@ -28,7 +31,7 @@ function NavLink({ to, label, icon }: { to: string; label: string; icon: React.R
   return (
     <Link
       to={to}
-      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors [&.active]:text-zinc-100 [&.active]:bg-zinc-800"
+      className="group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60 [&.active]:text-zinc-100 [&.active]:bg-zinc-800/80 before:absolute before:left-0 before:top-1/2 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-transparent before:transition-colors [&.active]:before:bg-zinc-100"
     >
       {icon}
       {label}
