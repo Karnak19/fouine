@@ -66,6 +66,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     return reviews.byRepo.all({ $repo: full, $limit: 200 });
   })
 
+  .get("/repos/:owner/:name/pr/:number", ({ params }) => {
+    const full = `${params.owner}/${params.name}`;
+    return reviews.byRepoPR.all({
+      $repo: full,
+      $pr: Number(params.number),
+      $limit: 200,
+    });
+  })
+
   .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
 
   .get("/reviews/:id", ({ params }) => {
@@ -97,7 +106,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     try {
       const octokit = await getInstallationOctokit(repo.installation_id);
       const pr = await fetchPRInfo(octokit, repo.installation_id, r.repo_full_name, r.pr_number);
-      runReviewForPR(pr).catch((err) =>
+      runReviewForPR(pr, "retry").catch((err) =>
         log.error("retry failed", { review: r.id, error: String(err) }),
       );
       set.status = 202;

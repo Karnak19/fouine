@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type ReviewRow } from "@/lib/api";
@@ -33,6 +33,18 @@ export default function RepoDetailPage() {
     queryKey: ["repos", owner, name, "reviews"],
     queryFn: () => api.repos.reviews(owner, name),
   });
+
+  // Group reviews by PR — reviews come newest-first, so each group's head is the
+  // latest run; groups sort by that latest run, newest PR activity first.
+  const prGroups = useMemo(() => {
+    const map = new Map<number, ReviewRow[]>();
+    for (const r of reviews) {
+      const arr = map.get(r.pr_number);
+      if (arr) arr.push(r);
+      else map.set(r.pr_number, [r]);
+    }
+    return [...map.values()].sort((a, b) => b[0].id - a[0].id);
+  }, [reviews]);
 
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -150,53 +162,69 @@ export default function RepoDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Reviews</CardTitle>
+          <CardTitle>Reviews by PR</CardTitle>
         </CardHeader>
         <CardContent>
-          {reviews.length === 0 ? (
+          {prGroups.length === 0 ? (
             <p className="text-sm text-zinc-500">No reviews yet.</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>#</TableHead>
                   <TableHead>PR</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Started</TableHead>
+                  <TableHead className="text-right">Reviews</TableHead>
+                  <TableHead>Latest</TableHead>
+                  <TableHead className="text-right">Last run</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reviews.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="text-zinc-500 tabular-nums">{r.id}</TableCell>
-                    <TableCell>
-                      <a
-                        href={`https://github.com/${owner}/${name}/pull/${r.pr_number}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-zinc-300 hover:text-zinc-100 tabular-nums"
+                {prGroups.map((group) => {
+                  const latest = group[0];
+                  return (
+                    <TableRow key={latest.pr_number}>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Link
+                            to="/repos/$owner/$name/pr/$number"
+                            params={{ owner, name, number: String(latest.pr_number) }}
+                            className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
+                          >
+                            #{latest.pr_number}
+                          </Link>
+                          <a
+                            href={`https://github.com/${owner}/${name}/pull/${latest.pr_number}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-zinc-500 hover:text-zinc-300"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-zinc-400 text-sm text-right tabular-nums">
+                        {group.length}
+                      </TableCell>
+                      <TableCell>
+                        <Badge status={latest.status} />
+                      </TableCell>
+                      <TableCell
+                        className="text-zinc-500 text-sm text-right"
+                        title={new Date(latest.created_at * 1000).toLocaleString()}
                       >
-                        #{r.pr_number}
-                        <ExternalLink size={12} className="opacity-50" />
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      <Badge status={r.status} />
-                    </TableCell>
-                    <TableCell
-                      className="text-zinc-500 text-sm text-right"
-                      title={new Date(r.created_at * 1000).toLocaleString()}
-                    >
-                      {timeAgo(r.created_at)}
-                    </TableCell>
-                    <TableCell className="text-zinc-600">
-                      <Link to="/reviews/$id" params={{ id: String(r.id) }}>
-                        <ChevronRight size={16} />
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        {timeAgo(latest.created_at)}
+                      </TableCell>
+                      <TableCell className="text-zinc-600">
+                        <Link
+                          to="/repos/$owner/$name/pr/$number"
+                          params={{ owner, name, number: String(latest.pr_number) }}
+                        >
+                          <ChevronRight size={16} />
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -85,7 +85,7 @@ export function registerHandlers(): void {
 
     log.info("pull_request review queued", { repo: fullName, number, action: payload.action });
 
-    runReviewForPR(pr).catch((err) =>
+    runReviewForPR(pr, payload.action).catch((err) =>
       log.error("review failed", { repo: fullName, number, error: String(err) }),
     );
   });
@@ -157,7 +157,7 @@ export function registerHandlers(): void {
 
       log.info("/review review queued", { repo: fullName, number: prNumber });
 
-      runReviewForPR(pr).catch((err) =>
+      runReviewForPR(pr, "command").catch((err) =>
         log.error("review failed", { repo: fullName, number: prNumber, error: String(err) }),
       );
     } catch (err) {

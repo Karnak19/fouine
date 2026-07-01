@@ -29,6 +29,9 @@ export interface ReviewRow {
   session_id: string | null;
   status: string;
   error: string | null;
+  trigger: string | null;
+  cost: number | null;
+  tokens: number | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -58,6 +61,8 @@ export const api = {
       request<void>(`/repos/${owner}/${name}`, { method: "DELETE" }),
     reviews: (owner: string, name: string) =>
       request<ReviewRow[]>(`/repos/${owner}/${name}/reviews`),
+    prReviews: (owner: string, name: string, number: number) =>
+      request<ReviewRow[]>(`/repos/${owner}/${name}/pr/${number}`),
   },
   reviews: {
     list: () => request<ReviewRow[]>("/reviews"),
