@@ -126,12 +126,16 @@ export const reviews = {
        completed_at = CASE WHEN $done THEN unixepoch() ELSE completed_at END
      WHERE id = $id`,
   ),
+  // Atomic success-path write: status + completed_at + cost + tokens in one
+  // statement, so a crash mid-completion can't leave a "completed" row with
+  // null cost/tokens.
+  complete: db.prepare<null, { $id: number; $cost: number; $tokens: number }>(
+    `UPDATE reviews SET status = 'completed', completed_at = unixepoch(),
+       cost = $cost, tokens = $tokens WHERE id = $id`,
+  ),
   fail: db.prepare<null, { $id: number; $error: string }>(
     `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
      WHERE id = $id`,
-  ),
-  updateCost: db.prepare<null, { $id: number; $cost: number; $tokens: number }>(
-    "UPDATE reviews SET cost = $cost, tokens = $tokens WHERE id = $id",
   ),
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
     "UPDATE reviews SET session_id = $session WHERE id = $id",

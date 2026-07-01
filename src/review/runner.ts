@@ -164,8 +164,7 @@ export async function runReviewForPR(
       textChars: result.text.length,
       preview: result.text.slice(0, 500),
     });
-    setStatus("completed", true);
-    reviews.updateCost.run({ $id: id, $cost: result.cost, $tokens: result.tokens });
+    reviews.complete.run({ $id: id, $cost: result.cost, $tokens: result.tokens });
     await finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
   } catch (err) {
     const aborted = ctrl.signal.aborted;

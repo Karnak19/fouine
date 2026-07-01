@@ -50,8 +50,9 @@ test("review lifecycle: pending -> running -> completed", () => {
 
   reviews.updateStatus.run({ $status: "running", $done: 0, $id: row.id });
   reviews.setSession.run({ $session: "sess-1", $id: row.id });
-  reviews.updateStatus.run({ $status: "completed", $done: 1, $id: row.id });
-  reviews.updateCost.run({ $id: row.id, $cost: 0.0123, $tokens: 4096 });
+  // Success path is a single atomic write (status + completed_at + cost + tokens),
+  // so a crash mid-completion can't split a "completed" row from its cost.
+  reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096 });
 
   const recent = reviews.recent.all({ $limit: 10 });
   const target = recent.find((r) => r.id === row.id);
