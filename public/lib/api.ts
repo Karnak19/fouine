@@ -64,6 +64,10 @@ export const api = {
     get: (id: number) => request<ReviewRow>(`/reviews/${id}`),
     session: (id: number) => request<unknown>(`/reviews/${id}/session`),
     retry: (id: number) => request<{ ok: boolean }>(`/reviews/${id}/retry`, { method: "POST" }),
+    stop: (id: number) =>
+      request<{ ok: boolean; live?: boolean; reason?: string }>(`/reviews/${id}/stop`, {
+        method: "POST",
+      }),
   },
   settings: {
     get: () => request<Settings>("/settings"),

@@ -4,7 +4,7 @@ import { repos, reviews, settings } from "~/db";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
-import { runReviewForPR } from "~/review";
+import { runReviewForPR, abortReview } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { log } from "~/server/log";
 
@@ -106,6 +106,29 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       set.status = 502;
       return { ok: false, error: String((err as Error)?.message ?? err) };
     }
+  })
+
+  .post("/reviews/:id/stop", ({ params }) => {
+    const id = Number(params.id);
+    const r = reviews.byId.get({ $id: id });
+    if (!r) return new Response("Not found", { status: 404 });
+    if (r.status !== "running" && r.status !== "pending") {
+      return { ok: false, reason: `already ${r.status}` };
+    }
+    // Abort any live opencode server; the runner's abort-aware catch will mark
+    // it failed. abortReview returning false is ambiguous — zombie (dead process)
+    // OR just-finished (runner's finally already removed the controller) — so
+    // re-check status and only write for true zombies still stuck at
+    // running/pending, never clobbering a review that beat the stop to completion.
+    const live = abortReview(id);
+    if (!live) {
+      const cur = reviews.byId.get({ $id: id });
+      if (cur && (cur.status === "running" || cur.status === "pending")) {
+        reviews.fail.run({ $id: id, $error: "Stopped by user" });
+      }
+    }
+    log.info("review stopped", { review: id, live });
+    return { ok: true, live };
   })
 
   .get("/settings", () => {

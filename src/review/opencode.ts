@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 // the opencode SDK's hardcoded default 4096 (which made `opencode serve` exit 1
 // on any overlapping run). Tiny TOCTOU window between close and bind; the rare
 // loser fails its own review and retry covers it.
-export function freePort(): Promise<number> {
+function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.unref();
@@ -39,8 +39,11 @@ export interface RunResult {
   text: string;
 }
 
-export async function withOpencode<T>(fn: (client: OpencodeClient) => Promise<T>): Promise<T> {
-  const { client, server } = await createOpencode({ port: await freePort() });
+export async function withOpencode<T>(
+  fn: (client: OpencodeClient) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const { client, server } = await createOpencode({ port: await freePort(), signal });
   try {
     return await fn(client);
   } finally {
