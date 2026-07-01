@@ -41,7 +41,12 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
     // column already exists
   }
 };
-for (const def of ["title TEXT", "error TEXT"]) addColumn("reviews", def);
+// trigger ∈ {opened, synchronize, reopened, command, retry} — why this review ran.
+// Populated at insert in runReviewForPR; null for rows from before the column existed.
+// cost/tokens are summed from the opencode session's assistant messages at completion
+// (null until the run finishes, or forever for pre-column rows / failures).
+for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tokens INTEGER"])
+  addColumn("reviews", def);
 // repos.enabled default 1 preserves the old "review every installed repo" behaviour;
 // the dashboard can flip it off.
 for (const def of ["enabled INTEGER NOT NULL DEFAULT 1"]) addColumn("repos", def);
@@ -63,6 +68,9 @@ export interface ReviewRow {
   session_id: string | null;
   status: string;
   error: string | null;
+  trigger: string | null;
+  cost: number | null;
+  tokens: number | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -100,10 +108,17 @@ export const repos = {
 export const reviews = {
   insert: db.prepare<
     ReviewRow,
-    { $repo: string; $pr: number; $title: string; $session: string | null; $status: string }
+    {
+      $repo: string;
+      $pr: number;
+      $title: string;
+      $session: string | null;
+      $status: string;
+      $trigger: string | null;
+    }
   >(
-    `INSERT INTO reviews (repo_full_name, pr_number, title, session_id, status)
-     VALUES ($repo, $pr, $title, $session, $status)
+    `INSERT INTO reviews (repo_full_name, pr_number, title, session_id, status, trigger)
+     VALUES ($repo, $pr, $title, $session, $status, $trigger)
      RETURNING *`,
   ),
   updateStatus: db.prepare<null, { $status: string; $done: number; $id: number }>(
@@ -115,6 +130,9 @@ export const reviews = {
     `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
      WHERE id = $id`,
   ),
+  updateCost: db.prepare<null, { $id: number; $cost: number; $tokens: number }>(
+    "UPDATE reviews SET cost = $cost, tokens = $tokens WHERE id = $id",
+  ),
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
     "UPDATE reviews SET session_id = $session WHERE id = $id",
   ),
@@ -123,6 +141,9 @@ export const reviews = {
   ),
   byRepo: db.prepare<ReviewRow, { $repo: string; $limit: number }>(
     "SELECT * FROM reviews WHERE repo_full_name = $repo ORDER BY id DESC LIMIT $limit",
+  ),
+  byRepoPR: db.prepare<ReviewRow, { $repo: string; $pr: number; $limit: number }>(
+    "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
 };

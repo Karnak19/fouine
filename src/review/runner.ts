@@ -82,7 +82,10 @@ async function finishCheck(
   }
 }
 
-export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
+export async function runReviewForPR(
+  pr: PullRequestInfo,
+  trigger: string | null = null,
+): Promise<void> {
   const repo = repos.get.get({ $full_name: pr.repoFullName });
   const row = reviews.insert.get({
     $repo: pr.repoFullName,
@@ -90,6 +93,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
     $title: pr.title,
     $session: null,
     $status: "pending",
+    $trigger: trigger,
   })!;
   const id = row.id;
   const setStatus = (status: ReviewStatus, done = false) =>
@@ -161,6 +165,7 @@ export async function runReviewForPR(pr: PullRequestInfo): Promise<void> {
       preview: result.text.slice(0, 500),
     });
     setStatus("completed", true);
+    reviews.updateCost.run({ $id: id, $cost: result.cost, $tokens: result.tokens });
     await finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
   } catch (err) {
     const aborted = ctrl.signal.aborted;

@@ -16,3 +16,27 @@ export function duration(start: number, end: number | null): string {
   const m = Math.floor(secs / 60);
   return `${m}m ${secs % 60}s`;
 }
+
+const TRIGGER_LABELS: Record<string, string> = {
+  opened: "opened",
+  synchronize: "push",
+  reopened: "reopened",
+  command: "/review",
+  retry: "retry",
+};
+
+export function triggerLabel(trigger: string | null): string | null {
+  if (!trigger) return null;
+  return TRIGGER_LABELS[trigger] ?? trigger;
+}
+
+export function formatCost(cost: number | null): string | null {
+  if (cost == null) return null;
+  return `$${cost.toFixed(4)}`;
+}
+
+export function formatTokens(tokens: number | null): string | null {
+  if (tokens == null) return null;
+  if (tokens < 1000) return `${tokens}`;
+  return `${(tokens / 1000).toFixed(1)}k`;
+}

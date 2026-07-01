@@ -43,18 +43,57 @@ test("review lifecycle: pending -> running -> completed", () => {
     $title: "Test PR",
     $session: null,
     $status: "pending",
+    $trigger: "opened",
   })!;
   expect(row.status).toBe("pending");
+  expect(row.trigger).toBe("opened");
 
   reviews.updateStatus.run({ $status: "running", $done: 0, $id: row.id });
   reviews.setSession.run({ $session: "sess-1", $id: row.id });
   reviews.updateStatus.run({ $status: "completed", $done: 1, $id: row.id });
+  reviews.updateCost.run({ $id: row.id, $cost: 0.0123, $tokens: 4096 });
 
   const recent = reviews.recent.all({ $limit: 10 });
   const target = recent.find((r) => r.id === row.id);
   expect(target?.status).toBe("completed");
   expect(target?.session_id).toBe("sess-1");
   expect(target?.completed_at).not.toBeNull();
+  expect(target?.cost).toBeCloseTo(0.0123);
+  expect(target?.tokens).toBe(4096);
+});
+
+test("byRepoPR returns only that PR's reviews, newest first", () => {
+  const full = "acme/bypr";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+
+  const a = reviews.insert.get({
+    $repo: full,
+    $pr: 11,
+    $title: "A",
+    $session: null,
+    $status: "completed",
+    $trigger: "opened",
+  })!;
+  reviews.insert.get({
+    $repo: full,
+    $pr: 12,
+    $title: "B",
+    $session: null,
+    $status: "completed",
+    $trigger: "synchronize",
+  })!;
+  const a2 = reviews.insert.get({
+    $repo: full,
+    $pr: 11,
+    $title: "A",
+    $session: null,
+    $status: "completed",
+    $trigger: "retry",
+  })!;
+
+  const got = reviews.byRepoPR.all({ $repo: full, $pr: 11, $limit: 50 });
+  expect(got.map((r) => r.id)).toEqual([a2.id, a.id]);
+  expect(got.every((r) => r.pr_number === 11)).toBe(true);
 });
 
 test("settings get/set and settingValue helper", () => {

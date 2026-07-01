@@ -37,6 +37,8 @@ export interface RunOptions {
 export interface RunResult {
   sessionId: string;
   text: string;
+  cost: number;
+  tokens: number;
 }
 
 export async function withOpencode<T>(
@@ -103,5 +105,25 @@ export async function runReview(
     .map((p) => (p as { text: string }).text)
     .join("\n");
 
-  return { sessionId: session.id, text };
+  // Sum cost/tokens across assistant messages so the runner can persist them —
+  // the SDK's Session object doesn't carry totals, they live per-message.
+  const msgs = unwrap(
+    await client.session.messages({ path: { id: session.id } }),
+    "session.messages",
+  );
+  let cost = 0;
+  let tokens = 0;
+  for (const m of msgs) {
+    const info = m.info as {
+      role?: string;
+      cost?: number;
+      tokens?: { input?: number; output?: number; reasoning?: number };
+    };
+    if (info.role !== "assistant") continue;
+    cost += info.cost ?? 0;
+    const t = info.tokens;
+    if (t) tokens += (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0);
+  }
+
+  return { sessionId: session.id, text, cost, tokens };
 }
