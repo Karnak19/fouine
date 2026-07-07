@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 // the opencode SDK's hardcoded default 4096 (which made `opencode serve` exit 1
 // on any overlapping run). Tiny TOCTOU window between close and bind; the rare
 // loser fails its own review and retry covers it.
-function freePort(): Promise<number> {
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.unref();

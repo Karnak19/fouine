@@ -21,6 +21,7 @@
     "bun-plugin-tailwind": "^0.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "effect": "^3.21.4",
     "elysia": "^1.4.29",
     "lucide-react": "^1.22.0",
     "octokit": "^5.0.5",
