@@ -155,6 +155,12 @@ export function registerHandlers(): void {
         $model: null,
       });
 
+      const repoRow = repos.get.get({ $full_name: fullName });
+      if (repoRow && !repoRow.enabled) {
+        log.debug("/review skipped", { repo: fullName, number: prNumber, reason: "repo disabled" });
+        return;
+      }
+
       log.info("/review review queued", { repo: fullName, number: prNumber });
 
       runReviewForPR(pr, "command").catch((err) =>
