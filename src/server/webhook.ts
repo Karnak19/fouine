@@ -145,9 +145,6 @@ export function registerHandlers(): void {
         });
         return;
       }
-      const octokit = await getInstallationOctokit(installationId);
-      const pr = await fetchPRInfo(octokit, installationId, fullName, prNumber);
-
       repos.upsert.run({
         $full_name: fullName,
         $installation_id: installationId,
@@ -160,6 +157,10 @@ export function registerHandlers(): void {
         log.debug("/review skipped", { repo: fullName, number: prNumber, reason: "repo disabled" });
         return;
       }
+
+      // Gate before the GitHub round-trips — a disabled repo costs zero API calls.
+      const octokit = await getInstallationOctokit(installationId);
+      const pr = await fetchPRInfo(octokit, installationId, fullName, prNumber);
 
       log.info("/review review queued", { repo: fullName, number: prNumber });
 
