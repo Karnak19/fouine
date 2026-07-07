@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { reviewPipeline } from "~/effect/review";
-import { ConfigService } from "~/effect/config";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
@@ -51,11 +50,7 @@ function makeLayer(over: {
         : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 }),
   } as unknown as OpenCodeService);
 
-  const config = Layer.succeed(ConfigService, {
-    config: { dataDir: "/tmp/fouine-test" },
-  } as unknown as ConfigService);
-
-  return { layer: Layer.mergeAll(config, db, gh, git, oc), calls };
+  return { layer: Layer.mergeAll(db, gh, git, oc), calls };
 }
 
 function gitOk() {

@@ -30,10 +30,8 @@ export class GitService extends Effect.Service<GitService>()("app/GitService", {
       }),
 
     // Cleanup is best-effort — removeWorktree already falls back to rmSync and
-    // prunes; a failure here must never mask the real review outcome.
+    // prunes and never rejects; a failure there must never mask the review.
     removeWorktree: (fullName: string, target: string): Effect.Effect<void> =>
-      Effect.promise(() => removeWorktree(fullName, target)).pipe(
-        Effect.catchAllDefect(() => Effect.void),
-      ),
+      Effect.promise(() => removeWorktree(fullName, target)),
   }),
 }) {}

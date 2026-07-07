@@ -6,12 +6,12 @@ import type { PullRequestInfo } from "~/review/types";
 import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import { log } from "~/server/log";
-import { ConfigService } from "~/effect/config";
+import { config } from "~/config";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { OpenCodeService } from "~/effect/opencode";
-import { errorMessage, type ReviewError } from "~/effect/errors";
+import { type ReviewError } from "~/effect/errors";
 
 function cloneUrl(token: string, fullName: string): string {
   return `https://x-access-token:${token}@github.com/${fullName}.git`;
@@ -38,10 +38,9 @@ export function reviewPipeline(
 ): Effect.Effect<
   void,
   ReviewError,
-  ConfigService | DbService | GitHubService | GitService | OpenCodeService
+  DbService | GitHubService | GitService | OpenCodeService
 > {
   return Effect.gen(function* () {
-    const { config } = yield* ConfigService;
     const db = yield* DbService;
     const gh = yield* GitHubService;
     const git = yield* GitService;
@@ -125,7 +124,7 @@ export function reviewPipeline(
         Effect.gen(function* () {
           // A user-initiated stop isn't an error — don't pollute error monitoring.
           const aborted = signal.aborted;
-          const message = aborted ? "Stopped by user" : errorMessage(err);
+          const message = aborted ? "Stopped by user" : String(err.cause);
           if (aborted) {
             log.info("review stopped", { repo: pr.repoFullName, number: pr.number, review: id });
           } else {

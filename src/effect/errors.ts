@@ -26,9 +26,3 @@ export class DatabaseError extends Data.TaggedError("DatabaseError")<{
 
 // The union that can flow out of the review pipeline.
 export type ReviewError = GitError | OpenCodeError | GitHubError | DatabaseError;
-
-// Human-readable message for logging / DB `error` column, matching the old
-// `String(err)` shape (`git ... failed (128): ...`, `opencode ... failed: ...`).
-export function errorMessage(err: ReviewError): string {
-  return String(err.cause);
-}
