@@ -11,6 +11,8 @@ test("upsert then get a repo", () => {
   const got = repos.get.get({ $full_name: "acme/get" });
   expect(got?.full_name).toBe("acme/get");
   expect(got?.installation_id).toBe(123);
+  // Opt-in: a repo the App just discovered is disabled until enabled in the UI.
+  expect(got?.enabled).toBe(0);
 });
 
 test("upsert does not clobber a dashboard-edited prompt/model", () => {

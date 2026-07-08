@@ -47,9 +47,11 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // (null until the run finishes, or forever for pre-column rows / failures).
 for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tokens INTEGER"])
   addColumn("reviews", def);
-// repos.enabled default 1 preserves the old "review every installed repo" behaviour;
-// the dashboard can flip it off.
-for (const def of ["enabled INTEGER NOT NULL DEFAULT 1"]) addColumn("repos", def);
+// repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
+// disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
+// once it's enabled in the dashboard. Existing rows keep whatever they were set
+// to — ON CONFLICT never touches enabled.
+for (const def of ["enabled INTEGER NOT NULL DEFAULT 0"]) addColumn("repos", def);
 
 export interface RepoRow {
   full_name: string;
@@ -88,8 +90,8 @@ export const repos = {
     null,
     { $full_name: string; $installation_id: number; $prompt: string | null; $model: string | null }
   >(
-    `INSERT INTO repos (full_name, installation_id, prompt, model)
-     VALUES ($full_name, $installation_id, $prompt, $model)
+    `INSERT INTO repos (full_name, installation_id, prompt, model, enabled)
+     VALUES ($full_name, $installation_id, $prompt, $model, 0)
      ON CONFLICT(full_name) DO UPDATE SET
        installation_id = excluded.installation_id`,
   ),
