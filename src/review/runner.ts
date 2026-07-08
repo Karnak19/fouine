@@ -22,23 +22,14 @@ function prKey(pr: PullRequestInfo): string {
   return `${pr.repoFullName}#${pr.number}`;
 }
 
-// ids of in-flight reviews for a PR key. Exported for testing the match logic —
-// aborting the wrong PR's review would be a nasty bug.
-export function idsForKey(
-  entries: Iterable<[number, { key: string }]>,
-  key: string,
-): number[] {
-  const ids: number[] = [];
-  for (const [id, e] of entries) if (e.key === key) ids.push(id);
-  return ids;
-}
-
 // A newer commit supersedes any review still running for the same PR. Signalled
 // via AbortSignal.reason so the pipeline can distinguish it from a user stop.
 function supersedeInFlight(key: string): void {
-  for (const id of idsForKey(activeReviews, key)) {
-    log.info("superseding in-flight review", { review: id, pr: key });
-    activeReviews.get(id)!.ctrl.abort("superseded");
+  for (const [id, entry] of activeReviews) {
+    if (entry.key === key) {
+      log.info("superseding in-flight review", { review: id, pr: key });
+      entry.ctrl.abort("superseded");
+    }
   }
 }
 
