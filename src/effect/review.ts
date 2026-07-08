@@ -98,6 +98,9 @@ export function reviewPipeline(
           directory: worktree,
           prompt,
           model: repo?.model ?? resolveDefaultModel(),
+          // Fixed output-structure + posting rules live in this agent's system
+          // prompt, so they survive any per-repo prompt override.
+          agent: "fouine",
         },
         // Persist the session id as soon as it exists so the dashboard can
         // stream `opencode export` mid-flight. setSession is a sync SQLite
