@@ -26,7 +26,7 @@ export default function DashboardPage() {
   const failed24 = last24h.filter((r) => r.status === "failed");
   const finished24 = done24.length + failed24.length;
   const successRate = finished24 ? Math.round((done24.length / finished24) * 100) : null;
-  const cost24 = last24h.reduce((sum, r) => sum + (r.cost ?? 0), 0);
+  const cost24 = last24h.length ? last24h.reduce((sum, r) => sum + (r.cost ?? 0), 0) : null;
   // In-flight already has its own panel above; keep the feed to finished work.
   const recent = all.filter((r) => r.status !== "running" && r.status !== "pending").slice(0, 25);
 
