@@ -53,37 +53,16 @@ test("omits the REVIEW.md section when no notes are provided", () => {
   expect(buildPrompt(pr, null)).not.toContain("Repo-local notes");
 });
 
-test("DEFAULT_PROMPT teaches the severity taxonomy", () => {
-  const p = buildPrompt(pr, null);
-  expect(p).toContain("`blocking`");
-  expect(p).toContain("`nit`");
-  expect(p).toContain("`question`");
-});
-
-test("DEFAULT_PROMPT demands one complete pass, not drip-feeding", () => {
-  const p = buildPrompt(pr, null);
-  expect(p).toMatch(/one complete pass|never stop at the first issue/i);
-});
-
-test("DEFAULT_PROMPT front-loads concurrency race enumeration", () => {
-  const p = buildPrompt(pr, null);
-  expect(p.toLowerCase()).toContain("concurrency");
-  expect(p).toContain("enumerate");
-});
-
-test("DEFAULT_PROMPT requires the verdict line", () => {
-  const p = buildPrompt(pr, null);
-  expect(p).toContain("Blocking: N");
-  expect(p).toContain("mergeable once");
-});
-
-test("DEFAULT_PROMPT ties REQUEST_CHANGES to blocking findings only", () => {
-  const p = buildPrompt(pr, null);
-  expect(p).toMatch(/REQUEST_CHANGES`? iff any finding is `blocking`/);
-  expect(p).toMatch(/never block.*nit/i);
-});
-
-test("DEFAULT_PROMPT makes re-review re-derive bug classes", () => {
-  const p = buildPrompt(pr, null);
-  expect(p).toMatch(/re-derive the bug classes/);
+// The output-structure + posting mechanics moved out of DEFAULT_PROMPT into the
+// fouine agent's system prompt, so they survive per-repo prompt overrides. Guard
+// that they didn't silently vanish from their new home.
+test("the fouine agent prompt owns the review mechanics", async () => {
+  const agent = await Bun.file("opencode-config/agent/fouine.md").text();
+  expect(agent).toContain("`blocking`");
+  expect(agent).toContain("`nit`");
+  expect(agent).toContain("`question`");
+  expect(agent).toContain("Blocking: N");
+  expect(agent).toContain("mergeable once");
+  expect(agent).toMatch(/REQUEST_CHANGES`? iff any finding is `blocking`/);
+  expect(agent).toContain("post_review");
 });

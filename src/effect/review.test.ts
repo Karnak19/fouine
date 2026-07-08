@@ -24,7 +24,7 @@ function makeLayer(over: {
   git?: Record<string, () => Effect.Effect<unknown, unknown>>;
   oc?: (signal: AbortSignal) => Effect.Effect<never, OpenCodeError>;
 }) {
-  const calls = { completed: 0, failed: [] as string[] };
+  const calls = { completed: 0, failed: [] as string[], agent: undefined as string | undefined };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
     insertReview: () => Effect.succeed(42),
@@ -44,10 +44,12 @@ function makeLayer(over: {
   const git = Layer.succeed(GitService, { ...gitOk(), ...over.git } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (_o: unknown, _s: unknown, signal: AbortSignal) =>
-      over.oc
+    runReview: (o: { agent?: string }, _s: unknown, signal: AbortSignal) => {
+      calls.agent = o.agent;
+      return over.oc
         ? over.oc(signal)
-        : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 }),
+        : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 });
+    },
   } as unknown as OpenCodeService);
 
   return { layer: Layer.mergeAll(db, gh, git, oc), calls };
@@ -72,6 +74,9 @@ test("success path marks complete, never failed", async () => {
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.completed).toBe(1);
   expect(calls.failed).toEqual([]);
+  // Guard the wiring: the review must run on the fouine agent, whose system
+  // prompt owns the output-structure + posting mechanics.
+  expect(calls.agent).toBe("fouine");
 });
 
 test("real git error propagates and marks failed with the git message", async () => {
