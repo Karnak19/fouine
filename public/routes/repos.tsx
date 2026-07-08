@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Plus, ChevronRight, FolderGit2 } from "lucide-react";
 import { timeAgo } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 export default function ReposPage() {
   const queryClient = useQueryClient();
@@ -102,6 +103,7 @@ export default function ReposPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Repository</TableHead>
+              <TableHead>Auto-review</TableHead>
               <TableHead>Installation</TableHead>
               <TableHead>Model</TableHead>
               <TableHead className="text-right">Registered</TableHead>
@@ -121,16 +123,53 @@ export default function ReposPage() {
 
 function RepoRow({ repo }: { repo: RepoRow }) {
   const [owner, name] = repo.full_name.split("/");
+  const queryClient = useQueryClient();
+  const enabled = repo.enabled === 1;
+
+  const toggleMut = useMutation({
+    // Resend the existing prompt/model — the PUT treats omitted fields as null,
+    // so a bare { enabled } would wipe them.
+    mutationFn: (next: boolean) =>
+      api.repos.update(owner, name, {
+        prompt: repo.prompt ?? undefined,
+        model: repo.model ?? undefined,
+        enabled: next ? 1 : 0,
+      }),
+    onMutate: async (next: boolean) => {
+      await queryClient.cancelQueries({ queryKey: ["repos"] });
+      const prev = queryClient.getQueryData<RepoRow[]>(["repos"]);
+      queryClient.setQueryData<RepoRow[]>(["repos"], (old) =>
+        old?.map((r) => (r.full_name === repo.full_name ? { ...r, enabled: next ? 1 : 0 } : r)),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(["repos"], ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["repos"] }),
+  });
+
   return (
     <TableRow>
       <TableCell>
         <Link
           to="/repos/$owner/$name"
           params={{ owner, name }}
-          className="text-zinc-100 hover:underline font-mono text-sm"
+          className={cn(
+            "hover:underline font-mono text-sm",
+            enabled ? "text-zinc-100" : "text-zinc-500",
+          )}
         >
           {repo.full_name}
         </Link>
+      </TableCell>
+      <TableCell>
+        <Switch
+          checked={enabled}
+          disabled={toggleMut.isPending}
+          onChange={(v) => toggleMut.mutate(v)}
+          label={`Auto-review ${repo.full_name}`}
+        />
       </TableCell>
       <TableCell className="text-zinc-400 text-sm tabular-nums">{repo.installation_id}</TableCell>
       <TableCell className="text-zinc-400 text-sm font-mono">{repo.model ?? "default"}</TableCell>
@@ -141,5 +180,41 @@ function RepoRow({ repo }: { repo: RepoRow }) {
         <ChevronRight size={16} />
       </TableCell>
     </TableRow>
+  );
+}
+
+function Switch({
+  checked,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        checked ? "bg-primary" : "bg-zinc-700",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-block h-3.5 w-3.5 rounded-full bg-zinc-950 transition-transform",
+          checked ? "translate-x-[18px]" : "translate-x-[3px]",
+        )}
+      />
+    </button>
   );
 }
