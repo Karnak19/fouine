@@ -1,0 +1,102 @@
+import { tool } from "@opencode-ai/plugin";
+
+export default tool({
+  description:
+    "Fetch this pull request's prior reviews and comments, including the author's replies. " +
+    "Call this FIRST on a re-review (the author pushed new commits) to recover what you already " +
+    "flagged and how the author responded, so you don't re-raise resolved or by-design points.",
+  args: {},
+  async execute() {
+    const { token, owner, repo, pr } = fouineCtx();
+    const h = ghHeaders(token);
+    const base = `https://api.github.com/repos/${owner}/${repo}`;
+
+    const [reviews, inline, issue] = await Promise.all([
+      ghGet(`${base}/pulls/${pr}/reviews?per_page=100`, h),
+      ghGet(`${base}/pulls/${pr}/comments?per_page=100`, h),
+      ghGet(`${base}/issues/${pr}/comments?per_page=100`, h),
+    ]);
+
+    const short = (sha?: string) => (sha ? sha.slice(0, 7) : "?");
+    const out: string[] = [];
+
+    const realReviews = (reviews as GhReview[]).filter((r) => (r.body ?? "").trim() || r.state);
+    if (realReviews.length) {
+      out.push(`## Reviews (${realReviews.length})`);
+      for (const r of realReviews) {
+        out.push(
+          `### ${r.user?.login ?? "?"} — ${r.state} @ ${short(r.commit_id)} (${r.submitted_at ?? ""})`,
+          clip(r.body) || "_(no body)_",
+        );
+      }
+    }
+
+    if ((inline as GhComment[]).length) {
+      out.push(`\n## Inline comments (${(inline as GhComment[]).length})`);
+      for (const c of inline as GhComment[]) {
+        const reply = c.in_reply_to_id ? " [reply]" : "";
+        out.push(
+          `- ${c.user?.login ?? "?"} on ${c.path}:${c.line ?? c.original_line ?? "?"} @ ${short(c.commit_id)}${reply}: ${clip(c.body)}`,
+        );
+      }
+    }
+
+    if ((issue as GhComment[]).length) {
+      out.push(`\n## PR comments (${(issue as GhComment[]).length})`);
+      for (const c of issue as GhComment[]) {
+        out.push(`- ${c.user?.login ?? "?"} (${c.created_at ?? ""}): ${clip(c.body)}`);
+      }
+    }
+
+    return out.length ? out.join("\n") : "No prior reviews or comments on this PR.";
+  },
+});
+
+// Bodies can be long; cap so a chatty history can't blow up the review context.
+function clip(s?: string): string {
+  const t = (s ?? "").trim();
+  return t.length > 4000 ? `${t.slice(0, 4000)}\n…(truncated)` : t;
+}
+
+interface GhReview {
+  user?: { login?: string };
+  state: string;
+  body?: string;
+  submitted_at?: string;
+  commit_id?: string;
+}
+interface GhComment {
+  user?: { login?: string };
+  body?: string;
+  path?: string;
+  line?: number;
+  original_line?: number;
+  in_reply_to_id?: number;
+  commit_id?: string;
+  created_at?: string;
+}
+
+async function ghGet(url: string, headers: Record<string, string>): Promise<unknown[]> {
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  return (await res.json()) as unknown[];
+}
+
+function fouineCtx() {
+  const token = process.env.FOUINE_GITHUB_TOKEN;
+  const owner = process.env.FOUINE_REPO_OWNER;
+  const repo = process.env.FOUINE_REPO_NAME;
+  const pr = process.env.FOUINE_PR_NUMBER;
+  if (!token || !owner || !repo || !pr) {
+    throw new Error("fouine GitHub context env vars are not set");
+  }
+  return { token, owner, repo, pr };
+}
+
+function ghHeaders(token: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${token}`,
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+  };
+}

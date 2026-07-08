@@ -31,6 +31,7 @@ export function buildPrompt(
   pr: PullRequestInfo,
   userPrompt: string | null,
   repoNotes?: string,
+  reReview = false,
 ): string {
   const focus = userPrompt?.trim() || DEFAULT_PROMPT;
   const lines = [
@@ -49,6 +50,18 @@ export function buildPrompt(
     ``,
     pr.body?.trim() || "_(no description provided)_",
   ];
+  if (reReview) {
+    lines.push(
+      ``,
+      `## Re-review`,
+      ``,
+      "This PR has been reviewed before. BEFORE analysing the diff, call the " +
+        "`get_prior_reviews` tool to recover your earlier findings and the author's replies. " +
+        "Then reconcile: don't re-raise findings the code now resolves or the author addressed " +
+        "as by-design; re-verify still-open findings against the new commits; look for what the " +
+        "fixes unmasked.",
+    );
+  }
   if (repoNotes?.trim()) {
     lines.push(``, `## Repo-local notes (REVIEW.md)`, ``, repoNotes.trim());
   }
