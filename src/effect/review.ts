@@ -128,11 +128,21 @@ export function reviewPipeline(
     yield* run.pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          // A user-initiated stop isn't an error — don't pollute error monitoring.
+          // An abort isn't an error — don't pollute error monitoring. A newer
+          // commit superseding the run is signalled via AbortSignal.reason.
           const aborted = signal.aborted;
-          const message = aborted ? "Stopped by user" : String(err.cause);
+          const superseded = aborted && signal.reason === "superseded";
+          const message = !aborted
+            ? String(err.cause)
+            : superseded
+              ? "Superseded by a newer commit"
+              : "Stopped by user";
           if (aborted) {
-            log.info("review stopped", { repo: pr.repoFullName, number: pr.number, review: id });
+            log.info(superseded ? "review superseded" : "review stopped", {
+              repo: pr.repoFullName,
+              number: pr.number,
+              review: id,
+            });
           } else {
             log.error("review failed", {
               repo: pr.repoFullName,
