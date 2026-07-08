@@ -1,30 +1,57 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-card: #09090b;
-  --color-card-foreground: #fafafa;
-  --color-popover: #09090b;
-  --color-popover-foreground: #fafafa;
-  --color-primary: #fafafa;
-  --color-primary-foreground: #18181b;
-  --color-secondary: #27272a;
-  --color-secondary-foreground: #fafafa;
-  --color-muted: #27272a;
-  --color-muted-foreground: #a1a1aa;
-  --color-accent: #27272a;
-  --color-accent-foreground: #fafafa;
-  --color-destructive: #7f1d1d;
-  --color-destructive-foreground: #fafafa;
-  --color-border: #27272a;
-  --color-input: #27272a;
-  --color-ring: #d4d4d8;
-  --color-radius: 0.5rem;
+  /* fouine — "marten warm": neutrals are warm-tinted charcoal/taupe (hue ~70),
+     never pure black/white. The whole UI reads off the zinc-* scale, so warming
+     the scale here recolors every page at once. */
+  --color-zinc-50: oklch(0.97 0.006 85);
+  --color-zinc-100: oklch(0.94 0.006 85);
+  --color-zinc-200: oklch(0.88 0.006 82);
+  --color-zinc-300: oklch(0.8 0.006 80);
+  --color-zinc-400: oklch(0.68 0.007 75);
+  --color-zinc-500: oklch(0.58 0.007 72);
+  --color-zinc-600: oklch(0.47 0.007 70);
+  --color-zinc-700: oklch(0.37 0.008 70);
+  --color-zinc-800: oklch(0.27 0.008 70);
+  --color-zinc-900: oklch(0.2 0.008 68);
+  --color-zinc-950: oklch(0.16 0.008 66);
+
+  /* Ember — the single accent. Running work, links, primary actions, focus.
+     Warm amber-orange, the throat-to-coat gradient of a stone marten. */
+  --color-ember-200: oklch(0.88 0.06 70);
+  --color-ember-300: oklch(0.82 0.11 66);
+  --color-ember-400: oklch(0.76 0.15 60);
+  --color-ember-500: oklch(0.7 0.16 55);
+  --color-ember-600: oklch(0.62 0.15 52);
+  --color-ember-800: oklch(0.42 0.1 50);
+  --color-ember-950: oklch(0.25 0.05 52);
+
+  /* shadcn semantic tokens, re-tinted warm. Primary + ring carry the ember. */
+  --color-background: oklch(0.16 0.008 66);
+  --color-foreground: oklch(0.95 0.008 85);
+  --color-card: oklch(0.2 0.008 68);
+  --color-card-foreground: oklch(0.95 0.008 85);
+  --color-popover: oklch(0.18 0.008 68);
+  --color-popover-foreground: oklch(0.95 0.008 85);
+  --color-primary: oklch(0.7 0.16 55);
+  --color-primary-foreground: oklch(0.2 0.03 60);
+  --color-secondary: oklch(0.27 0.008 70);
+  --color-secondary-foreground: oklch(0.95 0.008 85);
+  --color-muted: oklch(0.27 0.008 70);
+  --color-muted-foreground: oklch(0.68 0.007 75);
+  --color-accent: oklch(0.7 0.16 55);
+  --color-accent-foreground: oklch(0.2 0.03 60);
+  --color-destructive: oklch(0.55 0.16 25);
+  --color-destructive-foreground: oklch(0.96 0.01 85);
+  --color-border: oklch(0.27 0.008 70);
+  --color-input: oklch(0.27 0.008 70);
+  --color-ring: oklch(0.7 0.16 55);
 }
 
 body {
   font-family: system-ui, -apple-system, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

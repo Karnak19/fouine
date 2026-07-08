@@ -7,7 +7,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variants = {
-  default: "bg-zinc-100 text-zinc-900 hover:bg-zinc-200",
+  default: "bg-ember-500 text-zinc-950 hover:bg-ember-400",
   destructive: "bg-red-900 text-zinc-100 hover:bg-red-800",
   outline: "border border-zinc-700 bg-transparent hover:bg-zinc-800",
   ghost: "bg-transparent hover:bg-zinc-800",

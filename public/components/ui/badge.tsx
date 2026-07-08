@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 const variants: Record<string, { dot: string; pill: string; label?: string }> = {
   pending: { dot: "bg-zinc-500", pill: "bg-zinc-800/60 text-zinc-400 ring-zinc-700/50" },
-  running: { dot: "bg-sky-400", pill: "bg-sky-950/40 text-sky-300 ring-sky-800/40" },
+  running: { dot: "bg-ember-400", pill: "bg-ember-950/50 text-ember-300 ring-ember-800/40" },
   completed: {
     dot: "bg-emerald-400",
     pill: "bg-emerald-950/40 text-emerald-300 ring-emerald-800/40",
