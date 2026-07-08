@@ -20,10 +20,10 @@ export default tool({
     const short = (sha?: string) => (sha ? sha.slice(0, 7) : "?");
     const out: string[] = [];
 
-    const realReviews = (reviews as GhReview[]).filter((r) => (r.body ?? "").trim() || r.state);
-    if (realReviews.length) {
-      out.push(`## Reviews (${realReviews.length})`);
-      for (const r of realReviews) {
+    const allReviews = reviews as GhReview[];
+    if (allReviews.length) {
+      out.push(`## Reviews (${allReviews.length})`);
+      for (const r of allReviews) {
         out.push(
           `### ${r.user?.login ?? "?"} — ${r.state} @ ${short(r.commit_id)} (${r.submitted_at ?? ""})`,
           clip(r.body) || "_(no body)_",
