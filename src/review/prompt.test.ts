@@ -53,6 +53,16 @@ test("omits the REVIEW.md section when no notes are provided", () => {
   expect(buildPrompt(pr, null)).not.toContain("Repo-local notes");
 });
 
+test("re-review adds a directive to fetch prior reviews", () => {
+  const p = buildPrompt(pr, null, undefined, true);
+  expect(p).toContain("## Re-review");
+  expect(p).toContain("get_prior_reviews");
+});
+
+test("first review has no re-review directive", () => {
+  expect(buildPrompt(pr, null)).not.toContain("get_prior_reviews");
+});
+
 // The output-structure + posting mechanics moved out of DEFAULT_PROMPT into the
 // fouine agent's system prompt, so they survive per-repo prompt overrides. Guard
 // that they didn't silently vanish from their new home.

@@ -22,7 +22,7 @@ This is the explicit finish line — N=0 means mergeable.
 
 Map severity to the review event: `REQUEST_CHANGES` iff any finding is `blocking`; otherwise `COMMENT` (`APPROVE` only if truly clean). Never block a merge on a nit or a judgment call.
 
-Re-review (the author pushed fixes): re-derive the bug classes in the changed area — don't just tick off the old list. The next-layer bug hides behind the one just fixed; catch it this pass, not the next.
+Re-review (the author pushed fixes): call the `get_prior_reviews` tool first to recover your earlier findings and the author's replies, then re-derive the bug classes in the changed area — don't just tick off the old list. Don't re-raise anything the author addressed as by-design. The next-layer bug hides behind the one just fixed; catch it this pass, not the next.
 
 ## Posting the review
 

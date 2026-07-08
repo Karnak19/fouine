@@ -83,7 +83,10 @@ export function reviewPipeline(
       log.info("worktree ready", { repo: pr.repoFullName, number: pr.number, path: worktree });
 
       const repoNotes = yield* readRepoNotes(worktree);
-      const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes);
+      // Anything but a brand-new "opened" run may have prior reviews to reconcile
+      // with — tell the agent to pull them via get_prior_reviews.
+      const reReview = trigger != null && trigger !== "opened";
+      const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes, reReview);
 
       // Custom tools (opencode-config/tools) read these to post to GitHub.
       yield* Effect.sync(() => {
