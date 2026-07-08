@@ -103,3 +103,16 @@ test("aborted run is swallowed (success) and recorded as Stopped by user", async
   expect(Exit.isSuccess(exit)).toBe(true); // stop is not an error
   expect(calls.failed).toEqual(["Stopped by user"]);
 });
+
+test("supersede abort is recorded distinctly from a user stop", async () => {
+  const ctrl = new AbortController();
+  ctrl.abort("superseded");
+  const { layer, calls } = makeLayer({
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "AbortError" })),
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, "synchronize", ctrl.signal, () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.failed).toEqual(["Superseded by a newer commit"]);
+});
