@@ -7,7 +7,12 @@
 const CACHE = "fouine-v1";
 
 // Take over open clients as soon as a new SW activates, and drop old caches.
-self.addEventListener("install", () => self.skipWaiting());
+// Precache the app shell so the dashboard opens offline from the first visit.
+// Elysia serves index.html at "/" (indexHTML: true), so that's the cache key.
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.add("/")));
+  self.skipWaiting();
+});
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
@@ -35,12 +40,16 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navigations: serve the app shell, falling back to cache when offline.
+  // Navigations: network-first, refreshing the cached shell, falling back to it
+  // offline. SPA routes all resolve to the same shell, so cache it under "/".
   if (request.mode === "navigate") {
     e.respondWith(
-      fetch(request).catch(() =>
-        caches.match(request).then((r) => r || caches.match("/index.html")),
-      ),
+      fetch(request)
+        .then((res) => {
+          if (res.ok) caches.open(CACHE).then((c) => c.put("/", res.clone()));
+          return res;
+        })
+        .catch(() => caches.match("/")),
     );
     return;
   }
