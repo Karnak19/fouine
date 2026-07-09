@@ -1,5 +1,13 @@
 import { tool } from "@opencode-ai/plugin";
 
+// Appended to every review body server-side, so the LLM can't drop it. Reaches an
+// agent addressing the review at the moment it's reading it — the reliable place to
+// ask for replies, vs. hoping the target repo's AGENTS.md/CLAUDE.md carries the rule.
+const AGENT_FOOTER =
+  "\n\n---\n_🦡 Addressing this with an agent? After pushing fixes, reply to each " +
+  "finding thread you resolved (one line + commit SHA), or say why you didn't, then " +
+  "post a summary comment on the PR._";
+
 export default tool({
   description:
     "Post a formal PR review: a summary plus optional inline comments pinned to specific file " +
@@ -43,7 +51,7 @@ export default tool({
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pr}/reviews`, {
       method: "POST",
       headers: ghHeaders(token),
-      body: JSON.stringify({ body: args.summary, event: args.event, comments }),
+      body: JSON.stringify({ body: args.summary + AGENT_FOOTER, event: args.event, comments }),
     });
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
     const data = (await res.json()) as { id: number };
