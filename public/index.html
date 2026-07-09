@@ -3,12 +3,26 @@
   <head>
     <meta charset="UTF-8">
     <title>fouine</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#1b1917">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="fouine">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/global.css">
   </head>
   <body class="bg-zinc-950 text-zinc-100">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
+    <script>
+      // ponytail: skip on localhost — dev serves un-hashed .tsx, so a caching SW
+      // would serve stale modules. Register only against the deployed origin.
+      if ("serviceWorker" in navigator && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+        addEventListener("load", () => navigator.serviceWorker.register("/sw.js"));
+      }
+    </script>
   </body>
 </html>
