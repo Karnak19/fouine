@@ -38,6 +38,10 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           head_sha: headSha,
           status: "in_progress",
           started_at: new Date().toISOString(),
+          output: {
+            title: "Review in progress…",
+            summary: "Fouine is reviewing this pull request. Findings will appear here when done.",
+          },
         }),
       ).pipe(
         Effect.map((res) => res.data.id as number | undefined),
