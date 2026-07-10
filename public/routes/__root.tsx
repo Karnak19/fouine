@@ -50,11 +50,7 @@ function UserMenu() {
       title={`Sign out${user.name ? ` (${user.name})` : ""}`}
       className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
     >
-      {user.image ? (
-        <img src={user.image} alt="" className="h-4 w-4 rounded-full" />
-      ) : (
-        <LogOut size={16} />
-      )}
+      {user.image && <img src={user.image} alt="" className="h-4 w-4 rounded-full" />}
       <span className="truncate">{user.name ?? "Sign out"}</span>
       <LogOut size={14} className="ml-auto" />
     </button>
