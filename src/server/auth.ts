@@ -14,43 +14,50 @@ export function isAllowedUser(githubUsername: string | undefined, allowed: strin
 // GitHub OAuth login, sharing the app's bun:sqlite DB. Gated by an allowlist of
 // GitHub logins so the (open-source, self-hosted) instance stays limited to
 // friends/colleagues — anyone not listed is rejected at account creation.
-export const auth = betterAuth({
-  database: db,
-  secret: config.auth.secret,
-  baseURL: config.auth.url,
-  trustedOrigins: [config.auth.url],
-  user: {
-    additionalFields: {
-      githubUsername: { type: "string", required: false, input: false },
-    },
-  },
-  socialProviders: {
-    github: {
-      clientId: config.auth.githubClientId as string,
-      clientSecret: config.auth.githubClientSecret as string,
-      mapProfileToUser: (profile) => ({
-        githubUsername: String(profile.login ?? ""),
-        name: profile.name ?? profile.login,
-        image: profile.avatar_url,
-      }),
-    },
-  },
-  databaseHooks: {
-    user: {
-      create: {
-        before: async (user) => {
-          const login = (user as { githubUsername?: string }).githubUsername;
-          if (!isAllowedUser(login, config.auth.allowedUsers)) {
-            throw new APIError("FORBIDDEN", {
-              message: "This GitHub account is not allowed to access fouine.",
-            });
-          }
-          return { data: user };
+//
+// Only constructed when login is enabled: betterAuth() validates the secret at
+// module load and throws in production (NODE_ENV=production) if it's unset, so a
+// disabled-auth prod boot must not build it. Every call-site guards on
+// config.auth.enabled, so `null` is never dereferenced.
+export const auth = config.auth.enabled
+  ? betterAuth({
+      database: db,
+      secret: config.auth.secret,
+      baseURL: config.auth.url,
+      trustedOrigins: [config.auth.url],
+      user: {
+        additionalFields: {
+          githubUsername: { type: "string", required: false, input: false },
         },
       },
-    },
-  },
-});
+      socialProviders: {
+        github: {
+          clientId: config.auth.githubClientId as string,
+          clientSecret: config.auth.githubClientSecret as string,
+          mapProfileToUser: (profile) => ({
+            githubUsername: String(profile.login ?? ""),
+            name: profile.name ?? profile.login,
+            image: profile.avatar_url,
+          }),
+        },
+      },
+      databaseHooks: {
+        user: {
+          create: {
+            before: async (user) => {
+              const login = (user as { githubUsername?: string }).githubUsername;
+              if (!isAllowedUser(login, config.auth.allowedUsers)) {
+                throw new APIError("FORBIDDEN", {
+                  message: "This GitHub account is not allowed to access fouine.",
+                });
+              }
+              return { data: user };
+            },
+          },
+        },
+      },
+    })
+  : (null as unknown as ReturnType<typeof betterAuth>);
 
 // Create better-auth's tables (user/session/account/verification) at boot,
 // matching the app's no-migration-framework, create-at-boot convention in db.ts.
