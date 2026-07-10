@@ -77,6 +77,23 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
 
+  .get("/stats", () => {
+    const agg = reviews.latencyAgg.get();
+    return {
+      projects: reviews.byProject.all(),
+      models: reviews.byModel.all(),
+      daily: reviews.daily.all(),
+      triggers: reviews.triggers.all(),
+      latency: {
+        avg: agg?.avg ?? null,
+        max: agg?.max ?? null,
+        count: agg?.count ?? 0,
+        p95: reviews.latencyP95.get()?.d ?? null,
+      },
+      topCost: reviews.topCost.all(),
+    };
+  })
+
   .get("/reviews/:id", ({ params }) => {
     const r = reviews.byId.get({ $id: Number(params.id) });
     if (!r) return new Response("Not found", { status: 404 });

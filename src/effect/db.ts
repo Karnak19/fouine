@@ -41,9 +41,14 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
         reviews.setSession.run({ $session: session, $id: id });
       }),
 
-    complete: (id: number, cost: number, tokens: number): Effect.Effect<void, DatabaseError> =>
+    complete: (
+      id: number,
+      cost: number,
+      tokens: number,
+      model: string,
+    ): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.complete", () => {
-        reviews.complete.run({ $id: id, $cost: cost, $tokens: tokens });
+        reviews.complete.run({ $id: id, $cost: cost, $tokens: tokens, $model: model });
       }),
 
     fail: (id: number, error: string): Effect.Effect<void, DatabaseError> =>

@@ -45,7 +45,10 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // Populated at insert in runReviewForPR; null for rows from before the column existed.
 // cost/tokens are summed from the opencode session's assistant messages at completion
 // (null until the run finishes, or forever for pre-column rows / failures).
-for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tokens INTEGER"])
+// model is the resolved model spec (repo override or default) captured at
+// completion, so cost/tokens can be broken down by model. Null for failures,
+// aborts, and rows from before the column existed.
+for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tokens INTEGER", "model TEXT"])
   addColumn("reviews", def);
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
 // disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
@@ -73,6 +76,7 @@ export interface ReviewRow {
   trigger: string | null;
   cost: number | null;
   tokens: number | null;
+  model: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -80,6 +84,51 @@ export interface ReviewRow {
 export interface SettingRow {
   key: string;
   value: string;
+}
+
+// Aggregate rows for the dashboard stats. SUM ignores null cost/tokens
+// (failures, pre-column rows); COALESCE keeps them 0 not null. avg_duration is
+// null for a project with no completed reviews yet.
+export interface ProjectStatsRow {
+  repo_full_name: string;
+  reviews: number;
+  cost: number;
+  tokens: number;
+  avg_duration: number | null;
+}
+
+export interface ModelStatsRow {
+  model: string;
+  reviews: number;
+  cost: number;
+  tokens: number;
+}
+
+export interface DailyStatsRow {
+  day: string; // "YYYY-MM-DD" (UTC)
+  reviews: number;
+  cost: number;
+  tokens: number;
+}
+
+export interface TriggerStatsRow {
+  trigger: string;
+  count: number;
+}
+
+export interface LatencyRow {
+  avg: number | null;
+  max: number | null;
+  count: number;
+}
+
+export interface TopCostRow {
+  id: number;
+  repo_full_name: string;
+  pr_number: number;
+  cost: number;
+  tokens: number | null;
+  model: string | null;
 }
 
 export const repos = {
@@ -131,9 +180,12 @@ export const reviews = {
   // Atomic success-path write: status + completed_at + cost + tokens in one
   // statement, so a crash mid-completion can't leave a "completed" row with
   // null cost/tokens.
-  complete: db.prepare<null, { $id: number; $cost: number; $tokens: number }>(
+  complete: db.prepare<
+    null,
+    { $id: number; $cost: number; $tokens: number; $model: string | null }
+  >(
     `UPDATE reviews SET status = 'completed', completed_at = unixepoch(),
-       cost = $cost, tokens = $tokens WHERE id = $id`,
+       cost = $cost, tokens = $tokens, model = $model WHERE id = $id`,
   ),
   fail: db.prepare<null, { $id: number; $error: string }>(
     `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
@@ -152,6 +204,68 @@ export const reviews = {
     "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
+  byProject: db.prepare<ProjectStatsRow, []>(
+    `SELECT repo_full_name,
+            COUNT(*) AS reviews,
+            COALESCE(SUM(cost), 0) AS cost,
+            COALESCE(SUM(tokens), 0) AS tokens,
+            AVG(CASE WHEN status = 'completed' AND completed_at IS NOT NULL
+                     THEN completed_at - created_at END) AS avg_duration
+     FROM reviews
+     GROUP BY repo_full_name
+     ORDER BY cost DESC`,
+  ),
+  byModel: db.prepare<ModelStatsRow, []>(
+    `SELECT model,
+            COUNT(*) AS reviews,
+            COALESCE(SUM(cost), 0) AS cost,
+            COALESCE(SUM(tokens), 0) AS tokens
+     FROM reviews
+     WHERE model IS NOT NULL
+     GROUP BY model
+     ORDER BY cost DESC`,
+  ),
+  daily: db.prepare<DailyStatsRow, []>(
+    `SELECT date(created_at, 'unixepoch') AS day,
+            COUNT(*) AS reviews,
+            COALESCE(SUM(cost), 0) AS cost,
+            COALESCE(SUM(tokens), 0) AS tokens
+     FROM reviews
+     WHERE created_at >= unixepoch() - 30 * 86400
+     GROUP BY day
+     ORDER BY day`,
+  ),
+  triggers: db.prepare<TriggerStatsRow, []>(
+    `SELECT COALESCE(trigger, 'unknown') AS trigger, COUNT(*) AS count
+     FROM reviews
+     GROUP BY COALESCE(trigger, 'unknown')
+     ORDER BY count DESC`,
+  ),
+  // Latency over completed reviews. avg/max in one pass; p95 needs the ordered
+  // offset trick since SQLite has no percentile function.
+  latencyAgg: db.prepare<LatencyRow, []>(
+    `SELECT AVG(completed_at - created_at) AS avg,
+            MAX(completed_at - created_at) AS max,
+            COUNT(*) AS count
+     FROM reviews
+     WHERE status = 'completed' AND completed_at IS NOT NULL`,
+  ),
+  latencyP95: db.prepare<{ d: number }, []>(
+    `SELECT (completed_at - created_at) AS d
+     FROM reviews
+     WHERE status = 'completed' AND completed_at IS NOT NULL
+     ORDER BY d
+     LIMIT 1
+     OFFSET (SELECT CAST(0.95 * (COUNT(*) - 1) AS INTEGER)
+             FROM reviews WHERE status = 'completed' AND completed_at IS NOT NULL)`,
+  ),
+  topCost: db.prepare<TopCostRow, []>(
+    `SELECT id, repo_full_name, pr_number, cost, tokens, model
+     FROM reviews
+     WHERE cost IS NOT NULL
+     ORDER BY cost DESC
+     LIMIT 5`,
+  ),
 };
 
 export const settings = {
