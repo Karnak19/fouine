@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
-import { GitPullRequest, Settings, LayoutDashboard, Search, FolderGit2, Download } from "lucide-react";
+import { GitPullRequest, Settings, LayoutDashboard, Search, FolderGit2, Download, LogOut } from "lucide-react";
+import { useAuth, signOut } from "../lib/auth";
 
 // Captured beforeinstallprompt event, so we can trigger the install from our own button.
 type InstallPrompt = Event & { prompt: () => Promise<void> };
@@ -39,6 +40,27 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
+function UserMenu() {
+  const { enabled, user } = useAuth();
+  if (!enabled || !user) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => void signOut()}
+      title={`Sign out${user.name ? ` (${user.name})` : ""}`}
+      className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
+    >
+      {user.image ? (
+        <img src={user.image} alt="" className="h-4 w-4 rounded-full" />
+      ) : (
+        <LogOut size={16} />
+      )}
+      <span className="truncate">{user.name ?? "Sign out"}</span>
+      <LogOut size={14} className="ml-auto" />
+    </button>
+  );
+}
+
 function Logo() {
   return (
     <span className="flex items-center gap-2">
@@ -64,6 +86,7 @@ function RootLayout() {
           ))}
         </nav>
         <InstallButton />
+        <UserMenu />
       </aside>
       <main className="flex-1 overflow-auto flex flex-col">
         {/* Mobile: top header with brand + install action. */}

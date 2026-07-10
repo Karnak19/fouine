@@ -27,6 +27,29 @@ export const config = {
     defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",
     timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 10 * 60 * 1000),
   },
+  // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
+  // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
+  // "leave empty to disable" behaviour for local dev. allowedUsers gates which
+  // GitHub accounts may sign in (comma-separated logins, case-insensitive).
+  auth: {
+    secret: process.env.BETTER_AUTH_SECRET,
+    // Public origin of the app, e.g. https://fouine.example.com. Used as the
+    // OAuth callback base; falls back to localhost for dev.
+    url: process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? 3000}`,
+    // The existing fouine GitHub App's OAuth credentials (App settings >
+    // General > Client ID / a generated client secret) — reused for login so
+    // there's no second app. The App must grant Account > Email addresses
+    // (read-only), since GitHub Apps derive email from permissions, not scope.
+    githubClientId: process.env.GITHUB_APP_CLIENT_ID,
+    githubClientSecret: process.env.GITHUB_APP_CLIENT_SECRET,
+    allowedUsers: (process.env.ALLOWED_GITHUB_USERS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+    get enabled(): boolean {
+      return !!(this.secret && this.githubClientId && this.githubClientSecret);
+    },
+  },
 } as const;
 
 export type Config = typeof config;

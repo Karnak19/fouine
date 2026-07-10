@@ -54,7 +54,7 @@ Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-r
 
 - `ponytail:` comments mark a **deliberate** shortcut with a named ceiling/upgrade path. Preserve them — don't "clean them up" into the longer form.
 - Logging is structured JSON via `src/server/log.ts` (`log.info/debug/warn/error`); debug level is gated by `LOG_LEVEL` and explains why a handler early-returned.
-- Optional Basic Auth (`BASIC_AUTH_USER`/`BASIC_AUTH_PASSWORD`) protects dashboard + `/api`; `/webhook/*` and `/health` are always exempt.
+- Optional GitHub-OAuth login (better-auth, `src/server/auth.ts`) protects `/api`; enabled when `BETTER_AUTH_SECRET`+`GITHUB_CLIENT_ID`+`GITHUB_CLIENT_SECRET` are set, gated by `ALLOWED_GITHUB_USERS`. `/api/auth/*` is delegated in `onRequest` (a route loses to the static catch-all GET); `/webhook/*`, `/health`, and the SPA shell stay public.
 - Docs site (VitePress) lives in `docs/` with its own `package.json`; architecture and data-model details are in `docs/architecture/index.md`.
 
 ## Flow pointers

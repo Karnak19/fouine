@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { config } from "~/config";
 
-const db = new Database(config.dbPath, { create: true });
+export const db = new Database(config.dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA foreign_keys = ON;");
 

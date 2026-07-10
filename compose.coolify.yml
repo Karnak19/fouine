@@ -11,12 +11,22 @@ services:
       # so sessions survive redeploys without a separate mount.
       XDG_DATA_HOME: /data/.local/share
       PORT: 3000
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-}
-      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:-}
+      # Coolify magic vars: declaring SERVICE_FQDN_FOUINE_3000 generates a domain
+      # and routes the proxy to :3000; SERVICE_URL_FOUINE is that domain with
+      # https://, and SERVICE_BASE64_64_FOUINE is a stable auto-generated secret
+      # (persisted across redeploys, so sessions survive). Only the GitHub OAuth
+      # values below are entered by hand.
+      SERVICE_FQDN_FOUINE_3000:
+      BETTER_AUTH_URL: ${SERVICE_URL_FOUINE}
+      BETTER_AUTH_SECRET: ${SERVICE_BASE64_64_FOUINE}
+      ALLOWED_GITHUB_USERS: ${ALLOWED_GITHUB_USERS:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      # OAuth creds of the same App, reused for dashboard login.
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/glm-5.2}
 
