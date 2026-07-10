@@ -3,14 +3,11 @@ import { staticPlugin } from "@elysia/static";
 import { config } from "~/config";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
+import { auth, migrateAuth } from "~/server/auth";
 import { errName, log } from "~/server/log";
 
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
-
-const authUser = process.env.BASIC_AUTH_USER;
-const authPass = process.env.BASIC_AUTH_PASSWORD;
-const authEnabled = !!(authUser && authPass);
 
 function pathname(url: string): string {
   try {
@@ -33,6 +30,12 @@ export async function createServer() {
   return new Elysia()
     .onRequest(({ request }) => {
       startedAt.set(request, Date.now());
+      // Delegate better-auth's own endpoints here, before routing — a route or
+      // .mount loses to the static plugin's catch-all GET, so short-circuit
+      // from onRequest instead (runs before static, all methods).
+      if (config.auth.enabled && pathname(request.url).startsWith("/api/auth/")) {
+        return auth.handler(request);
+      }
     })
     .onAfterHandle(({ request, set }) => {
       const ms = Date.now() - (startedAt.get(request) ?? Date.now());
@@ -44,20 +47,21 @@ export async function createServer() {
         ms,
       });
     })
-    .onBeforeHandle(({ request, set }) => {
-      if (!authEnabled) return;
+    // GitHub-OAuth session gate. Only /api/* is protected; the SPA shell and its
+    // assets stay public so the login page can load, and /api/auth/* (better-auth
+    // itself) plus /api/auth-status must be reachable unauthenticated. Webhooks
+    // and /health are not under /api and carry their own auth.
+    .onBeforeHandle(async ({ request, set }) => {
+      if (!config.auth.enabled) return;
       const path = pathname(request.url);
-      if (path.startsWith("/webhook/") || path === "/health") return;
-      const header = request.headers.get("authorization");
-      if (header?.startsWith("Basic ")) {
-        const decoded = atob(header.slice(6));
-        const i = decoded.indexOf(":");
-        if (i >= 0 && decoded.slice(0, i) === authUser && decoded.slice(i + 1) === authPass) return;
-      }
+      if (!path.startsWith("/api/")) return;
+      if (path.startsWith("/api/auth/") || path === "/api/auth-status") return;
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (session) return;
       set.status = 401;
-      set.headers["WWW-Authenticate"] = 'Basic realm="fouine"';
       return "Unauthorized";
     })
+    .get("/api/auth-status", () => ({ enabled: config.auth.enabled }))
     .use(apiRoutes)
     .use(
       await staticPlugin({
@@ -121,6 +125,7 @@ export async function createServer() {
 }
 
 export async function boot(): Promise<void> {
+  await migrateAuth();
   const app = await createServer();
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });
