@@ -86,7 +86,6 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       triggers: reviews.triggers.all(),
       latency: {
         avg: agg?.avg ?? null,
-        max: agg?.max ?? null,
         count: agg?.count ?? 0,
         p95: reviews.latencyP95.get()?.d ?? null,
       },

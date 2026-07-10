@@ -69,7 +69,7 @@ export interface Stats {
   models: ModelStatsRow[];
   daily: DailyStatsRow[];
   triggers: TriggerStatsRow[];
-  latency: { avg: number | null; max: number | null; count: number; p95: number | null };
+  latency: { avg: number | null; count: number; p95: number | null };
   topCost: {
     id: number;
     repo_full_name: string;

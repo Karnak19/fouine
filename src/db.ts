@@ -118,7 +118,6 @@ export interface TriggerStatsRow {
 
 export interface LatencyRow {
   avg: number | null;
-  max: number | null;
   count: number;
 }
 
@@ -241,11 +240,10 @@ export const reviews = {
      GROUP BY COALESCE(trigger, 'unknown')
      ORDER BY count DESC`,
   ),
-  // Latency over completed reviews. avg/max in one pass; p95 needs the ordered
+  // Latency over completed reviews. avg in one pass; p95 needs the ordered
   // offset trick since SQLite has no percentile function.
   latencyAgg: db.prepare<LatencyRow, []>(
     `SELECT AVG(completed_at - created_at) AS avg,
-            MAX(completed_at - created_at) AS max,
             COUNT(*) AS count
      FROM reviews
      WHERE status = 'completed' AND completed_at IS NOT NULL`,
