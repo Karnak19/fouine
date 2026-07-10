@@ -45,7 +45,7 @@ export default function DashboardPage() {
   const recent = all.filter((r) => r.status !== "running" && r.status !== "pending").slice(0, 25);
 
   return (
-    <div className="space-y-7 max-w-4xl">
+    <div className="space-y-7 max-w-4xl lg:max-w-6xl">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
@@ -92,13 +92,24 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {stats && stats.projects.length > 0 && <ProjectStats projects={stats.projects} />}
-
-      {stats && stats.models.length > 0 && <ModelStats models={stats.models} />}
-
-      {stats && stats.topCost.length > 0 && <TopCost rows={stats.topCost} />}
-
-      {stats && stats.triggers.length > 0 && <TriggerMix triggers={stats.triggers} />}
+      {stats && (
+        <div className="grid gap-7 lg:grid-cols-2 items-start">
+          {/* The 5-col project table and the trigger bar are wide by nature — span
+              both columns; the model table + expensive list pair up beside each other. */}
+          {stats.projects.length > 0 && (
+            <div className="lg:col-span-2">
+              <ProjectStats projects={stats.projects} />
+            </div>
+          )}
+          {stats.models.length > 0 && <ModelStats models={stats.models} />}
+          {stats.topCost.length > 0 && <TopCost rows={stats.topCost} />}
+          {stats.triggers.length > 0 && (
+            <div className="lg:col-span-2">
+              <TriggerMix triggers={stats.triggers} />
+            </div>
+          )}
+        </div>
+      )}
 
       <section className="space-y-2.5">
         <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Recent activity</h2>
