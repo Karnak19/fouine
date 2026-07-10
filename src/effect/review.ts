@@ -87,6 +87,7 @@ export function reviewPipeline(
       // with — tell the agent to pull them via get_prior_reviews.
       const reReview = trigger != null && trigger !== "opened";
       const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes, reReview);
+      const model = repo?.model ?? resolveDefaultModel();
 
       // Custom tools (opencode-config/tools) read these to post to GitHub.
       yield* Effect.sync(() => {
@@ -100,7 +101,7 @@ export function reviewPipeline(
         {
           directory: worktree,
           prompt,
-          model: repo?.model ?? resolveDefaultModel(),
+          model,
           // Fixed output-structure + posting rules live in this agent's system
           // prompt, so they survive any per-repo prompt override.
           agent: "fouine",
@@ -121,7 +122,7 @@ export function reviewPipeline(
         textChars: result.text.length,
         preview: result.text.slice(0, 500),
       });
-      yield* db.complete(id, result.cost, result.tokens);
+      yield* db.complete(id, result.cost, result.tokens, model);
       yield* gh.finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
     });
 

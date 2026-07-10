@@ -32,8 +32,52 @@ export interface ReviewRow {
   trigger: string | null;
   cost: number | null;
   tokens: number | null;
+  model: string | null;
   created_at: number;
   completed_at: number | null;
+}
+
+export interface ProjectStatsRow {
+  repo_full_name: string;
+  reviews: number;
+  cost: number;
+  tokens: number;
+  avg_duration: number | null;
+}
+
+export interface ModelStatsRow {
+  model: string;
+  reviews: number;
+  cost: number;
+  tokens: number;
+}
+
+export interface DailyStatsRow {
+  day: string;
+  reviews: number;
+  cost: number;
+  tokens: number;
+}
+
+export interface TriggerStatsRow {
+  trigger: string;
+  count: number;
+}
+
+export interface Stats {
+  projects: ProjectStatsRow[];
+  models: ModelStatsRow[];
+  daily: DailyStatsRow[];
+  triggers: TriggerStatsRow[];
+  latency: { avg: number | null; count: number; p95: number | null };
+  topCost: {
+    id: number;
+    repo_full_name: string;
+    pr_number: number;
+    cost: number;
+    tokens: number | null;
+    model: string | null;
+  }[];
 }
 
 export interface Settings {
@@ -73,6 +117,9 @@ export const api = {
       request<{ ok: boolean; live?: boolean; reason?: string }>(`/reviews/${id}/stop`, {
         method: "POST",
       }),
+  },
+  stats: {
+    get: () => request<Stats>("/stats"),
   },
   settings: {
     get: () => request<Settings>("/settings"),

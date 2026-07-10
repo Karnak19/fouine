@@ -54,7 +54,7 @@ test("review lifecycle: pending -> running -> completed", () => {
   reviews.setSession.run({ $session: "sess-1", $id: row.id });
   // Success path is a single atomic write (status + completed_at + cost + tokens),
   // so a crash mid-completion can't split a "completed" row from its cost.
-  reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096 });
+  reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096, $model: "anthropic/claude-opus-4" });
 
   const recent = reviews.recent.all({ $limit: 10 });
   const target = recent.find((r) => r.id === row.id);
@@ -63,6 +63,7 @@ test("review lifecycle: pending -> running -> completed", () => {
   expect(target?.completed_at).not.toBeNull();
   expect(target?.cost).toBeCloseTo(0.0123);
   expect(target?.tokens).toBe(4096);
+  expect(target?.model).toBe("anthropic/claude-opus-4");
 });
 
 test("byRepoPR returns only that PR's reviews, newest first", () => {
