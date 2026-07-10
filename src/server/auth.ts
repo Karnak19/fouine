@@ -3,6 +3,7 @@ import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { config } from "~/config";
 import { db } from "~/db";
+import { log } from "~/server/log";
 
 // Allowlist gate: a GitHub login is allowed only if present in `allowed`
 // (which config already lowercased). Empty/missing login → rejected.
@@ -27,7 +28,10 @@ export const auth = config.auth.enabled
       trustedOrigins: [config.auth.url],
       user: {
         additionalFields: {
-          githubUsername: { type: "string", required: false, input: false },
+          // No `input: false` here: better-auth strips input:false fields when
+          // mapping a provider profile (parseAdditionalUserInputFromProviderProfile),
+          // so githubUsername would never reach the allowlist hook below.
+          githubUsername: { type: "string", required: false },
         },
       },
       socialProviders: {
@@ -47,6 +51,10 @@ export const auth = config.auth.enabled
             before: async (user) => {
               const login = (user as { githubUsername?: string }).githubUsername;
               if (!isAllowedUser(login, config.auth.allowedUsers)) {
+                log.warn("login rejected", {
+                  login: login ?? null,
+                  allowed: config.auth.allowedUsers.length,
+                });
                 throw new APIError("FORBIDDEN", {
                   message: "This GitHub account is not allowed to access fouine.",
                 });
