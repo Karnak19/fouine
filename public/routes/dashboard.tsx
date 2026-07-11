@@ -96,7 +96,10 @@ export default function DashboardPage() {
       {(inFlight.length > 0 || hasMix) && (
         <div className="grid gap-7 lg:grid-cols-2 items-start">
           {inFlight.length > 0 && (
-            <section className="rounded-lg border border-ember-800/50 bg-ember-950/25 overflow-hidden">
+            // Span both columns when nothing sits beside it, else it's half-width.
+            <section
+              className={`rounded-lg border border-ember-800/50 bg-ember-950/25 overflow-hidden ${!hasMix ? "lg:col-span-2" : ""}`}
+            >
               <h2 className="px-4 pt-3 pb-2.5 text-xs font-medium uppercase tracking-wide text-ember-300/90">
                 Running now
               </h2>
