@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
+import { fouineCtx, ghHeaders } from "./_ctx";
 
 export default tool({
   description:
@@ -11,7 +12,7 @@ export default tool({
     const { token, owner, repo, pr } = fouineCtx();
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${pr}/comments`, {
       method: "POST",
-      headers: ghHeaders(token),
+      headers: ghHeaders(token, { json: true }),
       body: JSON.stringify({ body: args.body }),
     });
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
@@ -47,24 +48,4 @@ async function reportFindings(findings: FindingPayload[]): Promise<void> {
   } catch {
     // best-effort; the comment is already on GitHub
   }
-}
-
-function fouineCtx() {
-  const token = process.env.FOUINE_GITHUB_TOKEN;
-  const owner = process.env.FOUINE_REPO_OWNER;
-  const repo = process.env.FOUINE_REPO_NAME;
-  const pr = process.env.FOUINE_PR_NUMBER;
-  if (!token || !owner || !repo || !pr) {
-    throw new Error("fouine GitHub context env vars are not set");
-  }
-  return { token, owner, repo, pr };
-}
-
-function ghHeaders(token: string): Record<string, string> {
-  return {
-    authorization: `Bearer ${token}`,
-    accept: "application/vnd.github+json",
-    "content-type": "application/json",
-    "x-github-api-version": "2022-11-28",
-  };
 }
