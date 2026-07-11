@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { api, type FindingRow } from "@/lib/api";
@@ -82,6 +82,15 @@ export default function ReviewDetailPage() {
       review?.status === "running" || review?.status === "pending" ? 2000 : false,
   });
   const [tab, setTab] = useState<"review" | "transcript">("review");
+
+  const inProgress = review?.status === "running" || review?.status === "pending";
+  // Auto-select the tab when the review's progress state changes: transcript
+  // while running, review once finished. Manual switching within a state is
+  // preserved since this only fires on transitions.
+  useEffect(() => {
+    if (!review) return;
+    setTab(inProgress ? "transcript" : "review");
+  }, [inProgress, review?.id]);
 
   if (!review) {
     return (
