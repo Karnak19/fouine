@@ -24,7 +24,12 @@ function makeLayer(over: {
   git?: Record<string, () => Effect.Effect<unknown, unknown>>;
   oc?: (signal: AbortSignal) => Effect.Effect<never, OpenCodeError>;
 }) {
-  const calls = { completed: 0, failed: [] as string[], agent: undefined as string | undefined };
+  const calls = {
+    completed: 0,
+    failed: [] as string[],
+    agent: undefined as string | undefined,
+    env: undefined as Record<string, string> | undefined,
+  };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
     insertReview: () => Effect.succeed(42),
@@ -44,8 +49,13 @@ function makeLayer(over: {
   const git = Layer.succeed(GitService, { ...gitOk(), ...over.git } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (o: { agent?: string }, _s: unknown, signal: AbortSignal) => {
+    runReview: (
+      o: { agent?: string; env?: Record<string, string> },
+      _s: unknown,
+      signal: AbortSignal,
+    ) => {
       calls.agent = o.agent;
+      calls.env = o.env;
       return over.oc
         ? over.oc(signal)
         : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 });
@@ -115,4 +125,32 @@ test("supersede abort is recorded distinctly from a user stop", async () => {
   );
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.failed).toEqual(["Superseded by a newer commit"]);
+});
+
+test("tool GitHub context is passed per-review, not via global process.env (#23)", async () => {
+  // The context that used to be smeared onto process.env — where two concurrent
+  // reviews clobbered each other — must now ride opts.env, isolated to this run.
+  delete process.env.FOUINE_GITHUB_TOKEN;
+  delete process.env.FOUINE_PR_NUMBER;
+
+  const { layer, calls } = makeLayer({});
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isSuccess(exit)).toBe(true);
+
+  // The per-review env carries the full FOUINE_* context, keyed to this PR/token.
+  expect(calls.env).toMatchObject({
+    FOUINE_GITHUB_TOKEN: "tok",
+    FOUINE_REPO_OWNER: "acme",
+    FOUINE_REPO_NAME: "widget",
+    FOUINE_PR_NUMBER: "7",
+    FOUINE_REVIEW_ID: "42",
+  });
+
+  // The pipeline itself must not touch the shared process.env — that global
+  // write is the clobber the fix removes; staging onto it happens only inside
+  // OpenCodeService under a mutex, right before the subprocess snapshots it.
+  expect(process.env.FOUINE_GITHUB_TOKEN).toBeUndefined();
+  expect(process.env.FOUINE_PR_NUMBER).toBeUndefined();
 });

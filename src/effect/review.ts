@@ -12,6 +12,7 @@ import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { OpenCodeService } from "~/effect/opencode";
+import { reviewToolEnv } from "~/review/opencode";
 import { type ReviewError } from "~/effect/errors";
 
 function cloneUrl(token: string, fullName: string): string {
@@ -92,15 +93,17 @@ export function reviewPipeline(
 
       // Custom tools (opencode-config/tools) read these to post to GitHub, then
       // write the findings back to us over the loopback FOUINE_INTERNAL_* channel
-      // so the dashboard has a structured record (not just the transcript).
-      yield* Effect.sync(() => {
-        process.env.FOUINE_GITHUB_TOKEN = token;
-        process.env.FOUINE_REPO_OWNER = owner;
-        process.env.FOUINE_REPO_NAME = repoName;
-        process.env.FOUINE_PR_NUMBER = String(pr.number);
-        process.env.FOUINE_REVIEW_ID = String(id);
-        process.env.FOUINE_INTERNAL_URL = internalBaseUrl;
-        process.env.FOUINE_INTERNAL_SECRET = internalSecret;
+      // so the dashboard has a structured record (not just the transcript). Passed
+      // as per-review env (isolated at subprocess spawn) rather than mutated onto
+      // the shared process.env, so concurrent reviews stay isolated (#23).
+      const toolEnv = reviewToolEnv({
+        githubToken: token,
+        owner,
+        repo: repoName,
+        prNumber: pr.number,
+        reviewId: id,
+        internalUrl: internalBaseUrl,
+        internalSecret,
       });
 
       const result = yield* oc.runReview(
@@ -111,6 +114,7 @@ export function reviewPipeline(
           // Fixed output-structure + posting rules live in this agent's system
           // prompt, so they survive any per-repo prompt override.
           agent: "fouine",
+          env: toolEnv,
         },
         // Persist the session id as soon as it exists so the dashboard can
         // stream `opencode export` mid-flight. setSession is a sync SQLite
