@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
+import { fouineCtx, ghHeaders } from "./_ctx";
 
 export default tool({
   description:
@@ -80,23 +81,4 @@ async function ghGet(url: string, headers: Record<string, string>): Promise<unkn
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
   return (await res.json()) as unknown[];
-}
-
-function fouineCtx() {
-  const token = process.env.FOUINE_GITHUB_TOKEN;
-  const owner = process.env.FOUINE_REPO_OWNER;
-  const repo = process.env.FOUINE_REPO_NAME;
-  const pr = process.env.FOUINE_PR_NUMBER;
-  if (!token || !owner || !repo || !pr) {
-    throw new Error("fouine GitHub context env vars are not set");
-  }
-  return { token, owner, repo, pr };
-}
-
-function ghHeaders(token: string): Record<string, string> {
-  return {
-    authorization: `Bearer ${token}`,
-    accept: "application/vnd.github+json",
-    "x-github-api-version": "2022-11-28",
-  };
 }
