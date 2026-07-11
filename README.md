@@ -33,7 +33,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 
 ## Review behaviour
 
-- **Auto-review gating** — every installed repo is reviewed by default. Toggle **Auto-review new PRs** off on a repo's dashboard page to silence it (the `/review` comment and the dashboard Retry button still work on demand)
+- **Auto-review gating** — reviews are opt-in. A repo the App can see is added disabled and won't be reviewed until you flip **Auto-review** on for it (the toggle in the dashboard repos list, or **Auto-review new PRs** on the repo's detail page). The `/review` comment and the dashboard Retry button still work on demand regardless
 - **Draft PRs are skipped** — a review fires once the PR is marked ready for review
 - **`REVIEW.md`** — drop a `REVIEW.md` at the repo root to give the reviewer repo-specific guidance (focus areas, conventions, files to care about). It's appended to whatever prompt is active (default or per-repo override)
 - **Severity** — the reviewer uses `REQUEST_CHANGES` only for correctness/security/data-loss risks it's confident about; everything else is a non-blocking `COMMENT`
@@ -46,7 +46,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 | Server | Elysia |
 | Code agent | OpenCode (programmatic) |
 | GitHub | GitHub App + octokit |
-| Dashboard | Web UI (TBD) |
+| Dashboard | React + TanStack Router/Query (served by Elysia) |
 | Self-hosting | Docker |
 
 ## v1 scope
@@ -64,20 +64,19 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 ## Configuration
 
 fouine reads configuration from environment variables (or, for the API key and
-prompts, from the dashboard — which take precedence over env).
+prompts, from the dashboard — which take precedence over env). To boot you need
+the GitHub App credentials — `GITHUB_APP_ID`, a private key
+(`GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH`), `GITHUB_WEBHOOK_SECRET` —
+and an OpenCode provider key (`OPENCODE_API_KEY`, or set it on the dashboard).
 
-| Variable | Required | Description |
-|---|---|---|
-| `GITHUB_APP_ID` | yes | GitHub App ID |
-| `GITHUB_APP_PRIVATE_KEY` | yes* | App private key (literal `\n` are un-escaped) |
-| `GITHUB_APP_PRIVATE_KEY_PATH` | yes* | Path to the `.pem` — alternative to the above |
-| `GITHUB_WEBHOOK_SECRET` | yes | Webhook secret used to verify signatures |
-| `OPENCODE_API_KEY` | recommended | OpenCode provider key (or set via dashboard) |
-| `OPENCODE_MODEL` | no | Default model, e.g. `opencode-go/glm-5.2` |
-| `PORT` | no | HTTP port (default `3000`) |
-| `DATA_DIR` | no | Repos, worktrees, SQLite (default `./data`) |
+Optional GitHub-OAuth login protects the dashboard once `BETTER_AUTH_SECRET`,
+`GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are set (with
+`ALLOWED_GITHUB_USERS` gating who may sign in); leave them empty for local dev
+with no login.
 
-\* Provide the private key via one of the two variables.
+See [`.env.example`](.env.example) for the annotated list, or the
+[Configuration guide](https://karnak19.github.io/fouine/guide/configuration) for
+the full reference (login setup, log levels, timeouts, data paths).
 
 ## Development
 
