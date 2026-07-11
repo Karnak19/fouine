@@ -26,6 +26,6 @@ Re-review (the author pushed fixes): call the `get_prior_reviews` tool first to 
 
 ## Posting the review
 
-- post_review: the review itself. `summary` carries the verdict line; each `comment` pins one finding to a diff line. One call, all findings together. Set `event` per the rule above.
+- post_review: the review itself. `summary` carries the verdict line; each `comment` pins one finding to a diff line and sets `severity` to that finding's tag (`blocking`/`nit`/`question`). One call, all findings together. Set `event` per the rule above.
 - post_comment: optional, for context that doesn't pin to a line.
 Don't repeat the same point across both.

@@ -27,6 +27,32 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reviews_repo_pr
     ON reviews(repo_full_name, pr_number);
 
+  -- One row per posted finding, written back by the opencode post_* tools right
+  -- after they hit GitHub (see /internal/reviews/:id/findings). This is the
+  -- structured record of what fouine actually flagged — the transcript has the
+  -- reasoning, this has the verdict — so the dashboard can render the review and
+  -- trend findings (volume, severity mix) the way it already trends cost/tokens.
+  --   kind: 'inline' (pinned finding) | 'summary' (post_review body) | 'comment' (post_comment)
+  --   severity: the finding's tag — 'blocking' | 'nit' | 'question' — inline only, else null
+  --   event: COMMENT | APPROVE | REQUEST_CHANGES — summary rows only, else null
+  CREATE TABLE IF NOT EXISTS findings (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id         INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+    repo_full_name    TEXT NOT NULL,
+    pr_number         INTEGER NOT NULL,
+    kind              TEXT NOT NULL,
+    severity          TEXT,
+    event             TEXT,
+    path              TEXT,
+    line              INTEGER,
+    body              TEXT NOT NULL,
+    github_review_id  INTEGER,
+    github_comment_id INTEGER,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_findings_review ON findings(review_id);
+
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -79,6 +105,29 @@ export interface ReviewRow {
   model: string | null;
   created_at: number;
   completed_at: number | null;
+}
+
+export interface FindingRow {
+  id: number;
+  review_id: number;
+  repo_full_name: string;
+  pr_number: number;
+  kind: string; // 'inline' | 'summary' | 'comment'
+  severity: string | null; // 'blocking' | 'nit' | 'question' (inline only)
+  event: string | null; // COMMENT | APPROVE | REQUEST_CHANGES (summary only)
+  path: string | null;
+  line: number | null;
+  body: string;
+  github_review_id: number | null;
+  github_comment_id: number | null;
+  created_at: number;
+}
+
+// Findings grouped by severity for the dashboard. Only inline findings carry a
+// severity, so summary/comment rows are excluded by the WHERE clause.
+export interface SeverityStatsRow {
+  severity: string;
+  count: number;
 }
 
 export interface SettingRow {
@@ -263,6 +312,42 @@ export const reviews = {
      WHERE cost IS NOT NULL
      ORDER BY cost DESC
      LIMIT 5`,
+  ),
+};
+
+export const findings = {
+  insert: db.prepare<
+    null,
+    {
+      $review: number;
+      $repo: string;
+      $pr: number;
+      $kind: string;
+      $severity: string | null;
+      $event: string | null;
+      $path: string | null;
+      $line: number | null;
+      $body: string;
+      $github_review_id: number | null;
+      $github_comment_id: number | null;
+    }
+  >(
+    `INSERT INTO findings
+       (review_id, repo_full_name, pr_number, kind, severity, event, path, line, body,
+        github_review_id, github_comment_id)
+     VALUES ($review, $repo, $pr, $kind, $severity, $event, $path, $line, $body,
+        $github_review_id, $github_comment_id)`,
+  ),
+  byReview: db.prepare<FindingRow, { $review: number }>(
+    "SELECT * FROM findings WHERE review_id = $review ORDER BY id",
+  ),
+  // Severity mix across all inline findings, for the dashboard.
+  bySeverity: db.prepare<SeverityStatsRow, []>(
+    `SELECT severity, COUNT(*) AS count
+     FROM findings
+     WHERE kind = 'inline' AND severity IS NOT NULL
+     GROUP BY severity
+     ORDER BY count DESC`,
   ),
 };
 

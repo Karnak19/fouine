@@ -6,6 +6,7 @@ import {
   type ModelStatsRow,
   type ProjectStatsRow,
   type ReviewRow,
+  type SeverityStatsRow,
   type Stats,
   type TriggerStatsRow,
 } from "@/lib/api";
@@ -103,6 +104,11 @@ export default function DashboardPage() {
           )}
           {stats.models.length > 0 && <ModelStats models={stats.models} />}
           {stats.topCost.length > 0 && <TopCost rows={stats.topCost} />}
+          {stats.severity.length > 0 && (
+            <div className="lg:col-span-2">
+              <SeverityMix severity={stats.severity} />
+            </div>
+          )}
           {stats.triggers.length > 0 && (
             <div className="lg:col-span-2">
               <TriggerMix triggers={stats.triggers} />
@@ -368,6 +374,46 @@ function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
               />
               {triggerLabel(t.trigger) ?? t.trigger}
               <span className="text-zinc-600">{t.count}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// blocking = alarm, question = ask, nit = muted — same palette as the review view.
+const SEVERITY_META: Record<string, { label: string; dot: string }> = {
+  blocking: { label: "blocking", dot: "bg-red-400" },
+  question: { label: "question", dot: "bg-amber-400" },
+  nit: { label: "nit", dot: "bg-zinc-500" },
+};
+
+function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
+  const total = severity.reduce((s, x) => s + x.count, 0);
+  if (!total) return null;
+  return (
+    <section className="space-y-2.5">
+      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        Findings by severity
+      </h2>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3.5 space-y-3">
+        <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
+          {severity.map((x) => (
+            <div
+              key={x.severity}
+              className={SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}
+              style={{ width: `${(x.count / total) * 100}%` }}
+              title={`${SEVERITY_META[x.severity]?.label ?? x.severity}: ${x.count}`}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
+          {severity.map((x) => (
+            <span key={x.severity} className="flex items-center gap-1.5 tabular-nums">
+              <span className={`h-2 w-2 rounded-full ${SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}`} />
+              {SEVERITY_META[x.severity]?.label ?? x.severity}
+              <span className="text-zinc-600">{x.count}</span>
             </span>
           ))}
         </div>

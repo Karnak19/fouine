@@ -1,9 +1,11 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { staticPlugin } from "@elysia/static";
 import { config } from "~/config";
+import { reviews, findings } from "~/db";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
 import { auth, migrateAuth } from "~/server/auth";
+import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -71,6 +73,64 @@ export async function createServer() {
       }),
     )
     .get("/health", () => ({ ok: true }))
+    // Loopback write-back: the opencode post_* tools call this right after they
+    // post to GitHub, so we keep a structured record of every finding. Off the
+    // /api OAuth gate (it's not a browser caller); guarded by the per-boot shared
+    // secret instead. Best-effort by design — the tool must not fail a review if
+    // this write fails, so it swallows errors and we just log here.
+    .post(
+      "/internal/reviews/:id/findings",
+      ({ params, headers, body, set }) => {
+        if (headers[INTERNAL_SECRET_HEADER] !== internalSecret) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+        const reviewId = Number(params.id);
+        const review = reviews.byId.get({ $id: reviewId });
+        if (!review) {
+          set.status = 404;
+          return { error: "unknown review" };
+        }
+        for (const f of body.findings) {
+          findings.insert.run({
+            $review: reviewId,
+            $repo: review.repo_full_name,
+            $pr: review.pr_number,
+            $kind: f.kind,
+            $severity: f.severity ?? null,
+            $event: f.event ?? null,
+            $path: f.path ?? null,
+            $line: f.line ?? null,
+            $body: f.body,
+            $github_review_id: f.githubReviewId ?? null,
+            $github_comment_id: f.githubCommentId ?? null,
+          });
+        }
+        return { ok: true, stored: body.findings.length };
+      },
+      {
+        body: t.Object({
+          findings: t.Array(
+            t.Object({
+              kind: t.Union([
+                t.Literal("inline"),
+                t.Literal("summary"),
+                t.Literal("comment"),
+              ]),
+              severity: t.Optional(
+                t.Union([t.Literal("blocking"), t.Literal("nit"), t.Literal("question")]),
+              ),
+              event: t.Optional(t.String()),
+              path: t.Optional(t.String()),
+              line: t.Optional(t.Number()),
+              body: t.String(),
+              githubReviewId: t.Optional(t.Number()),
+              githubCommentId: t.Optional(t.Number()),
+            }),
+          ),
+        }),
+      },
+    )
     .post("/webhook/github", async ({ request, set }) => {
       const payload = await request.text();
       const signature = request.headers.get("x-hub-signature-256");

@@ -7,6 +7,7 @@ import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolvePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
+import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
@@ -89,12 +90,17 @@ export function reviewPipeline(
       const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes, reReview);
       const model = repo?.model ?? resolveDefaultModel();
 
-      // Custom tools (opencode-config/tools) read these to post to GitHub.
+      // Custom tools (opencode-config/tools) read these to post to GitHub, then
+      // write the findings back to us over the loopback FOUINE_INTERNAL_* channel
+      // so the dashboard has a structured record (not just the transcript).
       yield* Effect.sync(() => {
         process.env.FOUINE_GITHUB_TOKEN = token;
         process.env.FOUINE_REPO_OWNER = owner;
         process.env.FOUINE_REPO_NAME = repoName;
         process.env.FOUINE_PR_NUMBER = String(pr.number);
+        process.env.FOUINE_REVIEW_ID = String(id);
+        process.env.FOUINE_INTERNAL_URL = internalBaseUrl;
+        process.env.FOUINE_INTERNAL_SECRET = internalSecret;
       });
 
       const result = yield* oc.runReview(

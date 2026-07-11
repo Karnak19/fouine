@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
-import { api } from "@/lib/api";
+import { api, type FindingRow } from "@/lib/api";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,8 @@ import {
   Radio,
   RotateCw,
   Square,
+  ScrollText,
+  ClipboardCheck,
 } from "lucide-react";
 
 interface Part {
@@ -72,6 +75,13 @@ export default function ReviewDetailPage() {
     refetchInterval: () =>
       review?.status === "running" || review?.status === "pending" ? 2000 : false,
   });
+  const { data: findings } = useQuery({
+    queryKey: ["reviews", numId, "findings"],
+    queryFn: () => api.reviews.findings(numId),
+    refetchInterval: () =>
+      review?.status === "running" || review?.status === "pending" ? 2000 : false,
+  });
+  const [tab, setTab] = useState<"review" | "transcript">("review");
 
   if (!review) {
     return (
@@ -176,8 +186,34 @@ export default function ReviewDetailPage() {
       )}
 
       <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-zinc-400">Session</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setTab("review")}
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+                tab === "review"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <ClipboardCheck size={13} /> Review
+              {findings && findings.length > 0 && (
+                <span className="tabular-nums text-zinc-500">{findings.length}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("transcript")}
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+                tab === "transcript"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <ScrollText size={13} /> Transcript
+            </button>
+          </div>
           {(review?.status === "running" || review?.status === "pending") && (
             <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
               <span className="relative grid place-items-center">
@@ -188,7 +224,16 @@ export default function ReviewDetailPage() {
             </span>
           )}
         </div>
-        {session == null ? (
+
+        {tab === "review" ? (
+          <ReviewView
+            findings={findings}
+            owner={owner}
+            name={name}
+            pr={review.pr_number}
+            pending={review.status === "running" || review.status === "pending"}
+          />
+        ) : session == null ? (
           <p className="text-sm text-zinc-600">Loading transcript…</p>
         ) : messages.length === 0 ? (
           <p className="text-sm text-zinc-600">No transcript available for this review.</p>
@@ -200,6 +245,106 @@ export default function ReviewDetailPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const SEVERITY: Record<string, { label: string; cls: string }> = {
+  blocking: { label: "blocking", cls: "border-red-900/60 bg-red-950/40 text-red-300" },
+  question: { label: "question", cls: "border-amber-900/60 bg-amber-950/40 text-amber-300" },
+  nit: { label: "nit", cls: "border-zinc-700 bg-zinc-900 text-zinc-400" },
+};
+const EVENT: Record<string, string> = {
+  REQUEST_CHANGES: "text-red-300",
+  APPROVE: "text-emerald-300",
+  COMMENT: "text-zinc-300",
+};
+
+function ReviewView({
+  findings,
+  owner,
+  name,
+  pr,
+  pending,
+}: {
+  findings?: FindingRow[];
+  owner: string;
+  name: string;
+  pr: number;
+  pending: boolean;
+}) {
+  if (findings == null) return <p className="text-sm text-zinc-600">Loading review…</p>;
+  if (findings.length === 0)
+    return (
+      <p className="text-sm text-zinc-600">
+        {pending ? "No findings posted yet." : "This review posted no findings."}
+      </p>
+    );
+
+  const summary = findings.find((f) => f.kind === "summary");
+  const inline = findings.filter((f) => f.kind === "inline");
+  const comments = findings.filter((f) => f.kind === "comment");
+  const prUrl = `https://github.com/${owner}/${name}/pull/${pr}`;
+
+  return (
+    <div className="space-y-4">
+      {summary && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium">
+            <span className={EVENT[summary.event ?? "COMMENT"] ?? "text-zinc-300"}>
+              {summary.event ?? "COMMENT"}
+            </span>
+            {summary.github_review_id && (
+              <a
+                href={`${prUrl}#pullrequestreview-${summary.github_review_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto inline-flex items-center gap-1 text-zinc-500 hover:text-zinc-300"
+              >
+                view on GitHub <ExternalLink size={11} className="opacity-60" />
+              </a>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap text-sm text-zinc-200">{summary.body}</div>
+        </div>
+      )}
+
+      {inline.length > 0 && (
+        <div className="space-y-2">
+          {inline.map((f) => (
+            <div key={f.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+                {f.severity && (
+                  <span
+                    className={`rounded border px-1.5 py-0.5 font-medium ${
+                      SEVERITY[f.severity]?.cls ?? "border-zinc-700 text-zinc-400"
+                    }`}
+                  >
+                    {SEVERITY[f.severity]?.label ?? f.severity}
+                  </span>
+                )}
+                <a
+                  href={`${prUrl}/files`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-zinc-400 hover:text-zinc-200"
+                >
+                  {f.path}
+                  {f.line != null ? `:${f.line}` : ""}
+                </a>
+              </div>
+              <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {comments.map((f) => (
+        <div key={f.id} className="rounded-md border border-zinc-800/70 bg-zinc-950 p-3">
+          <div className="mb-1 text-xs font-medium text-zinc-500">PR comment</div>
+          <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+        </div>
+      ))}
     </div>
   );
 }
