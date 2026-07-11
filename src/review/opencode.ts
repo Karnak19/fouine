@@ -32,6 +32,37 @@ export interface RunOptions {
   prompt: string;
   model?: string;
   agent?: string;
+  // Per-review context for the custom tools (post_review / post_comment /
+  // get_prior_reviews). Injected into the opencode subprocess's env at spawn
+  // rather than mutated onto the long-lived parent process.env, so two reviews
+  // of different PRs running at once can't clobber each other's GitHub context
+  // (see OpenCodeService and issue #23).
+  env?: Record<string, string>;
+}
+
+// GitHub + write-back context the custom tools read from FOUINE_* env vars.
+export interface ReviewToolContext {
+  githubToken: string;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  reviewId: number;
+  internalUrl: string;
+  internalSecret: string;
+}
+
+// The FOUINE_* env the custom tools read (opencode-config/tools/*). Kept next to
+// the opencode plumbing that ships it so the key names stay in one place.
+export function reviewToolEnv(ctx: ReviewToolContext): Record<string, string> {
+  return {
+    FOUINE_GITHUB_TOKEN: ctx.githubToken,
+    FOUINE_REPO_OWNER: ctx.owner,
+    FOUINE_REPO_NAME: ctx.repo,
+    FOUINE_PR_NUMBER: String(ctx.prNumber),
+    FOUINE_REVIEW_ID: String(ctx.reviewId),
+    FOUINE_INTERNAL_URL: ctx.internalUrl,
+    FOUINE_INTERNAL_SECRET: ctx.internalSecret,
+  };
 }
 
 export interface RunResult {
