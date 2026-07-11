@@ -64,6 +64,27 @@ export interface TriggerStatsRow {
   count: number;
 }
 
+export interface SeverityStatsRow {
+  severity: string;
+  count: number;
+}
+
+export interface FindingRow {
+  id: number;
+  review_id: number;
+  repo_full_name: string;
+  pr_number: number;
+  kind: "inline" | "summary" | "comment";
+  severity: "blocking" | "nit" | "question" | null;
+  event: string | null;
+  path: string | null;
+  line: number | null;
+  body: string;
+  github_review_id: number | null;
+  github_comment_id: number | null;
+  created_at: number;
+}
+
 export interface Stats {
   projects: ProjectStatsRow[];
   models: ModelStatsRow[];
@@ -78,6 +99,7 @@ export interface Stats {
     tokens: number | null;
     model: string | null;
   }[];
+  severity: SeverityStatsRow[];
 }
 
 export interface Settings {
@@ -111,6 +133,7 @@ export const api = {
   reviews: {
     list: () => request<ReviewRow[]>("/reviews"),
     get: (id: number) => request<ReviewRow>(`/reviews/${id}`),
+    findings: (id: number) => request<FindingRow[]>(`/reviews/${id}/findings`),
     session: (id: number) => request<unknown>(`/reviews/${id}/session`),
     retry: (id: number) => request<{ ok: boolean }>(`/reviews/${id}/retry`, { method: "POST" }),
     stop: (id: number) =>

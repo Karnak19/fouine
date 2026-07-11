@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { $ } from "bun";
-import { repos, reviews, settings } from "~/db";
+import { repos, reviews, settings, findings } from "~/db";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
@@ -90,8 +90,11 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         p95: reviews.latencyP95.get()?.d ?? null,
       },
       topCost: reviews.topCost.all(),
+      severity: findings.bySeverity.all(),
     };
   })
+
+  .get("/reviews/:id/findings", ({ params }) => findings.byReview.all({ $review: Number(params.id) }))
 
   .get("/reviews/:id", ({ params }) => {
     const r = reviews.byId.get({ $id: Number(params.id) });

@@ -34,6 +34,12 @@ export default tool({
             .enum(["LEFT", "RIGHT"])
             .default("RIGHT")
             .describe("Diff side. RIGHT = the PR's new code (usual)."),
+          severity: tool.schema
+            .enum(["blocking", "nit", "question"])
+            .describe(
+              "The finding's tag: 'blocking' (correctness/security/data-loss/broken contract, " +
+                "must fix), 'nit' (taste/style), or 'question' (needs the author, not a change).",
+            ),
           body: tool.schema.string().describe("The comment text (markdown)."),
         }),
       )
@@ -55,9 +61,53 @@ export default tool({
     });
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
     const data = (await res.json()) as { id: number };
+
+    // Persist the review to fouine's own store so the dashboard has a structured
+    // record. Best-effort — a failed write-back must never fail a posted review.
+    await reportFindings([
+      { kind: "summary", event: args.event, body: args.summary, githubReviewId: data.id },
+      ...(args.comments ?? []).map((c) => ({
+        kind: "inline" as const,
+        path: c.path,
+        line: c.line,
+        severity: c.severity,
+        body: c.body,
+        githubReviewId: data.id,
+      })),
+    ]);
+
     return `Review posted (id ${data.id}) with ${comments.length} inline comment(s).`;
   },
 });
+
+// Write findings back to the fouine server over the loopback channel wired in
+// review.ts. Swallows every error: the GitHub post already succeeded, and losing
+// a dashboard record is not worth failing the review the author is waiting on.
+interface FindingPayload {
+  kind: "summary" | "inline" | "comment";
+  body: string;
+  event?: string;
+  path?: string;
+  line?: number;
+  severity?: "blocking" | "nit" | "question";
+  githubReviewId?: number;
+  githubCommentId?: number;
+}
+async function reportFindings(findings: FindingPayload[]): Promise<void> {
+  const url = process.env.FOUINE_INTERNAL_URL;
+  const secret = process.env.FOUINE_INTERNAL_SECRET;
+  const reviewId = process.env.FOUINE_REVIEW_ID;
+  if (!url || !secret || !reviewId) return;
+  try {
+    await fetch(`${url}/internal/reviews/${reviewId}/findings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-fouine-internal": secret },
+      body: JSON.stringify({ findings }),
+    });
+  } catch {
+    // best-effort; the review is already on GitHub
+  }
+}
 
 function fouineCtx() {
   const token = process.env.FOUINE_GITHUB_TOKEN;
