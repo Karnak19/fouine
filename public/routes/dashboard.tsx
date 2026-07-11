@@ -45,8 +45,14 @@ export default function DashboardPage() {
   // In-flight already has its own panel above; keep the feed to finished work.
   const recent = all.filter((r) => r.status !== "running" && r.status !== "pending").slice(0, 25);
 
+  // The two distribution bars: stacked in one column beside "Running now" when
+  // something's in flight, else laid out as two side-by-side grid cells.
+  const severityMix = stats && stats.severity.length > 0 ? <SeverityMix severity={stats.severity} /> : null;
+  const triggerMix = stats && stats.triggers.length > 0 ? <TriggerMix triggers={stats.triggers} /> : null;
+  const hasMix = Boolean(severityMix || triggerMix);
+
   return (
-    <div className="space-y-7 max-w-4xl lg:max-w-6xl">
+    <div className="space-y-7">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
@@ -60,43 +66,66 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-zinc-800 divide-x divide-y sm:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
-        <Stat
-          label="In flight"
-          value={isPending ? null : String(inFlight.length)}
-          accent={inFlight.length > 0}
-          pulse={inFlight.length > 0}
-        />
-        <Stat
-          label="Success · 24h"
-          value={isPending ? null : successRate == null ? "—" : `${successRate}%`}
-          sub={failed24.length ? `${failed24.length} failed` : finished24 ? "all clean" : undefined}
-        />
-        <Stat label="Cost · 24h" value={isPending ? null : formatCost(cost24) ?? "—"} />
-        <Stat label="Reviews · 24h" value={isPending ? null : String(last24h.length)} />
+      {/* The two KPI strips are short — stack them on the left and let the 30-day
+          cost chart stretch to their combined height beside them (default grid
+          `stretch`, and CostTrend grows its bar area to fill). */}
+      <div className="grid gap-7 lg:grid-cols-2">
+        <div className="space-y-7">
+          <div className="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-zinc-800 divide-x divide-y sm:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
+            <Stat
+              label="In flight"
+              value={isPending ? null : String(inFlight.length)}
+              accent={inFlight.length > 0}
+              pulse={inFlight.length > 0}
+            />
+            <Stat
+              label="Success · 24h"
+              value={isPending ? null : successRate == null ? "—" : `${successRate}%`}
+              sub={failed24.length ? `${failed24.length} failed` : finished24 ? "all clean" : undefined}
+            />
+            <Stat label="Cost · 24h" value={isPending ? null : formatCost(cost24) ?? "—"} />
+            <Stat label="Reviews · 24h" value={isPending ? null : String(last24h.length)} />
+          </div>
+          {stats && <AggregateStats stats={stats} />}
+        </div>
+        {stats && stats.daily.length > 0 && <CostTrend daily={stats.daily} />}
       </div>
 
-      {stats && <AggregateStats stats={stats} />}
-
-      {stats && stats.daily.length > 0 && <CostTrend daily={stats.daily} />}
-
-      {inFlight.length > 0 && (
-        <section className="rounded-lg border border-ember-800/50 bg-ember-950/25 overflow-hidden">
-          <h2 className="px-4 pt-3 pb-2.5 text-xs font-medium uppercase tracking-wide text-ember-300/90">
-            Running now
-          </h2>
-          <ul className="divide-y divide-ember-800/25">
-            {inFlight.map((r) => (
-              <ActivityRow key={r.id} r={r} />
+      {/* Anything in flight takes the left column with the distribution bars
+          stacked on the right; when nothing's running the bars sit side by side. */}
+      {(inFlight.length > 0 || hasMix) && (
+        <div className="grid gap-7 lg:grid-cols-2 items-start">
+          {inFlight.length > 0 && (
+            <section className="rounded-lg border border-ember-800/50 bg-ember-950/25 overflow-hidden">
+              <h2 className="px-4 pt-3 pb-2.5 text-xs font-medium uppercase tracking-wide text-ember-300/90">
+                Running now
+              </h2>
+              <ul className="divide-y divide-ember-800/25">
+                {inFlight.map((r) => (
+                  <ActivityRow key={r.id} r={r} />
+                ))}
+              </ul>
+            </section>
+          )}
+          {hasMix &&
+            (inFlight.length > 0 ? (
+              <div className="space-y-7">
+                {severityMix}
+                {triggerMix}
+              </div>
+            ) : (
+              <>
+                {severityMix}
+                {triggerMix}
+              </>
             ))}
-          </ul>
-        </section>
+        </div>
       )}
 
-      {stats && (
+      {stats && (stats.projects.length > 0 || stats.models.length > 0 || stats.topCost.length > 0) && (
         <div className="grid gap-7 lg:grid-cols-2 items-start">
-          {/* The 5-col project table and the trigger bar are wide by nature — span
-              both columns; the model table + expensive list pair up beside each other. */}
+          {/* The 5-col project table is wide by nature — span both columns; the
+              model table + expensive list pair up beside each other. */}
           {stats.projects.length > 0 && (
             <div className="lg:col-span-2">
               <ProjectStats projects={stats.projects} />
@@ -104,16 +133,6 @@ export default function DashboardPage() {
           )}
           {stats.models.length > 0 && <ModelStats models={stats.models} />}
           {stats.topCost.length > 0 && <TopCost rows={stats.topCost} />}
-          {stats.severity.length > 0 && (
-            <div className="lg:col-span-2">
-              <SeverityMix severity={stats.severity} />
-            </div>
-          )}
-          {stats.triggers.length > 0 && (
-            <div className="lg:col-span-2">
-              <TriggerMix triggers={stats.triggers} />
-            </div>
-          )}
         </div>
       )}
 
@@ -165,10 +184,10 @@ function AggregateStats({ stats }: { stats: Stats }) {
 function CostTrend({ daily }: { daily: DailyStatsRow[] }) {
   const max = Math.max(...daily.map((d) => d.cost), 0.0001);
   return (
-    <section className="space-y-2.5">
+    <section className="flex flex-col space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost · last 30d</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 pt-4 pb-3">
-        <div className="flex items-end gap-1 h-24">
+      <div className="flex flex-1 flex-col rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 pt-4 pb-3">
+        <div className="flex items-end gap-1 flex-1 min-h-24">
           {daily.map((d) => (
             <div
               key={d.day}

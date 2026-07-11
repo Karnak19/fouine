@@ -90,7 +90,7 @@ function RootLayout() {
           <Logo />
           <InstallButton />
         </header>
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8 pb-24 md:pb-8">
+        <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8 pb-24 md:pb-8">
           <Outlet />
         </div>
       </main>
