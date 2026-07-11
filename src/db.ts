@@ -57,6 +57,27 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  -- Global reviewer skills installed via the dashboard (from skills.sh / GitHub).
+  -- One row per skill; opencode auto-discovers enabled ones from the runtime
+  -- config dir after reconcileSkills() materialises them (src/skills). The DB is
+  -- the source of truth — disk is rebuilt from these rows on boot and on toggle.
+  -- Per-repo skills are intentionally NOT here: a repo ships its own under
+  -- .claude/skills and opencode picks them up from the worktree for free.
+  --   ref:   pinned commit SHA the files were fetched at (reproducibility)
+  --   files: JSON [{ path, contentBase64 }] relative to the skill dir (SKILL.md + any bundled files)
+  CREATE TABLE IF NOT EXISTS skills (
+    name        TEXT PRIMARY KEY,
+    source_url  TEXT NOT NULL,
+    owner       TEXT NOT NULL,
+    repo        TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    ref         TEXT NOT NULL,
+    description TEXT,
+    files       TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `);
 
 // ponytail: no migration framework — additive columns via ALTER, ignored once present.
@@ -134,6 +155,23 @@ export interface SettingRow {
   key: string;
   value: string;
 }
+
+export interface SkillRow {
+  name: string;
+  source_url: string;
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+  description: string | null;
+  files: string; // JSON [{ path, contentBase64 }]
+  enabled: number;
+  created_at: number;
+}
+
+// Skill row without the (potentially large) files blob — for list/detail views
+// that only need metadata. Kept in sync with SkillRow's non-files columns.
+export type SkillMetaRow = Omit<SkillRow, "files">;
 
 // Aggregate rows for the dashboard stats. SUM ignores null cost/tokens
 // (failures, pre-column rows); COALESCE keeps them 0 not null. avg_duration is
@@ -363,5 +401,50 @@ export const settings = {
 export function settingValue(key: string): string | undefined {
   return settings.get.get({ $key: key })?.value;
 }
+
+const SKILL_META_COLS =
+  "name, source_url, owner, repo, path, ref, description, enabled, created_at";
+
+export const skills = {
+  // Install/replace by name — installs enabled (live on the next review);
+  // re-installing the same skill updates it in place and keeps it enabled.
+  upsert: db.prepare<
+    null,
+    {
+      $name: string;
+      $source_url: string;
+      $owner: string;
+      $repo: string;
+      $path: string;
+      $ref: string;
+      $description: string | null;
+      $files: string;
+    }
+  >(
+    `INSERT INTO skills (name, source_url, owner, repo, path, ref, description, files, enabled)
+     VALUES ($name, $source_url, $owner, $repo, $path, $ref, $description, $files, 1)
+     ON CONFLICT(name) DO UPDATE SET
+       source_url = excluded.source_url,
+       owner = excluded.owner,
+       repo = excluded.repo,
+       path = excluded.path,
+       ref = excluded.ref,
+       description = excluded.description,
+       files = excluded.files,
+       enabled = 1`,
+  ),
+  setEnabled: db.prepare<null, { $name: string; $enabled: number }>(
+    "UPDATE skills SET enabled = $enabled WHERE name = $name",
+  ),
+  remove: db.prepare<null, { $name: string }>("DELETE FROM skills WHERE name = $name"),
+  getMeta: db.prepare<SkillMetaRow, { $name: string }>(
+    `SELECT ${SKILL_META_COLS} FROM skills WHERE name = $name`,
+  ),
+  list: db.prepare<SkillMetaRow, []>(
+    `SELECT ${SKILL_META_COLS} FROM skills ORDER BY created_at DESC`,
+  ),
+  // Full rows (with files) for the ones we materialise to disk.
+  enabled: db.prepare<SkillRow, []>("SELECT * FROM skills WHERE enabled = 1 ORDER BY name"),
+};
 
 export type { Database };

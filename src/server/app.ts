@@ -7,6 +7,7 @@ import { apiRoutes } from "~/server/api";
 import { auth, migrateAuth } from "~/server/auth";
 import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
+import { seedOpencodeConfig, reconcileSkills } from "~/skills";
 
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
@@ -186,6 +187,11 @@ export async function createServer() {
 
 export async function boot(): Promise<void> {
   await migrateAuth();
+  // Point opencode at a fouine-owned config dir and materialise enabled skills
+  // before we accept requests, so the first review already sees them. Order
+  // matters: seed creates the skills/ dir the reconcile writes into.
+  seedOpencodeConfig();
+  reconcileSkills();
   const app = await createServer();
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });
