@@ -1,4 +1,4 @@
-import { rmSync, mkdirSync, symlinkSync, writeFileSync, readdirSync } from "node:fs";
+import { rmSync, mkdirSync, cpSync, writeFileSync, readdirSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { config } from "~/config";
 import { skills as skillsDb, type SkillRow } from "~/db";
@@ -6,12 +6,16 @@ import { log } from "~/server/log";
 import type { SkillFile } from "~/skills/install";
 
 // fouine points opencode at a config dir it fully owns on the data volume,
-// rather than the read-only shipped dir. This seeds that runtime dir: symlink
+// rather than the read-only shipped dir. This seeds that runtime dir: copy
 // every shipped entry (agent, tools, …) across so the fouine agent + custom
 // tools still load, drop an opencode.json that allows the skill tool, and expose
 // a skills/ dir we materialise installed skills into. Re-exports
 // OPENCODE_CONFIG_DIR so every opencode subprocess spawned after boot sees it.
-// Idempotent: rebuilt from scratch on each call (cheap — a handful of symlinks).
+// Copies, not symlinks: opencode installs tool deps (@opencode-ai/plugin) into
+// a node_modules under the config dir, and Bun resolves imports from a tool
+// file's REALPATH — a symlinked tools/ resolves back inside the shipped dir,
+// misses that node_modules, and every session.prompt dies with UnknownError.
+// Idempotent: rebuilt from scratch on each call (cheap — a handful of files).
 export function seedOpencodeConfig(): void {
   const { shippedConfigDir, runtimeDir } = config.opencode;
   rmSync(runtimeDir, { recursive: true, force: true });
@@ -24,9 +28,18 @@ export function seedOpencodeConfig(): void {
     // No shipped config dir (unusual, but the agent may be resolved elsewhere).
   }
   for (const entry of shipped) {
-    // skills/ and opencode.json are fouine-owned in the runtime dir.
-    if (entry === "skills" || entry === "opencode.json") continue;
-    symlinkSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry));
+    // skills/ and opencode.json are fouine-owned in the runtime dir; opencode's
+    // own dep install (node_modules, package*.json) regenerates in the runtime
+    // dir on first prompt, so don't drag a stale dev copy across.
+    if (
+      entry === "skills" ||
+      entry === "opencode.json" ||
+      entry === "node_modules" ||
+      entry === "package.json" ||
+      entry === "package-lock.json"
+    )
+      continue;
+    cpSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry), { recursive: true });
   }
 
   // Self-hosted, single-operator: whoever installs a skill owns the box, so
@@ -37,7 +50,7 @@ export function seedOpencodeConfig(): void {
   );
   mkdirSync(config.opencode.skillsDir, { recursive: true });
   process.env.OPENCODE_CONFIG_DIR = runtimeDir;
-  log.info("seeded opencode config", { runtimeDir, shippedConfigDir, symlinked: shipped.length });
+  log.info("seeded opencode config", { runtimeDir, shippedConfigDir, copied: shipped.length });
 }
 
 // Rebuild the on-disk skills dir from the DB (the source of truth) so drift —
