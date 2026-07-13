@@ -22,6 +22,17 @@ export const config = {
   },
   opencode: {
     apiKey: process.env.OPENCODE_API_KEY,
+    // The config dir shipped with the app (agent + custom tools). Points at the
+    // in-image opencode-config in prod (Dockerfile sets OPENCODE_CONFIG_DIR), or
+    // the checked-in dir in dev. fouine reads this as a *source* only — see below.
+    shippedConfigDir: resolve(process.env.OPENCODE_CONFIG_DIR ?? "./opencode-config"),
+    // A fouine-owned config dir on the data volume that opencode is actually
+    // pointed at (boot re-exports OPENCODE_CONFIG_DIR to here). It symlinks the
+    // shipped agent/tools across and adds a persistent skills/ dir fouine
+    // materialises installed skills into — so global skills survive restarts
+    // without mutating the read-only shipped dir. See src/skills.
+    runtimeDir: resolve(`${dataDir}/opencode`),
+    skillsDir: resolve(`${dataDir}/opencode/skills`),
   },
   review: {
     defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",

@@ -6,6 +6,7 @@ import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
+import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
 
 export const apiRoutes = new Elysia({ prefix: "/api" })
@@ -187,6 +188,41 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       }),
     },
   )
+
+  // Global reviewer skills (skills.sh / GitHub). Installed disabled; enabling
+  // one materialises it into the opencode config dir for subsequent reviews.
+  .get("/skills", () => listSkills())
+
+  .post(
+    "/skills",
+    async ({ body, set }) => {
+      try {
+        return await installSkill(body.url);
+      } catch (err) {
+        set.status = 422;
+        return { error: String((err as Error)?.message ?? err) };
+      }
+    },
+    { body: t.Object({ url: t.String() }) },
+  )
+
+  .put(
+    "/skills/:name",
+    ({ params, body, set }) => {
+      const row = setSkillEnabled(params.name, body.enabled);
+      if (!row) {
+        set.status = 404;
+        return { error: "not found" };
+      }
+      return row;
+    },
+    { body: t.Object({ enabled: t.Boolean() }) },
+  )
+
+  .delete("/skills/:name", ({ params, set }) => {
+    removeSkill(params.name);
+    set.status = 204;
+  })
 
   // ponytail: sends one tiny real prompt through the configured model — only way
   // to actually verify the key + model resolve. Costs ~1 request.

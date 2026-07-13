@@ -108,6 +108,18 @@ export interface Settings {
   default_prompt?: string;
 }
 
+export interface SkillRow {
+  name: string;
+  source_url: string;
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+  description: string | null;
+  enabled: number;
+  created_at: number;
+}
+
 export const api = {
   repos: {
     list: () => request<RepoRow[]>("/repos"),
@@ -149,5 +161,16 @@ export const api = {
     update: (data: Settings) =>
       request<Settings>("/settings", { method: "PUT", body: JSON.stringify(data) }),
     test: () => request<{ ok: boolean; text?: string; error?: string }>("/settings/test"),
+  },
+  skills: {
+    list: () => request<SkillRow[]>("/skills"),
+    install: (url: string) =>
+      request<SkillRow>("/skills", { method: "POST", body: JSON.stringify({ url }) }),
+    setEnabled: (name: string, enabled: boolean) =>
+      request<SkillRow>(`/skills/${name}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }),
+    remove: (name: string) => request<void>(`/skills/${name}`, { method: "DELETE" }),
   },
 };
