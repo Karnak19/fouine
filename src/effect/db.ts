@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { repos, reviews, type RepoRow } from "~/db";
+import { findings, repos, reviews, type RepoRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
 
 // bun:sqlite is synchronous; each call is wrapped in Effect.try so a statement
@@ -55,5 +55,10 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
       attempt("reviews.fail", () => {
         reviews.fail.run({ $id: id, $error: error });
       }),
+
+    // Whether the review's post_* tools wrote anything back — i.e. the agent
+    // actually posted to GitHub. Used to nudge sessions that end silent.
+    hasFindings: (id: number): Effect.Effect<boolean, DatabaseError> =>
+      attempt("findings.byReview", () => findings.byReview.all({ $review: id }).length > 0),
   }),
 }) {}

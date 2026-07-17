@@ -115,6 +115,11 @@ export function reviewPipeline(
           // prompt, so they survive any per-repo prompt override.
           agent: "fouine",
           env: toolEnv,
+          // Sync SQLite read, same runSync bridge as setSession below. On a DB
+          // error assume posted — better to miss a nudge than nudge a review
+          // that's already on GitHub.
+          hasPosted: () =>
+            Effect.runSync(db.hasFindings(id).pipe(Effect.catchAll(() => Effect.succeed(true)))),
         },
         // Persist the session id as soon as it exists so the dashboard can
         // stream `opencode export` mid-flight. setSession is a sync SQLite
