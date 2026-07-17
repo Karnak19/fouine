@@ -38,6 +38,11 @@ export interface RunOptions {
   // of different PRs running at once can't clobber each other's GitHub context
   // (see OpenCodeService and issue #23).
   env?: Record<string, string>;
+  // Returns true once the agent has actually posted (a findings row exists for
+  // this review). Checked after the session ends: if the agent wrapped up
+  // without calling post_review, the same session is continued with one nudge
+  // message instead of silently completing with nothing on the PR.
+  hasPosted?: () => boolean;
 }
 
 // GitHub + write-back context the custom tools read from FOUINE_* env vars.
@@ -119,19 +124,37 @@ export async function runReview(
 
   if (onSession) await onSession(session.id);
 
-  const res = unwrap(
-    await client.session.prompt({
-      path: { id: session.id },
-      body: {
-        parts: [{ type: "text", text: opts.prompt }],
-        model,
-        ...(opts.agent ? { agent: opts.agent } : {}),
-      },
-    }),
-    "session.prompt",
-  );
+  const prompt = (text: string, op: string) =>
+    client.session
+      .prompt({
+        path: { id: session.id },
+        body: {
+          parts: [{ type: "text", text }],
+          model,
+          ...(opts.agent ? { agent: opts.agent } : {}),
+        },
+      })
+      .then((res) => unwrap(res, op));
 
-  const text = res.parts
+  const res = await prompt(opts.prompt, "session.prompt");
+
+  // Some sessions end without the agent ever calling post_review — the PR gets
+  // no review and no comments. Continue the same session (full context intact)
+  // with one nudge. ponytail: one nudge, no retry loop — a model that ignores a
+  // direct instruction twice won't do better on a third.
+  let parts = res.parts;
+  if (opts.hasPosted && !opts.hasPosted()) {
+    const nudge = await prompt(
+      "You ended the session without posting the review to GitHub. Post it now with the " +
+        "post_review tool (summary + your inline findings). If you found nothing to flag, " +
+        "post a short summary-only review with event COMMENT. If you already posted it, " +
+        "just say so.",
+      "session.prompt(nudge)",
+    );
+    parts = [...parts, ...nudge.parts];
+  }
+
+  const text = parts
     .filter((p) => p.type === "text")
     .map((p) => (p as { text: string }).text)
     .join("\n");
