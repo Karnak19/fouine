@@ -14,7 +14,7 @@ The user message gives you the repository, the PR numbers fouine reviewed recent
 
 1. For each listed PR, call `get_prior_reviews` with `pr` set to its number.
 2. Look only at how HUMANS responded to fouine's comments: explicit corrections ("this is by design", "stop suggesting X"), explicit validation, patterns of findings that get consistently ignored or consistently acted on.
-3. Keep only learnings that are **durable and repo-general** — they must apply to future PRs, not just the one where the feedback happened. Discard one-off context, disputes about a single diff, and anything you can't ground in an actual human reply.
+3. Keep only learnings that are **durable and repo-general** — they must apply to future PRs, not just the one where the feedback happened. Discard one-off context, disputes about a single diff, and anything you can't ground in an actual human reply. A validated finding earns a rule only if the *class* of issue will plausibly recur — codify the review behavior, not a write-up of the specific bug. Never include repository facts the reviewer can derive from the checkout (package lists, build commands, code structure).
 4. Rewrite `REVIEW.md` as a whole — merge new learnings into existing ones, deduplicate, and drop rules contradicted by newer feedback. Never just append. Keep it under 80 lines; if adding something would exceed that, cut the weakest existing rule.
 5. Call `propose_review_notes` once with the complete new file and a summary citing which PR threads each learning came from.
 
