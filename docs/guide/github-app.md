@@ -13,7 +13,7 @@ fouine connects to GitHub as a GitHub App. This gives it per-repo access, webhoo
 
 3. Set **Repository permissions**:
    - **Pull requests**: Read & Write (to post comments and reviews)
-   - **Contents**: Read (to clone repos)
+   - **Contents**: Read & Write (Read to clone repos; Write so the self-improvement loop can propose `REVIEW.md` updates as a PR — Read alone works if you don't use it)
 
 4. Set **Subscribe to events**:
    - **Pull request**

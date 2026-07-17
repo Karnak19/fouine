@@ -15,12 +15,13 @@ import { OpenCodeService } from "~/effect/opencode";
 import { reviewToolEnv } from "~/review/opencode";
 import { type ReviewError } from "~/effect/errors";
 
-function cloneUrl(token: string, fullName: string): string {
+export function cloneUrl(token: string, fullName: string): string {
   return `https://x-access-token:${token}@github.com/${fullName}.git`;
 }
 
 // Repo-local REVIEW.md if the repo ships one — additive guidance. Never fails.
-const readRepoNotes = (worktree: string): Effect.Effect<string | undefined> =>
+// Also read by the improver pipeline as the file it proposes updates to.
+export const readRepoNotes = (worktree: string): Effect.Effect<string | undefined> =>
   Effect.tryPromise(() => readFile(resolve(worktree, "REVIEW.md"), "utf8")).pipe(
     Effect.map((s) => s.trim() || undefined),
     Effect.catchAll(() => Effect.succeed(undefined)),

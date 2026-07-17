@@ -37,6 +37,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 - **Draft PRs are skipped** — a review fires once the PR is marked ready for review
 - **`REVIEW.md`** — drop a `REVIEW.md` at the repo root to give the reviewer repo-specific guidance (focus areas, conventions, files to care about). It's appended to whatever prompt is active (default or per-repo override)
 - **Severity** — the reviewer uses `REQUEST_CHANGES` only for correctness/security/data-loss risks it's confident about; everything else is a non-blocking `COMMENT`
+- **Self-improvement loop** — once a day (per repo, when there's new feedback), an outer-loop improver agent re-reads the review threads fouine participated in, distills how humans responded to its comments, and proposes an updated `REVIEW.md` as a PR on your repo. Merge it and every future review picks up the learning; close it to reject. Also triggerable on demand via `POST /api/repos/:owner/:name/improve`. Needs the `contents:write` App permission (branch + commit for the proposal PR)
 
 ## Tech stack
 
