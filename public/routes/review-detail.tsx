@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { api, type FindingRow } from "@/lib/api";
@@ -63,33 +63,55 @@ export default function ReviewDetailPage() {
   const { data: review } = useQuery({
     queryKey: ["reviews", numId],
     queryFn: () => api.reviews.get(numId),
+    refetchOnWindowFocus: false,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
       return s === "running" || s === "pending" ? 2000 : false;
     },
   });
+  const inProgress = review?.status === "running" || review?.status === "pending";
+  const [tab, setTab] = useState<"review" | "transcript">("review");
+
   const { data: session } = useQuery({
     queryKey: ["reviews", numId, "session"],
-    queryFn: () => api.reviews.session(numId) as Promise<Session>,
+    queryFn: async () => {
+      const s = (await api.reviews.session(numId)) as Session & { error?: string };
+      // The server 200s with {error} when `opencode export` transiently fails;
+      // throw so react-query keeps the last good transcript instead of
+      // flashing an empty one.
+      if (s?.error) throw new Error(s.error);
+      return s;
+    },
     retry: false,
-    refetchInterval: () =>
-      review?.status === "running" || review?.status === "pending" ? 2000 : false,
+    // No session_id yet (pending) → nothing to export, don't poll a 404.
+    enabled: !!review?.session_id,
+    refetchOnWindowFocus: false,
+    // The transcript is the heavy payload (opencode export per request) —
+    // only poll it while it's actually on screen. The meta bar above the
+    // tabs keeps the last cached value.
+    refetchInterval: inProgress && tab === "transcript" ? 2000 : false,
   });
   const { data: findings } = useQuery({
     queryKey: ["reviews", numId, "findings"],
     queryFn: () => api.reviews.findings(numId),
-    refetchInterval: () =>
-      review?.status === "running" || review?.status === "pending" ? 2000 : false,
+    refetchOnWindowFocus: false,
+    refetchInterval: inProgress ? 2000 : false,
   });
-  const [tab, setTab] = useState<"review" | "transcript">("review");
 
-  const inProgress = review?.status === "running" || review?.status === "pending";
   // Auto-select the tab when the review's progress state changes: transcript
   // while running, review once finished. Manual switching within a state is
-  // preserved since this only fires on transitions.
+  // preserved since this only fires on transitions. On the running→done
+  // transition, refetch session/findings once — their polls stop when we
+  // observe "completed", which can predate the runner's final writes.
+  const wasInProgress = useRef(false);
   useEffect(() => {
     if (!review) return;
     setTab(inProgress ? "transcript" : "review");
+    if (wasInProgress.current && !inProgress) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "session"] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
+    }
+    wasInProgress.current = inProgress;
   }, [inProgress, review?.id]);
 
   if (!review) {
@@ -139,7 +161,7 @@ export default function ReviewDetailPage() {
           </div>
         </div>
         <Badge status={review.status} />
-        {(review.status === "running" || review.status === "pending") && (
+        {inProgress && (
           <Button
             variant="destructive"
             size="sm"
@@ -153,9 +175,7 @@ export default function ReviewDetailPage() {
         <Button
           variant="outline"
           size="sm"
-          disabled={
-            retryMut.isPending || review.status === "running" || review.status === "pending"
-          }
+          disabled={retryMut.isPending || inProgress}
           onClick={() => retryMut.mutate()}
         >
           <RotateCw size={14} />
@@ -223,7 +243,7 @@ export default function ReviewDetailPage() {
               <ScrollText size={13} /> Transcript
             </button>
           </div>
-          {(review?.status === "running" || review?.status === "pending") && (
+          {inProgress && (
             <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
               <span className="relative grid place-items-center">
                 <Radio size={12} />
@@ -240,7 +260,7 @@ export default function ReviewDetailPage() {
             owner={owner}
             name={name}
             pr={review.pr_number}
-            pending={review.status === "running" || review.status === "pending"}
+            pending={inProgress}
           />
         ) : session == null ? (
           <p className="text-sm text-zinc-600">Loading transcript…</p>
