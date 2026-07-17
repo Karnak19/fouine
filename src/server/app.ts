@@ -8,6 +8,7 @@ import { auth, migrateAuth } from "~/server/auth";
 import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills } from "~/skills";
+import { runImproverSweep } from "~/review";
 
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
@@ -196,4 +197,11 @@ export async function boot(): Promise<void> {
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });
   });
+  // Outer-loop improver: hourly tick, but each repo runs at most once a day and
+  // only when it has new completed reviews (see runImproverForRepo) — so the
+  // cadence survives restarts without a boot-time run.
+  setInterval(
+    () => runImproverSweep().catch((err) => log.error("improver sweep failed", { error: String(err) })),
+    60 * 60 * 1000,
+  );
 }

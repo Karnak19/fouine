@@ -17,11 +17,13 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [improverModel, setImproverModel] = useState("");
 
   useEffect(() => {
     if (settings) {
       setModel(settings.opencode_model ?? "");
       setPrompt(settings.default_prompt ?? "");
+      setImproverModel(settings.improver_model ?? "");
     }
   }, [settings]);
 
@@ -31,6 +33,7 @@ export default function SettingsPage() {
       if (apiKey.trim()) data.opencode_api_key = apiKey.trim();
       if (model.trim()) data.opencode_model = model.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
+      if (improverModel.trim()) data.improver_model = improverModel.trim();
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -78,6 +81,19 @@ export default function SettingsPage() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="improver_model">Improver model</Label>
+              <Input
+                id="improver_model"
+                placeholder="e.g. opencode-go/kimi-k3 — defaults to the review model"
+                value={improverModel}
+                onChange={(e) => setImproverModel(e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                Used by the daily REVIEW.md improver. It runs rarely but its output shapes every
+                future review — worth a stronger model than the reviewer.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="prompt">Default review prompt</Label>

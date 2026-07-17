@@ -106,6 +106,7 @@ export interface Settings {
   opencode_api_key?: string;
   opencode_model?: string;
   default_prompt?: string;
+  improver_model?: string;
 }
 
 export interface SkillRow {

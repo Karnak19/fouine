@@ -1,14 +1,24 @@
 import { tool } from "@opencode-ai/plugin";
-import { fouineCtx, ghHeaders } from "./_ctx";
+import { fouineRepoCtx, ghHeaders } from "./_ctx";
 
 export default tool({
   description:
-    "Fetch this pull request's prior reviews and comments, including the author's replies. " +
-    "Call this FIRST on a re-review (the author pushed new commits) to recover what you already " +
-    "flagged and how the author responded, so you don't re-raise resolved or by-design points.",
-  args: {},
-  async execute() {
-    const { token, owner, repo, pr } = fouineCtx();
+    "Fetch a pull request's prior reviews and comments, including the author's replies. " +
+    "On a re-review (the author pushed new commits), call this FIRST to recover what you already " +
+    "flagged and how the author responded, so you don't re-raise resolved or by-design points. " +
+    "Defaults to the PR under review; pass `pr` to read another PR's threads (improver runs).",
+  args: {
+    pr: tool.schema
+      .number()
+      .int()
+      .nullable()
+      .default(null)
+      .describe("PR number to fetch. Omit for the PR currently under review."),
+  },
+  async execute(args) {
+    const { token, owner, repo } = fouineRepoCtx();
+    const pr = args.pr ?? process.env.FOUINE_PR_NUMBER;
+    if (!pr) throw new Error("no PR number: pass `pr` or run in a PR-bound review");
     const h = ghHeaders(token);
     const base = `https://api.github.com/repos/${owner}/${repo}`;
 

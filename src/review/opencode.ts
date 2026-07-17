@@ -65,6 +65,14 @@ export function reviewToolEnv(ctx: ReviewToolContext): Record<string, string> {
   };
 }
 
+// Env for the outer-loop improver: repo-scoped, deliberately no FOUINE_PR_NUMBER
+// so the PR-bound tools (post_review/post_comment) fail loudly if the agent
+// somehow reaches for them.
+export function improveToolEnv(ctx: Omit<ReviewToolContext, "prNumber">): Record<string, string> {
+  const { FOUINE_PR_NUMBER: _pr, ...env } = reviewToolEnv({ ...ctx, prNumber: 0 });
+  return env;
+}
+
 export interface RunResult {
   sessionId: string;
   text: string;

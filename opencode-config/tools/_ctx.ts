@@ -10,15 +10,25 @@ export interface FouineCtx {
   pr: string;
 }
 
-export function fouineCtx(): FouineCtx {
+// Repo-scoped context — what every run has, PR-bound or not (the improver runs
+// against a repo, not a PR).
+export function fouineRepoCtx(): Omit<FouineCtx, "pr"> {
   const token = process.env.FOUINE_GITHUB_TOKEN;
   const owner = process.env.FOUINE_REPO_OWNER;
   const repo = process.env.FOUINE_REPO_NAME;
-  const pr = process.env.FOUINE_PR_NUMBER;
-  if (!token || !owner || !repo || !pr) {
+  if (!token || !owner || !repo) {
     throw new Error("fouine GitHub context env vars are not set");
   }
-  return { token, owner, repo, pr };
+  return { token, owner, repo };
+}
+
+export function fouineCtx(): FouineCtx {
+  const base = fouineRepoCtx();
+  const pr = process.env.FOUINE_PR_NUMBER;
+  if (!pr) {
+    throw new Error("fouine GitHub context env vars are not set");
+  }
+  return { ...base, pr };
 }
 
 // GitHub REST headers. Pass `{ json: true }` for requests with a JSON body (POST);

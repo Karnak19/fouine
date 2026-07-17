@@ -21,6 +21,12 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         catch: (cause) => new GitHubError({ op: "auth", cause }),
       }),
 
+    defaultBranch: (octokit: Octokit, owner: string, repo: string): Effect.Effect<string, GitHubError> =>
+      Effect.tryPromise({
+        try: async () => (await octokit.rest.repos.get({ owner, repo })).data.default_branch,
+        catch: (cause) => new GitHubError({ op: "repos.get", cause }),
+      }),
+
     // Check create/update are best-effort: a repo without checks:write must not
     // fail the review. Both swallow their own errors (log + carry on), exactly
     // as the imperative startCheck/finishCheck did.

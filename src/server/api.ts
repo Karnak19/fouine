@@ -4,7 +4,7 @@ import { repos, reviews, settings, findings } from "~/db";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
-import { runReviewForPR, abortReview } from "~/review";
+import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
@@ -60,6 +60,21 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     const full = `${params.owner}/${params.name}`;
     repos.remove.run({ $full_name: full });
     set.status = 204;
+  })
+
+  // Manual trigger for the outer-loop improver (the hourly sweep is the
+  // automatic path). Fire-and-forget like retry: 202 means "queued".
+  .post("/repos/:owner/:name/improve", ({ params, set }) => {
+    const full = `${params.owner}/${params.name}`;
+    const repo = repos.get.get({ $full_name: full });
+    if (!repo) return new Response("Not found", { status: 404 });
+    runImproverForRepo(full, true)
+      .then((out) => {
+        if (!out.started) log.info("improver skipped", { repo: full, reason: out.reason });
+      })
+      .catch((err) => log.error("improver failed", { repo: full, error: String(err) }));
+    set.status = 202;
+    return { ok: true };
   })
 
   .get("/repos/:owner/:name/reviews", ({ params }) => {
@@ -177,6 +192,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       if (body.default_prompt) {
         settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
       }
+      if (body.improver_model) {
+        settings.set.run({ $key: SETTINGS.IMPROVER_MODEL, $value: body.improver_model });
+      }
       const all = settings.all.all();
       return Object.fromEntries(all.map((s) => [s.key, s.value]));
     },
@@ -185,6 +203,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         opencode_api_key: t.Optional(t.String()),
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
+        improver_model: t.Optional(t.String()),
       }),
     },
   )

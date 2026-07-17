@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { PullRequestInfo } from "~/review/types";
 import { AppLayer, reviewPipeline } from "~/effect";
+import { improvePipeline, type ImproveTarget } from "~/effect/improve";
 import { log } from "~/server/log";
 
 // ponytail: tracks live reviews so the dashboard Stop button can abort the
@@ -48,6 +49,24 @@ export function runReviewForPR(
   const ctrl = new AbortController();
   let id: number | undefined;
   const program = reviewPipeline(pr, trigger, ctrl.signal, (rid) => {
+    id = rid;
+    activeReviews.set(rid, { ctrl, key });
+  }).pipe(Effect.provide(AppLayer));
+
+  return Effect.runPromise(program).finally(() => {
+    if (id !== undefined) activeReviews.delete(id);
+  });
+}
+
+// Same bridge for the outer-loop improver. Registers in the same map, so the
+// dashboard Stop button and re-trigger supersession work like for reviews.
+export function runImprove(target: ImproveTarget): Promise<void> {
+  const key = `${target.repoFullName}#improve`;
+  supersedeInFlight(key);
+
+  const ctrl = new AbortController();
+  let id: number | undefined;
+  const program = improvePipeline(target, ctrl.signal, (rid) => {
     id = rid;
     activeReviews.set(rid, { ctrl, key });
   }).pipe(Effect.provide(AppLayer));

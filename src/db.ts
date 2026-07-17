@@ -344,6 +344,19 @@ export const reviews = {
      OFFSET (SELECT CAST(0.95 * (COUNT(*) - 1) AS INTEGER)
              FROM reviews WHERE status = 'completed' AND completed_at IS NOT NULL)`,
   ),
+  // PRs with a completed review since a timestamp — the improver's work list.
+  // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0).
+  // LIMIT keeps one improver session's context bounded on a busy repo; the
+  // oldest excess PRs are simply dropped from that pass.
+  reviewedPRsSince: db.prepare<{ pr_number: number }, { $repo: string; $since: number }>(
+    `SELECT pr_number, MAX(created_at) AS last
+     FROM reviews
+     WHERE repo_full_name = $repo AND status = 'completed'
+       AND pr_number > 0 AND created_at > $since
+     GROUP BY pr_number
+     ORDER BY last DESC
+     LIMIT 20`,
+  ),
   topCost: db.prepare<TopCostRow, []>(
     `SELECT id, repo_full_name, pr_number, cost, tokens, model
      FROM reviews
