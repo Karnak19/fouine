@@ -1,5 +1,5 @@
 import { expect, test, mock } from "bun:test";
-import { db, repos, reviews, settings, settingValue } from "~/db";
+import { db, repos, reviews, settingValue } from "~/db";
 import type { ImproveTarget } from "~/effect/improve";
 
 // Stub the runner so gating tests never touch git/opencode. Must be registered
@@ -63,12 +63,11 @@ test("improver gating: runs on fresh feedback, then once a day, never without re
     reason: "ran within the last day",
   });
 
-  // force (manual trigger) skips the day gate but still needs new reviews.
-  // Backdate the marker below PR 13's created_at (same-second granularity).
-  settings.set.run({ $key: `improver_last_run:${FULL}`, $value: String(marker - 50) });
+  // force (manual trigger) skips the day gate AND the marker — it re-reads the
+  // recent threads (recovery path when a completed run's proposal never landed).
   expect((await runImproverForRepo(FULL, true)).started).toBe(true);
   expect(runImprove).toHaveBeenCalledTimes(2);
-  expect(runImprove.mock.calls[1]?.[0]?.prNumbers).toEqual([13]);
+  expect(runImprove.mock.calls[1]?.[0]?.prNumbers?.sort()).toEqual([11, 12, 13]);
 });
 
 test("improver gating: failed run does not advance the marker", async () => {

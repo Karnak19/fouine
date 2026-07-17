@@ -15,9 +15,12 @@ export interface ImproveOutcome {
   reason?: string;
 }
 
-// force=true (manual dashboard trigger) skips the once-a-day gate but still
-// requires new completed reviews — with no threads to read there is nothing
-// for the agent to learn from.
+// force=true (manual dashboard trigger) skips the once-a-day gate AND the
+// marker: it re-reads the most recent completed reviews even if a prior run
+// already covered them. That's the recovery path when a run "completed" but
+// its proposal never landed (e.g. propose_review_notes failed on missing
+// contents:write) — the marker has advanced, so only force can revisit those
+// threads. Re-reading is harmless: the agent rewrites REVIEW.md as a whole.
 export async function runImproverForRepo(fullName: string, force = false): Promise<ImproveOutcome> {
   const repo = repos.get.get({ $full_name: fullName });
   if (!repo) return { started: false, reason: "unknown repo" };
@@ -28,7 +31,7 @@ export async function runImproverForRepo(fullName: string, force = false): Promi
   if (!force && now - lastRun < DAY) return { started: false, reason: "ran within the last day" };
 
   const prNumbers = reviews.reviewedPRsSince
-    .all({ $repo: fullName, $since: lastRun })
+    .all({ $repo: fullName, $since: force ? 0 : lastRun })
     .map((r) => r.pr_number);
   if (!prNumbers.length) return { started: false, reason: "no new completed reviews" };
 

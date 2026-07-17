@@ -127,9 +127,17 @@ export function improvePipeline(
     yield* run.pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
-          const message = signal.aborted ? "Stopped by user" : String(err.cause);
+          const superseded = signal.aborted && signal.reason === "superseded";
+          const message = !signal.aborted
+            ? String(err.cause)
+            : superseded
+              ? "Superseded by a newer run"
+              : "Stopped by user";
           if (signal.aborted) {
-            log.info("improver stopped", { repo: target.repoFullName, review: id });
+            log.info(superseded ? "improver superseded" : "improver stopped", {
+              repo: target.repoFullName,
+              review: id,
+            });
           } else {
             log.error("improver failed", {
               repo: target.repoFullName,
