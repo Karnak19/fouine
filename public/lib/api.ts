@@ -142,6 +142,8 @@ export const api = {
       request<ReviewRow[]>(`/repos/${owner}/${name}/reviews`),
     prReviews: (owner: string, name: string, number: number) =>
       request<ReviewRow[]>(`/repos/${owner}/${name}/pr/${number}`),
+    improve: (owner: string, name: string) =>
+      request<{ ok: boolean }>(`/repos/${owner}/${name}/improve`, { method: "POST" }),
   },
   reviews: {
     list: () => request<ReviewRow[]>("/reviews"),

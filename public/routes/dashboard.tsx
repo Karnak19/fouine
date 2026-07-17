@@ -348,7 +348,8 @@ function TopCost({ rows }: { rows: Stats["topCost"] }) {
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-mono text-sm text-zinc-200 truncate">
-                    {r.repo_full_name}#{r.pr_number}
+                    {r.repo_full_name}
+                    {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                   </div>
                   {r.model && <div className="text-xs text-zinc-500 truncate">{r.model}</div>}
                 </div>
@@ -492,7 +493,8 @@ function ActivityRow({ r }: { r: ReviewRow }) {
         <Badge status={r.status} />
         <div className="min-w-0 flex-1">
           <div className="font-mono text-sm text-zinc-200 truncate">
-            {r.repo_full_name}#{r.pr_number}
+            {r.repo_full_name}
+            {r.pr_number > 0 ? `#${r.pr_number}` : ""}
           </div>
           {r.title && <div className="text-xs text-zinc-500 truncate">{r.title}</div>}
         </div>

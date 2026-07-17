@@ -60,23 +60,27 @@ function ReviewRow({ r }: { r: ReviewRow }) {
       <TableCell className="text-zinc-500 tabular-nums">{r.id}</TableCell>
       <TableCell className="font-mono text-sm text-zinc-200">{r.repo_full_name}</TableCell>
       <TableCell>
-        <div className="flex items-center gap-1.5">
-          <Link
-            to="/repos/$owner/$name/pr/$number"
-            params={{ owner, name, number: String(r.pr_number) }}
-            className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
-          >
-            #{r.pr_number}
-          </Link>
-          <a
-            href={`https://github.com/${owner}/${name}/pull/${r.pr_number}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-zinc-500 hover:text-zinc-300"
-          >
-            <ExternalLink size={12} />
-          </a>
-        </div>
+        {r.trigger === "improve" ? (
+          <span className="text-sm text-zinc-400">improver</span>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Link
+              to="/repos/$owner/$name/pr/$number"
+              params={{ owner, name, number: String(r.pr_number) }}
+              className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
+            >
+              #{r.pr_number}
+            </Link>
+            <a
+              href={`https://github.com/${owner}/${name}/pull/${r.pr_number}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-zinc-500 hover:text-zinc-300"
+            >
+              <ExternalLink size={12} />
+            </a>
+          </div>
+        )}
       </TableCell>
       <TableCell>
         <Badge status={r.status} />
