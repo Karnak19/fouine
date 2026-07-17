@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Trash2, ExternalLink, ChevronRight } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo } from "@/lib/format";
 
@@ -34,11 +34,19 @@ export default function RepoDetailPage() {
     queryFn: () => api.repos.reviews(owner, name),
   });
 
-  // Group reviews by PR — reviews come newest-first, so each group's head is the
-  // latest run; groups sort by that latest run, newest PR activity first.
+  // Improver runs ride the reviews table with trigger 'improve' (pr_number 0),
+  // so split them out — they aren't PR reviews and get their own list.
+  const improverRuns = useMemo(
+    () => reviews.filter((r) => r.trigger === "improve"),
+    [reviews],
+  );
+
+  // Group PR reviews by PR — reviews come newest-first, so each group's head is
+  // the latest run; groups sort by that latest run, newest PR activity first.
   const prGroups = useMemo(() => {
     const map = new Map<number, ReviewRow[]>();
     for (const r of reviews) {
+      if (r.trigger === "improve") continue;
       const arr = map.get(r.pr_number);
       if (arr) arr.push(r);
       else map.set(r.pr_number, [r]);
@@ -66,6 +74,10 @@ export default function RepoDetailPage() {
         enabled: enabled ? 1 : 0,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
+  });
+
+  const improveMut = useMutation({
+    mutationFn: () => api.repos.improve(owner, name),
   });
 
   const deleteMut = useMutation({
@@ -147,6 +159,16 @@ export default function RepoDetailPage() {
               </Button>
               <Button
                 type="button"
+                variant="outline"
+                disabled={improveMut.isPending || improveMut.isSuccess}
+                onClick={() => improveMut.mutate()}
+                title="Read human feedback on this repo's review threads and open a REVIEW.md PR"
+              >
+                <Sparkles size={14} />
+                {improveMut.isSuccess ? "Improver queued" : "Run improver"}
+              </Button>
+              <Button
+                type="button"
                 variant="destructive"
                 onClick={() => {
                   if (confirm("Delete this repository?")) deleteMut.mutate();
@@ -159,6 +181,55 @@ export default function RepoDetailPage() {
           </form>
         </CardContent>
       </Card>
+
+      {improverRuns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Improver runs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Started</TableHead>
+                  <TableHead className="w-8" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {improverRuns.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <Link
+                        to="/reviews/$id"
+                        params={{ id: String(r.id) }}
+                        className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
+                      >
+                        #{r.id}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge status={r.status} />
+                    </TableCell>
+                    <TableCell
+                      className="text-zinc-500 text-sm text-right"
+                      title={new Date(r.created_at * 1000).toLocaleString()}
+                    >
+                      {timeAgo(r.created_at)}
+                    </TableCell>
+                    <TableCell className="text-zinc-600">
+                      <Link to="/reviews/$id" params={{ id: String(r.id) }}>
+                        <ChevronRight size={16} />
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

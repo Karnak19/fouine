@@ -48,7 +48,15 @@ export default function ReviewDetailPage() {
   const navigate = useNavigate();
 
   const retryMut = useMutation({
-    mutationFn: () => api.reviews.retry(numId),
+    // Improver runs aren't bound to a PR — retrying one re-runs the improver
+    // for its repo, not the PR-review pipeline (which would fetch PR #0).
+    mutationFn: () => {
+      if (review?.trigger === "improve") {
+        const [owner, name] = review.repo_full_name.split("/");
+        return api.repos.improve(owner, name);
+      }
+      return api.reviews.retry(numId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       navigate({ to: "/reviews" });
@@ -106,7 +114,8 @@ export default function ReviewDetailPage() {
   const wasInProgress = useRef(false);
   useEffect(() => {
     if (!review) return;
-    setTab(inProgress ? "transcript" : "review");
+    // Improver runs post no findings — the transcript is the whole story.
+    setTab(inProgress || review.trigger === "improve" ? "transcript" : "review");
     if (wasInProgress.current && !inProgress) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId, "session"] });
       queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
@@ -124,6 +133,7 @@ export default function ReviewDetailPage() {
   }
 
   const [owner, name] = review.repo_full_name.split("/");
+  const isImprover = review.trigger === "improve";
   const messages = session?.messages ?? [];
 
   return (
@@ -141,15 +151,25 @@ export default function ReviewDetailPage() {
             {review.title ?? `Review #${review.id}`}
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
-            <a
-              href={`https://github.com/${owner}/${name}/pull/${review.pr_number}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-mono text-zinc-400 hover:text-zinc-200"
-            >
-              {review.repo_full_name}#{review.pr_number}
-              <ExternalLink size={12} className="opacity-50" />
-            </a>
+            {isImprover ? (
+              <Link
+                to="/repos/$owner/$name"
+                params={{ owner, name }}
+                className="font-mono text-zinc-400 hover:text-zinc-200"
+              >
+                {review.repo_full_name}
+              </Link>
+            ) : (
+              <a
+                href={`https://github.com/${owner}/${name}/pull/${review.pr_number}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-zinc-400 hover:text-zinc-200"
+              >
+                {review.repo_full_name}#{review.pr_number}
+                <ExternalLink size={12} className="opacity-50" />
+              </a>
+            )}
             <span title={new Date(review.created_at * 1000).toLocaleString()}>
               started {timeAgo(review.created_at)}
             </span>
@@ -179,7 +199,7 @@ export default function ReviewDetailPage() {
           onClick={() => retryMut.mutate()}
         >
           <RotateCw size={14} />
-          Retry
+          {isImprover ? "Re-run" : "Retry"}
         </Button>
       </div>
 
@@ -216,7 +236,11 @@ export default function ReviewDetailPage() {
 
       <div>
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
+          <div
+            className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
+              isImprover ? "hidden" : ""
+            }`}
+          >
             <button
               type="button"
               onClick={() => setTab("review")}
