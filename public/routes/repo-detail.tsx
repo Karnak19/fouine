@@ -20,6 +20,7 @@ import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-
 import { Link } from "@tanstack/react-router";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Stat } from "@/components/stat";
 
 export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
@@ -361,15 +362,6 @@ export default function RepoDetailPage() {
       </Card>
       </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="px-4 py-3.5">
-      <div className="text-[0.7rem] font-medium uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="mt-0.5 text-2xl font-semibold tabular-nums text-zinc-100">{value}</div>
     </div>
   );
 }
