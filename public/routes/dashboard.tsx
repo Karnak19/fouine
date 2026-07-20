@@ -11,6 +11,7 @@ import {
   type TriggerStatsRow,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
 import { Inbox } from "lucide-react";
@@ -442,41 +443,6 @@ function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
         </div>
       </div>
     </section>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  accent,
-  pulse,
-}: {
-  label: string;
-  value: string | null;
-  sub?: string;
-  accent?: boolean;
-  pulse?: boolean;
-}) {
-  return (
-    <div className="px-4 py-3.5">
-      <div className="flex items-center gap-1.5 text-[0.7rem] font-medium uppercase tracking-wide text-zinc-500">
-        {pulse && (
-          <span className="h-1.5 w-1.5 rounded-full bg-ember-400 animate-[fouine-pulse_1.4s_ease-in-out_infinite]" />
-        )}
-        {label}
-      </div>
-      {value == null ? (
-        <div className="mt-1.5 h-7 w-12 rounded bg-zinc-800/70 animate-pulse" />
-      ) : (
-        <div
-          className={`mt-0.5 text-2xl font-semibold tabular-nums ${accent ? "text-ember-300" : "text-zinc-100"}`}
-        >
-          {value}
-        </div>
-      )}
-      {sub && <div className="text-xs text-zinc-500 tabular-nums">{sub}</div>}
-    </div>
   );
 }
 

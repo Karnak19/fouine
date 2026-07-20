@@ -18,7 +18,9 @@ import {
 } from "@/components/ui/table";
 import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { timeAgo } from "@/lib/format";
+import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { Stat } from "@/components/stat";
 
 export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
@@ -52,6 +54,23 @@ export default function RepoDetailPage() {
       else map.set(r.pr_number, [r]);
     }
     return [...map.values()].sort((a, b) => b[0].id - a[0].id);
+  }, [reviews]);
+
+  // Repo-level insight computed from the reviews we already fetch — same shape as
+  // the dashboard's stat strip, scoped to this repo. Improver runs don't count.
+  const insight = useMemo(() => {
+    const prReviews = reviews.filter((r) => r.trigger !== "improve");
+    const completed = prReviews.filter((r) => r.status === "completed");
+    const finished = completed.length + prReviews.filter((r) => r.status === "failed").length;
+    const durations = completed
+      .map((r) => (r.completed_at ?? 0) - r.created_at)
+      .filter((d) => d > 0);
+    return {
+      count: prReviews.length,
+      successRate: finished ? Math.round((completed.length / finished) * 100) : null,
+      totalCost: prReviews.length ? prReviews.reduce((s, r) => s + (r.cost ?? 0), 0) : null,
+      avgTime: durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null,
+    };
   }, [reviews]);
 
   const [model, setModel] = useState("");
@@ -90,7 +109,7 @@ export default function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-6 max-w-5xl">
         <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-8 w-64 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-64 rounded-lg bg-zinc-900/60 animate-pulse" />
@@ -99,7 +118,7 @@ export default function RepoDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-5xl">
       <Link
         to="/repos"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
@@ -108,10 +127,48 @@ export default function RepoDetailPage() {
       </Link>
 
       <div>
-        <h1 className="text-2xl font-bold font-mono">{repo.full_name}</h1>
-        <p className="text-sm text-zinc-400">Installation ID: {repo.installation_id}</p>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold font-mono">{repo.full_name}</h1>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 tabular-nums",
+              repo.enabled
+                ? "bg-ember-950/50 text-ember-300 ring-ember-800/40"
+                : "bg-zinc-800/60 text-zinc-400 ring-zinc-700/50",
+            )}
+          >
+            <span
+              className={cn("h-1.5 w-1.5 rounded-full", repo.enabled ? "bg-ember-400" : "bg-zinc-500")}
+            />
+            {repo.enabled ? "auto-review on" : "paused"}
+          </span>
+          <a
+            href={`https://github.com/${owner}/${name}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-zinc-500 transition-colors hover:text-zinc-300"
+            aria-label="Open on GitHub"
+          >
+            <ExternalLink size={14} />
+          </a>
+        </div>
+        <p className="text-sm text-zinc-400 mt-1">Installation ID: {repo.installation_id}</p>
       </div>
 
+      {insight.count > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-zinc-800 divide-x divide-y sm:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
+          <Stat label="Reviews" value={String(insight.count)} />
+          <Stat
+            label="Success"
+            value={insight.successRate == null ? "—" : `${insight.successRate}%`}
+          />
+          <Stat label="Total cost" value={formatCost(insight.totalCost) ?? "—"} />
+          <Stat label="Avg review" value={formatSeconds(insight.avgTime) ?? "—"} />
+        </div>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+      <div className="order-1 lg:order-2 lg:sticky lg:top-6">
       <Card>
         <CardHeader>
           <CardTitle>Configuration</CardTitle>
@@ -153,7 +210,7 @@ export default function RepoDetailPage() {
               />
               Auto-review new PRs on this repo
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={updateMut.isPending}>
                 Save
               </Button>
@@ -181,7 +238,9 @@ export default function RepoDetailPage() {
           </form>
         </CardContent>
       </Card>
+      </div>
 
+      <div className="order-2 lg:order-1 space-y-6">
       {improverRuns.length > 0 && (
         <Card>
           <CardHeader>
@@ -301,6 +360,8 @@ export default function RepoDetailPage() {
           )}
         </CardContent>
       </Card>
+      </div>
+      </div>
     </div>
   );
 }
