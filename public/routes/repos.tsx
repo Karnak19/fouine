@@ -99,23 +99,25 @@ export default function ReposPage() {
           <p className="text-xs text-zinc-600 mt-1">Add one above to get started.</p>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Repository</TableHead>
-              <TableHead>Auto-review</TableHead>
-              <TableHead>Installation</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead className="text-right">Registered</TableHead>
-              <TableHead className="w-8" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {repos.map((r) => (
-              <RepoRow key={r.full_name} repo={r} />
-            ))}
-          </TableBody>
-        </Table>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Repository</TableHead>
+                <TableHead>Auto-review</TableHead>
+                <TableHead>Installation</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead className="text-right">Registered</TableHead>
+                <TableHead className="w-8" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {repos.map((r) => (
+                <RepoRow key={r.full_name} repo={r} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
@@ -156,7 +158,7 @@ function RepoRow({ repo }: { repo: RepoRow }) {
           to="/repos/$owner/$name"
           params={{ owner, name }}
           className={cn(
-            "hover:underline font-mono text-sm",
+            "font-mono text-sm transition-colors hover:text-ember-300",
             enabled ? "text-zinc-100" : "text-zinc-500",
           )}
         >
@@ -177,7 +179,14 @@ function RepoRow({ repo }: { repo: RepoRow }) {
         {timeAgo(repo.created_at)}
       </TableCell>
       <TableCell className="text-zinc-600">
-        <ChevronRight size={16} />
+        <Link
+          to="/repos/$owner/$name"
+          params={{ owner, name }}
+          className="block transition-colors hover:text-zinc-300"
+          aria-label={`Open ${repo.full_name}`}
+        >
+          <ChevronRight size={16} />
+        </Link>
       </TableCell>
     </TableRow>
   );
