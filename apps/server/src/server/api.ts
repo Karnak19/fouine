@@ -13,6 +13,7 @@ import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
+import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
 import { streamChat, MAX_TURNS, MAX_QUESTION_CHARS, MAX_PARTS_PER_MESSAGE } from "~/chat";
@@ -440,6 +441,33 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     return { ok: true, live };
   })
 
+  // Catalog for the model autocompletes. Cached in-process; ?refresh=1 rebuilds.
+  .get(
+    "/models",
+    async ({ query }) => {
+      try {
+        const list = await listModels(query.refresh === "1", query.all === "1");
+        return {
+          models: searchModels(list, query.q ?? ""),
+          total: list.length,
+          providers: [...configuredProviders()].sort(),
+        };
+      } catch (e) {
+        // A missing/broken opencode install shouldn't blank the settings page —
+        // the fields stay usable as free text.
+        log.warn("model catalog unavailable", { error: String(e) });
+        return { models: [], total: 0, providers: [], error: String(e) };
+      }
+    },
+    {
+      query: t.Object({
+        q: t.Optional(t.String()),
+        all: t.Optional(t.String()),
+        refresh: t.Optional(t.String()),
+      }),
+    },
+  )
+
   .get("/settings", () => {
     const all = settings.all.all();
     return Object.fromEntries(all.map((s) => [s.key, s.value]));
@@ -450,6 +478,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     ({ body }) => {
       if (body.opencode_api_key) {
         settings.set.run({ $key: SETTINGS.API_KEY, $value: body.opencode_api_key });
+      }
+      if (body.zai_api_key) {
+        settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: body.zai_api_key });
       }
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
@@ -466,6 +497,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     {
       body: t.Object({
         opencode_api_key: t.Optional(t.String()),
+        zai_api_key: t.Optional(t.String()),
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),

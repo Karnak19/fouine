@@ -104,8 +104,18 @@ export interface StatsCharts {
   topFiles: TopFileRow[];
 }
 
+export interface ModelOption {
+  id: string;
+  provider: string;
+  providerName: string;
+  model: string;
+  modelName: string;
+  configured: boolean;
+}
+
 export interface Settings {
   opencode_api_key?: string;
+  zai_api_key?: string;
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
@@ -155,6 +165,13 @@ export const api = {
     // Separate route so the dashboard's /stats payload doesn't carry the
     // latency samples these panels need and it never renders.
     charts: (q: StatsQuery) => request<StatsCharts>(`/stats/charts${qs(q)}`),
+  },
+  models: {
+    // Server-side filtered and capped — the full models.dev catalog is ~1MB.
+    search: (q: string, all = false) =>
+      request<{ models: ModelOption[]; total: number; providers: string[]; error?: string }>(
+        `/models?q=${encodeURIComponent(q)}${all ? "&all=1" : ""}`,
+      ),
   },
   settings: {
     get: () => request<Settings>("/settings"),

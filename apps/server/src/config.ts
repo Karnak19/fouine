@@ -36,6 +36,8 @@ export const config = {
   },
   opencode: {
     apiKey: process.env.OPENCODE_API_KEY,
+    // Z.ai GLM Coding Plan key, used only for `zai-coding-plan/*` models.
+    zaiApiKey: process.env.ZAI_API_KEY,
     // The config dir shipped with the app (agent + custom tools). Points at the
     // in-image opencode-config in prod (Dockerfile sets OPENCODE_CONFIG_DIR), or
     // the checked-in dir in dev. fouine reads this as a *source* only — see below.
