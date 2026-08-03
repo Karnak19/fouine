@@ -20,7 +20,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl bash \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://opencode.ai/install | bash \
+# ponytail: keep in sync with @opencode-ai/sdk in package.json
+ARG OPENCODE_VERSION=1.18.11
+RUN curl -fsSL https://opencode.ai/install | VERSION="$OPENCODE_VERSION" bash \
     && ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode \
     && opencode --version
 
