@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import { api, type ReviewRow } from "@/lib/api";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,6 +17,16 @@ import {
 import { ExternalLink, GitPullRequest, ChevronRight } from "lucide-react";
 
 export default function ReviewsPage() {
+  const queryClient = useQueryClient();
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) queryClient.invalidateQueries({ queryKey: ["reviews"] });
+  }, [resync, queryClient]);
+
   const { data: reviews, isLoading } = useQuery({
     queryKey: ["reviews"],
     queryFn: api.reviews.list,
@@ -21,9 +34,12 @@ export default function ReviewsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Reviews</h1>
-        <p className="text-sm text-zinc-500 mt-1">Every review fouine has run, newest first.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Reviews</h1>
+          <p className="text-sm text-zinc-500 mt-1">Every review fouine has run, newest first.</p>
+        </div>
+        <LiveBadge status={status} />
       </div>
 
       {isLoading ? (

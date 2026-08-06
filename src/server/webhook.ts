@@ -3,6 +3,7 @@ import { repos } from "~/db";
 import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
+import { publishWebhook } from "~/server/events";
 import { log } from "~/server/log";
 
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
@@ -211,6 +212,8 @@ export async function verifyAndDispatch(opts: {
   }
 
   log.info("webhook verified", { delivery: opts.id, event: opts.name });
+
+  publishWebhook(opts.name, opts.id, opts.payload);
 
   await webhooks.verifyAndReceive({
     id: opts.id,

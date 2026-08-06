@@ -19,6 +19,8 @@ import {
 import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { cn } from "@/lib/utils";
 import { Stat } from "@/components/stat";
 
@@ -34,7 +36,32 @@ export default function RepoDetailPage() {
   const { data: reviews = [] as ReviewRow[] } = useQuery({
     queryKey: ["repos", owner, name, "reviews"],
     queryFn: () => api.repos.reviews(owner, name),
+    // Fallback polling while a review runs, in case the SSE stream is down.
+    refetchInterval: (q) => {
+      const list = q.state.data;
+      if (!list) return false;
+      return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
+    },
   });
+
+  // Scoped to this repo: the server only sends events for it, so navigating
+  // between repos re-subscribes cleanly (component instance persists across
+  // param changes, the hook's scope key handles the swap).
+  const { status, resync } = useLiveEvents(`${owner}/${name}`, (e) => {
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+    if (e.type === "repo:updated") {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "reviews"] });
+    }
+  }, [resync, owner, name, queryClient]);
 
   // Improver runs ride the reviews table with trigger 'improve' (pr_number 0),
   // so split them out — they aren't PR reviews and get their own list.
@@ -151,6 +178,7 @@ export default function RepoDetailPage() {
           >
             <ExternalLink size={14} />
           </a>
+          <LiveBadge status={status} />
         </div>
         <p className="text-sm text-zinc-400 mt-1">Installation ID: {repo.installation_id}</p>
       </div>

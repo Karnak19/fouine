@@ -1,6 +1,13 @@
 import { Elysia, t } from "elysia";
 import { $ } from "bun";
 import { repos, reviews, settings, findings } from "~/db";
+import {
+  publishRepoRemoved,
+  publishRepoUpdated,
+  publishReviewEvent,
+  subscribeEvents,
+  type ServerEvent,
+} from "~/server/events";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
@@ -9,7 +16,47 @@ import { withOpencode, runReview } from "~/review/opencode";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
 
+// SSE event ids — monotonically increasing per boot, so reconnects can resume
+// at a known point (we ignore Last-Event-ID; ids exist for the spec).
+let eventSeq = 0;
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
+  // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
+  // so a client can only subscribe to the repo it's viewing); no scope = all
+  // repos. Heartbeat comment every 25s keeps proxies from idling the
+  // connection; the browser's EventSource reconnects natively (with
+  // Last-Event-ID, which we ignore — clients refetch their REST queries on
+  // reconnect, so there are no duplicate events and no missed final state).
+  // Under the /api OAuth gate like the rest of the dashboard.
+  .get("/events", ({ query, request }) => {
+    const repo = (query.repo as string | undefined) ?? null;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (e: ServerEvent) => {
+          controller.enqueue(encoder.encode(`id: ${eventSeq++}\ndata: ${JSON.stringify(e)}\n\n`));
+        };
+        const unsubscribe = subscribeEvents(repo, send);
+        const heartbeat = setInterval(
+          () => controller.enqueue(encoder.encode(`: heartbeat\n\n`)),
+          25_000,
+        );
+        request.signal.addEventListener("abort", () => {
+          clearInterval(heartbeat);
+          unsubscribe();
+          controller.close();
+        });
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      },
+    });
+  })
+
   .get("/repos", () => repos.list.all())
 
   .get("/repos/:owner/:name", ({ params }) => {
@@ -28,7 +75,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $prompt: null,
         $model: null,
       });
-      return repos.get.get({ $full_name: body.full_name });
+      const row = repos.get.get({ $full_name: body.full_name })!;
+      publishRepoUpdated(row);
+      return row;
     },
     { body: t.Object({ full_name: t.String(), installation_id: t.Number() }) },
   )
@@ -45,7 +94,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $model: body.model ?? null,
         $enabled: body.enabled ?? existing.enabled,
       });
-      return repos.get.get({ $full_name: full });
+      const row = repos.get.get({ $full_name: full })!;
+      publishRepoUpdated(row);
+      return row;
     },
     {
       body: t.Object({
@@ -59,6 +110,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .delete("/repos/:owner/:name", ({ params, set }) => {
     const full = `${params.owner}/${params.name}`;
     repos.remove.run({ $full_name: full });
+    publishRepoRemoved(full);
     set.status = 204;
   })
 
@@ -169,6 +221,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       const cur = reviews.byId.get({ $id: id });
       if (cur && (cur.status === "running" || cur.status === "pending")) {
         reviews.fail.run({ $id: id, $error: "Stopped by user" });
+        publishReviewEvent("updated", id);
       }
     }
     log.info("review stopped", { review: id, live });
