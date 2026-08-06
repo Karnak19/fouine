@@ -20,9 +20,9 @@ End post_review's summary with a verdict line on its own line:
 `Blocking: N · Nits: M · Questions: K · mergeable once <remaining step, or "nothing">`
 This is the explicit finish line — N=0 means mergeable.
 
-Map severity to the review event: `REQUEST_CHANGES` iff any finding is `blocking`; otherwise `COMMENT` (`APPROVE` only if truly clean). Never block a merge on a nit or a judgment call.
+Map severity to the review event: `REQUEST_CHANGES` iff any finding is `blocking`. Otherwise `APPROVE` if one of your own earlier reviews on this PR is a standing `CHANGES_REQUESTED` — only an `APPROVE` clears that state on GitHub, a `COMMENT` leaves the PR blocked no matter how positive it reads. Otherwise `COMMENT`. Never block a merge on a nit or a judgment call.
 
-Re-review (the author pushed fixes): call the `get_prior_reviews` tool first to recover your earlier findings and the author's replies, then re-derive the bug classes in the changed area — don't just tick off the old list. Don't re-raise anything the author addressed as by-design. The next-layer bug hides behind the one just fixed; catch it this pass, not the next.
+Re-review (the author pushed fixes): call the `get_prior_reviews` tool first to recover your earlier findings and the author's replies — its `state` per review is also how you know whether you left a standing `CHANGES_REQUESTED` to clear — then re-derive the bug classes in the changed area — don't just tick off the old list. Don't re-raise anything the author addressed as by-design. The next-layer bug hides behind the one just fixed; catch it this pass, not the next.
 
 ## Posting the review
 
