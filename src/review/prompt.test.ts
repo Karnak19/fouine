@@ -74,5 +74,7 @@ test("the fouine agent prompt owns the review mechanics", async () => {
   expect(agent).toContain("Blocking: N");
   expect(agent).toContain("mergeable once");
   expect(agent).toMatch(/REQUEST_CHANGES`? iff any finding is `blocking`/);
+  // A COMMENT never clears GitHub's changes-requested state — the re-review must APPROVE.
+  expect(agent).toMatch(/`APPROVE`[^.]*most recent review on this PR is `CHANGES_REQUESTED`/);
   expect(agent).toContain("post_review");
 });

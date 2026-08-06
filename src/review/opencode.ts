@@ -155,8 +155,8 @@ export async function runReview(
     const nudge = await prompt(
       "You ended the session without posting the review to GitHub. Post it now with the " +
         "post_review tool (summary + your inline findings). If you found nothing to flag, " +
-        "post a short summary-only review with event COMMENT. If you already posted it, " +
-        "just say so.",
+        "post a short summary-only review — pick `event` by the severity rule in your " +
+        "instructions, don't default to COMMENT. If you already posted it, just say so.",
       "session.prompt(nudge)",
     );
     parts = [...parts, ...nudge.parts];
