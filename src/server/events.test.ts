@@ -95,6 +95,23 @@ test("publishWebhook extracts the repo from the payload", () => {
   expect(got[0]).toMatchObject({ type: "webhook:received", repo: "a/b", delivery: "d-1" });
 });
 
+// The stream opens with a heartbeat frame (Elysia awaits the first yield before
+// it hands back the Response), so read frames until a data event shows up.
+const decode = (chunk: unknown) =>
+  typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk as Uint8Array);
+
+async function readUntilData(reader: ReadableStreamDefaultReader<unknown>) {
+  let seen = "";
+  for (let i = 0; i < 5; i++) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const text = decode(value);
+    seen += text;
+    if (text.includes("data: {")) return { frame: text, seen };
+  }
+  return { frame: "", seen };
+}
+
 test("GET /api/events streams published events as SSE", async () => {
   const app = await createServer();
   const res = await app.handle(new Request("http://localhost/api/events"));
@@ -103,15 +120,13 @@ test("GET /api/events streams published events as SSE", async () => {
   expect(res.headers.get("cache-control")).toBe("no-cache");
 
   const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
   const row = seedReview("a/b", 7);
   publishEvent({ type: "review:created", repo: "a/b", review: row });
 
-  const { value } = await reader.read();
-  const text = decoder.decode(value);
-  expect(text).toContain("id: ");
-  expect(text).toContain('"type":"review:created"');
-  expect(text).toContain('"repo":"a/b"');
+  const { frame } = await readUntilData(reader);
+  expect(frame).toContain("id: ");
+  expect(frame).toContain('"type":"review:created"');
+  expect(frame).toContain('"repo":"a/b"');
   await reader.cancel();
 });
 
@@ -119,15 +134,23 @@ test("GET /api/events?repo= scopes the stream to that repo", async () => {
   const app = await createServer();
   const res = await app.handle(new Request("http://localhost/api/events?repo=a%2Fb"));
   const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
 
   publishEvent({ type: "repo:removed", repo: "c/d" });
   const row = seedReview("a/b", 8);
   publishEvent({ type: "review:created", repo: "a/b", review: row });
 
+  const { frame, seen } = await readUntilData(reader);
+  expect(frame).toContain('"type":"review:created"');
+  expect(seen).not.toContain("repo:removed");
+  await reader.cancel();
+});
+
+test("the stream opens before any event is published", async () => {
+  const app = await createServer();
+  // Would hang if the generator parked on the queue before its first yield.
+  const res = await app.handle(new Request("http://localhost/api/events"));
+  const reader = res.body!.getReader();
   const { value } = await reader.read();
-  const text = decoder.decode(value);
-  expect(text).toContain('"type":"review:created"');
-  expect(text).not.toContain("repo:removed");
+  expect(decode(value)).toContain("event: heartbeat");
   await reader.cancel();
 });

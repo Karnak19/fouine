@@ -137,8 +137,12 @@ review rows, the findings write-back route, the repo CRUD routes, and
 `verifyAndDispatch` for webhooks — so an emitted event always reflects a real
 database state change (the row is re-read at publish time).
 
-A `: heartbeat` comment line is sent every 25s to keep proxies from idling the
-connection.
+The route is an async generator returning Elysia's `sse()` payloads, bridged to
+the push-based hub by a small queue. It yields a `heartbeat` event immediately —
+Elysia awaits the first yield before returning the `Response`, so this is what
+opens the stream — and again after every 25s of silence, to keep proxies from
+idling the connection. Heartbeats are a *named* event, so the browser routes
+them away from `onmessage` and the client never sees keepalive traffic.
 
 ### Subscription scoping
 

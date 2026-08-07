@@ -1,4 +1,4 @@
-import { Elysia, t } from "elysia";
+import { Elysia, t, sse } from "elysia";
 import { $ } from "bun";
 import { repos, reviews, settings, findings } from "~/db";
 import {
@@ -20,6 +20,12 @@ import { log } from "~/server/log";
 // at a known point (we ignore Last-Event-ID; ids exist for the spec).
 let eventSeq = 0;
 
+const HEARTBEAT_MS = 25_000;
+
+// Named event, so the browser routes it to a 'heartbeat' listener nobody
+// registers instead of onmessage — the client never sees keepalive traffic.
+const heartbeat = () => sse({ event: "heartbeat", data: "" });
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
   // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
   // so a client can only subscribe to the repo it's viewing); no scope = all
@@ -28,33 +34,46 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   // Last-Event-ID, which we ignore — clients refetch their REST queries on
   // reconnect, so there are no duplicate events and no missed final state).
   // Under the /api OAuth gate like the rest of the dashboard.
-  .get("/events", ({ query, request }) => {
+  .get("/events", async function* ({ query, request }) {
     const repo = (query.repo as string | undefined) ?? null;
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = (e: ServerEvent) => {
-          controller.enqueue(encoder.encode(`id: ${eventSeq++}\ndata: ${JSON.stringify(e)}\n\n`));
-        };
-        const unsubscribe = subscribeEvents(repo, send);
-        const heartbeat = setInterval(
-          () => controller.enqueue(encoder.encode(`: heartbeat\n\n`)),
-          25_000,
-        );
-        request.signal.addEventListener("abort", () => {
-          clearInterval(heartbeat);
-          unsubscribe();
-          controller.close();
+
+    // The hub pushes; a generator pulls. Bridge with a queue the subscriber
+    // fills and a `wake` the idle loop parks on.
+    const queue: ServerEvent[] = [];
+    let wake: (() => void) | undefined;
+    const unsubscribe = subscribeEvents(repo, (e) => {
+      queue.push(e);
+      wake?.();
+    });
+
+    // Elysia awaits the first yield before returning the Response, so open the
+    // stream immediately rather than after the first real event.
+    yield heartbeat();
+
+    try {
+      while (!request.signal.aborted) {
+        while (queue.length) yield sse({ id: eventSeq++, data: queue.shift()! });
+        // Park until the next publish, the client disconnecting, or the
+        // keepalive deadline. Listening for abort matters: without it a
+        // disconnect would sit here for the rest of the heartbeat window
+        // holding the subscription.
+        await new Promise<void>((resolve) => {
+          let timer: ReturnType<typeof setTimeout>;
+          const done = () => {
+            clearTimeout(timer);
+            request.signal.removeEventListener("abort", done);
+            wake = undefined;
+            resolve();
+          };
+          timer = setTimeout(done, HEARTBEAT_MS);
+          wake = done;
+          request.signal.addEventListener("abort", done, { once: true });
         });
-      },
-    });
-    return new Response(stream, {
-      headers: {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      },
-    });
+        if (!queue.length && !request.signal.aborted) yield heartbeat();
+      }
+    } finally {
+      unsubscribe();
+    }
   })
 
   .get("/repos", () => repos.list.all())
