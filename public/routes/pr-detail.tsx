@@ -28,7 +28,7 @@ export default function PRDetailPage() {
   // Scoped to this repo. Review events don't carry the PR number, so any
   // review on this repo refetches — cheap, and the REST list stays the truth.
   const { status, resync } = useLiveEvents(`${owner}/${name}`, (e) => {
-    if (e.type === "review:created" || e.type === "review:updated") {
+    if (e.type === "review:created" || e.type === "review:updated" || e.type === "repo:removed") {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "pr", prNumber] });
     }
   });

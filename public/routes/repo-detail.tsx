@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles, FolderX } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
 import { useLiveEvents } from "@/lib/live";
@@ -28,9 +28,10 @@ export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
   const queryClient = useQueryClient();
 
-  const { data: repo } = useQuery({
+  const { data: repo, isError } = useQuery({
     queryKey: ["repos", owner, name],
     queryFn: () => api.repos.get(owner, name),
+    retry: false,
   });
 
   const { data: reviews = [] as ReviewRow[] } = useQuery({
@@ -52,7 +53,9 @@ export default function RepoDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "reviews"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
-    if (e.type === "repo:updated") {
+    // Removal too: another client deleting this repo must not leave us
+    // rendering a row whose REST endpoint now 404s.
+    if (e.type === "repo:updated" || e.type === "repo:removed") {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
     }
   });
@@ -133,6 +136,22 @@ export default function RepoDetailPage() {
       window.location.href = "/";
     },
   });
+
+  // A repo:removed refetch 404s, so distinguish gone from still-loading —
+  // otherwise a deleted repo shimmers forever.
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
+        <FolderX size={28} className="text-zinc-700" />
+        <p className="mt-3 text-sm text-zinc-400">
+          {owner}/{name} is no longer registered
+        </p>
+        <Link to="/repos" className="mt-3 text-xs text-zinc-500 hover:text-zinc-300">
+          Back to repositories
+        </Link>
+      </div>
+    );
+  }
 
   if (!repo) {
     return (

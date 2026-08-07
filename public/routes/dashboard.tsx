@@ -30,6 +30,11 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
+    // Findings land after the review row is already final, and /stats derives
+    // its severity counts from them — without this the KPIs lag a review.
+    if (e.type === "review:findings") {
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
   });
   useEffect(() => {
     if (resync > 0) {
