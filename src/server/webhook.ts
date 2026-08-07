@@ -1,9 +1,8 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
-import { repos } from "~/db";
 import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
-import { publishWebhook } from "~/server/events";
+import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
 
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
@@ -59,15 +58,8 @@ export function registerHandlers(): void {
       return;
     }
 
-    repos.upsert.run({
-      $full_name: fullName,
-      $installation_id: installationId,
-      $prompt: null,
-      $model: null,
-    });
-
-    const repoRow = repos.get.get({ $full_name: fullName });
-    if (repoRow && !repoRow.enabled) {
+    const repoRow = upsertRepoAndPublish(fullName, installationId);
+    if (!repoRow.enabled) {
       log.debug("pull_request skipped", { repo: fullName, number, reason: "repo disabled" });
       return;
     }
@@ -146,15 +138,8 @@ export function registerHandlers(): void {
         });
         return;
       }
-      repos.upsert.run({
-        $full_name: fullName,
-        $installation_id: installationId,
-        $prompt: null,
-        $model: null,
-      });
-
-      const repoRow = repos.get.get({ $full_name: fullName });
-      if (repoRow && !repoRow.enabled) {
+      const repoRow = upsertRepoAndPublish(fullName, installationId);
+      if (!repoRow.enabled) {
         log.debug("/review skipped", { repo: fullName, number: prNumber, reason: "repo disabled" });
         return;
       }

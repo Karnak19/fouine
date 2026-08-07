@@ -1,4 +1,4 @@
-import { reviews, type RepoRow, type ReviewRow } from "~/db";
+import { repos, reviews, type RepoRow, type ReviewRow } from "~/db";
 
 // Typed live-event hub. The /api/events SSE endpoint streams from here; every
 // real state change (review row writes, findings write-back, repo edits,
@@ -64,6 +64,27 @@ export function publishReviewEvent(kind: "created" | "updated", id: number): voi
 
 export function publishRepoUpdated(row: RepoRow): void {
   publishEvent({ type: "repo:updated", repo: row.full_name, row });
+}
+
+// Repos get auto-registered from three places (the API create route and both
+// webhook handlers). They all route through here so a repo first discovered by
+// a webhook shows up in the list like any other — an upsert that publishes
+// nothing is exactly how that page went stale.
+//
+// Only publishes on a real change: upsert's ON CONFLICT touches nothing but
+// installation_id, so the common case (a PR webhook for a known repo) would
+// otherwise broadcast a no-op invalidation on every single delivery.
+export function upsertRepoAndPublish(fullName: string, installationId: number): RepoRow {
+  const before = repos.get.get({ $full_name: fullName });
+  repos.upsert.run({
+    $full_name: fullName,
+    $installation_id: installationId,
+    $prompt: null,
+    $model: null,
+  });
+  const row = repos.get.get({ $full_name: fullName })!;
+  if (!before || before.installation_id !== row.installation_id) publishRepoUpdated(row);
+  return row;
 }
 
 export function publishRepoRemoved(fullName: string): void {

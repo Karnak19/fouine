@@ -127,7 +127,7 @@ The `type` field is part of the JSON payload (not the SSE `event:` field):
 | `review:created` | `{ repo, review }` | a review row is inserted (webhook, `/review`, retry, improver) |
 | `review:updated` | `{ repo, review }` | status/session/cost/tokens change on a review row |
 | `review:findings` | `{ repo, reviewId }` | the opencode post_* tools write findings back (`/internal/reviews/:id/findings`) |
-| `repo:updated` | `{ repo, row }` | repo added or edited via the dashboard |
+| `repo:updated` | `{ repo, row }` | repo added or edited via the dashboard, or auto-registered by a webhook |
 | `repo:removed` | `{ repo }` | repo deleted via the dashboard |
 | `webhook:received` | `{ repo, name, delivery }` | a verified webhook arrives (repo is null when the payload has no repository) |
 
@@ -136,6 +136,13 @@ wrappers (`insertReview`, `setRunning`, `setSession`, `complete`, `fail`) for
 review rows, the findings write-back route, the repo CRUD routes, and
 `verifyAndDispatch` for webhooks — so an emitted event always reflects a real
 database state change (the row is re-read at publish time).
+
+Repo registration has three entry points (the API create route and both webhook
+handlers, which auto-register a repo on first sight). All three go through
+`upsertRepoAndPublish`, which re-reads the row and emits `repo:updated` only
+when something actually changed — `repos.upsert`'s `ON CONFLICT` touches nothing
+but `installation_id`, so publishing unconditionally would fire a no-op
+invalidation at every connected dashboard on every PR webhook.
 
 The route is an async generator returning Elysia's `sse()` payloads, bridged to
 the push-based hub by a small queue. It yields a `heartbeat` event immediately —

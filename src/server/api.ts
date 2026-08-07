@@ -5,6 +5,7 @@ import {
   publishRepoRemoved,
   publishRepoUpdated,
   publishReviewEvent,
+  upsertRepoAndPublish,
   subscribeEvents,
   type ServerEvent,
 } from "~/server/events";
@@ -88,15 +89,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .post(
     "/repos",
     ({ body }) => {
-      repos.upsert.run({
-        $full_name: body.full_name,
-        $installation_id: body.installation_id,
-        $prompt: null,
-        $model: null,
-      });
-      const row = repos.get.get({ $full_name: body.full_name })!;
-      publishRepoUpdated(row);
-      return row;
+      return upsertRepoAndPublish(body.full_name, body.installation_id);
     },
     { body: t.Object({ full_name: t.String(), installation_id: t.Number() }) },
   )

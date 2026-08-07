@@ -4,6 +4,7 @@ import {
   publishEvent,
   publishReviewEvent,
   publishWebhook,
+  upsertRepoAndPublish,
   type ServerEvent,
 } from "~/server/events";
 import { repos, reviews } from "~/db";
@@ -83,6 +84,30 @@ test("publishReviewEvent carries the fresh row for created and updated", () => {
   expect(created.review).toMatchObject({ id: row.id, repo_full_name: "a/b", pr_number: 42, status: "pending" });
   const updated = got[1] as Extract<ServerEvent, { type: "review:updated" }>;
   expect(updated.review.status).toBe("running");
+});
+
+test("upsertRepoAndPublish announces new repos and real changes only", () => {
+  const got: ServerEvent[] = [];
+  const unsub = subscribeEvents(null, (e) => got.push(e));
+
+  // First sight — this is the webhook auto-registration path.
+  const created = upsertRepoAndPublish("fresh/repo", 1);
+  expect(created).toMatchObject({ full_name: "fresh/repo", installation_id: 1 });
+  // Same install id again (every subsequent PR webhook) must stay quiet.
+  upsertRepoAndPublish("fresh/repo", 1);
+  // A moved installation is a real change.
+  const moved = upsertRepoAndPublish("fresh/repo", 2);
+  expect(moved.installation_id).toBe(2);
+
+  unsub();
+  expect(got.map((e) => e.type)).toEqual(["repo:updated", "repo:updated"]);
+});
+
+test("upsertRepoAndPublish keeps settings an operator already set", () => {
+  upsertRepoAndPublish("keep/settings", 1);
+  repos.update.run({ $full_name: "keep/settings", $prompt: "custom", $model: "m", $enabled: 1 });
+  const row = upsertRepoAndPublish("keep/settings", 1);
+  expect(row).toMatchObject({ prompt: "custom", model: "m", enabled: 1 });
 });
 
 test("publishWebhook extracts the repo from the payload", () => {
