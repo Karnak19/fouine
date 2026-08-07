@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { api, type RepoRow } from "@/lib/api";
@@ -15,6 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, ChevronRight, FolderGit2 } from "lucide-react";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +26,16 @@ export default function ReposPage() {
     queryKey: ["repos"],
     queryFn: api.repos.list,
   });
+
+  // Global scope: repo CRUD can happen for any repo, not just one we're viewing.
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "repo:updated" || e.type === "repo:removed") {
+      queryClient.invalidateQueries({ queryKey: ["repos"] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) queryClient.invalidateQueries({ queryKey: ["repos"] });
+  }, [resync, queryClient]);
 
   const [fullName, setFullName] = useState("");
   const [installId, setInstallId] = useState("");
@@ -40,7 +52,10 @@ export default function ReposPage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>
+          <LiveBadge status={status} />
+        </div>
         <p className="text-sm text-zinc-500 mt-1">Repos fouine watches for pull requests.</p>
       </div>
 

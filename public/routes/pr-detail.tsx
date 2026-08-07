@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { api, type ReviewRow } from "@/lib/api";
 import { timeAgo, duration, triggerLabel, formatCost, formatTokens } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { ArrowLeft, ExternalLink, ChevronRight, RotateCw, Square, History } from "lucide-react";
 
 export default function PRDetailPage() {
@@ -21,6 +24,19 @@ export default function PRDetailPage() {
       return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
     },
   });
+
+  // Scoped to this repo. Review events don't carry the PR number, so any
+  // review on this repo refetches — cheap, and the REST list stays the truth.
+  const { status, resync } = useLiveEvents(`${owner}/${name}`, (e) => {
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "pr", prNumber] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "pr", prNumber] });
+    }
+  }, [resync, owner, name, prNumber, queryClient]);
 
   const latest = reviews?.[0];
   const totals = reviews?.reduce(
@@ -69,9 +85,12 @@ export default function PRDetailPage() {
 
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight truncate">
-            {latest?.title ?? `PR #${prNumber}`}
-          </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-xl font-bold tracking-tight truncate">
+              {latest?.title ?? `PR #${prNumber}`}
+            </h1>
+            <LiveBadge status={status} />
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
             <a
               href={`https://github.com/${owner}/${name}/pull/${prNumber}`}
