@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { findings, repos, reviews, type RepoRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
+import { publishReviewEvent } from "~/server/events";
 
 // bun:sqlite is synchronous; each call is wrapped in Effect.try so a statement
 // throwing surfaces as a typed DatabaseError instead of a raw exception. The
@@ -28,17 +29,20 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
           $status: "pending",
           $trigger: input.trigger,
         })!;
+        publishReviewEvent("created", row.id);
         return row.id;
       }),
 
     setRunning: (id: number): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.updateStatus", () => {
         reviews.updateStatus.run({ $status: "running", $done: 0, $id: id });
+        publishReviewEvent("updated", id);
       }),
 
     setSession: (id: number, session: string): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.setSession", () => {
         reviews.setSession.run({ $session: session, $id: id });
+        publishReviewEvent("updated", id);
       }),
 
     complete: (
@@ -49,11 +53,13 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
     ): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.complete", () => {
         reviews.complete.run({ $id: id, $cost: cost, $tokens: tokens, $model: model });
+        publishReviewEvent("updated", id);
       }),
 
     fail: (id: number, error: string): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.fail", () => {
         reviews.fail.run({ $id: id, $error: error });
+        publishReviewEvent("updated", id);
       }),
 
     // Whether the review's post_* tools wrote anything back — i.e. the agent

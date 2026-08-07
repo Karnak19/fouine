@@ -4,6 +4,7 @@ import { config } from "~/config";
 import { reviews, findings } from "~/db";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
 import { apiRoutes } from "~/server/api";
+import { publishFindings } from "~/server/events";
 import { auth, migrateAuth } from "~/server/auth";
 import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
@@ -108,6 +109,7 @@ export async function createServer() {
             $github_comment_id: f.githubCommentId ?? null,
           });
         }
+        publishFindings(reviewId, review.repo_full_name);
         return { ok: true, stored: body.findings.length };
       },
       {

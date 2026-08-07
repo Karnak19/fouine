@@ -1,6 +1,14 @@
-import { Elysia, t } from "elysia";
+import { Elysia, t, sse } from "elysia";
 import { $ } from "bun";
 import { repos, reviews, settings, findings } from "~/db";
+import {
+  publishRepoRemoved,
+  publishRepoUpdated,
+  publishReviewEvent,
+  upsertRepoAndPublish,
+  subscribeEvents,
+  type ServerEvent,
+} from "~/server/events";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
@@ -9,7 +17,69 @@ import { withOpencode, runReview } from "~/review/opencode";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
 
+// SSE event ids — monotonically increasing per boot, so reconnects can resume
+// at a known point (we ignore Last-Event-ID; ids exist for the spec).
+let eventSeq = 0;
+
+const HEARTBEAT_MS = 25_000;
+
+// Named event, so the browser routes it to a 'heartbeat' listener nobody
+// registers instead of onmessage — the client never sees keepalive traffic.
+const heartbeat = () => sse({ event: "heartbeat", data: "" });
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
+  // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
+  // so a client can only subscribe to the repo it's viewing); no scope = all
+  // repos. Heartbeat comment every 25s keeps proxies from idling the
+  // connection; the browser's EventSource reconnects natively (with
+  // Last-Event-ID, which we ignore — clients refetch their REST queries on
+  // reconnect, so there are no duplicate events and no missed final state).
+  // Under the /api OAuth gate like the rest of the dashboard.
+  .get("/events", async function* ({ query, request }) {
+    const repo = (query.repo as string | undefined) ?? null;
+
+    // The hub pushes; a generator pulls. Bridge with a queue the subscriber
+    // fills and a `wake` the idle loop parks on.
+    const queue: ServerEvent[] = [];
+    let wake: (() => void) | undefined;
+    const unsubscribe = subscribeEvents(repo, (e) => {
+      queue.push(e);
+      wake?.();
+    });
+
+    // Everything after subscribeEvents lives in the try, first yield included:
+    // a client that disconnects while we're suspended right there closes the
+    // generator, and a finally it never entered can't unsubscribe it.
+    try {
+      // Elysia awaits the first yield before returning the Response, so open
+      // the stream immediately rather than after the first real event.
+      yield heartbeat();
+
+      while (!request.signal.aborted) {
+        while (queue.length) yield sse({ id: eventSeq++, data: queue.shift()! });
+        // Park until the next publish, the client disconnecting, or the
+        // keepalive deadline. Listening for abort matters: without it a
+        // disconnect would sit here for the rest of the heartbeat window
+        // holding the subscription.
+        await new Promise<void>((resolve) => {
+          let timer: ReturnType<typeof setTimeout>;
+          const done = () => {
+            clearTimeout(timer);
+            request.signal.removeEventListener("abort", done);
+            wake = undefined;
+            resolve();
+          };
+          timer = setTimeout(done, HEARTBEAT_MS);
+          wake = done;
+          request.signal.addEventListener("abort", done, { once: true });
+        });
+        if (!queue.length && !request.signal.aborted) yield heartbeat();
+      }
+    } finally {
+      unsubscribe();
+    }
+  })
+
   .get("/repos", () => repos.list.all())
 
   .get("/repos/:owner/:name", ({ params }) => {
@@ -22,13 +92,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .post(
     "/repos",
     ({ body }) => {
-      repos.upsert.run({
-        $full_name: body.full_name,
-        $installation_id: body.installation_id,
-        $prompt: null,
-        $model: null,
-      });
-      return repos.get.get({ $full_name: body.full_name });
+      return upsertRepoAndPublish(body.full_name, body.installation_id);
     },
     { body: t.Object({ full_name: t.String(), installation_id: t.Number() }) },
   )
@@ -45,7 +109,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $model: body.model ?? null,
         $enabled: body.enabled ?? existing.enabled,
       });
-      return repos.get.get({ $full_name: full });
+      const row = repos.get.get({ $full_name: full })!;
+      publishRepoUpdated(row);
+      return row;
     },
     {
       body: t.Object({
@@ -59,6 +125,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .delete("/repos/:owner/:name", ({ params, set }) => {
     const full = `${params.owner}/${params.name}`;
     repos.remove.run({ $full_name: full });
+    publishRepoRemoved(full);
     set.status = 204;
   })
 
@@ -169,6 +236,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       const cur = reviews.byId.get({ $id: id });
       if (cur && (cur.status === "running" || cur.status === "pending")) {
         reviews.fail.run({ $id: id, $error: "Stopped by user" });
+        publishReviewEvent("updated", id);
       }
     }
     log.info("review stopped", { review: id, live });

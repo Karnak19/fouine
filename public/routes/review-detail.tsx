@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { api, type FindingRow } from "@/lib/api";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,6 +108,24 @@ export default function ReviewDetailPage() {
     refetchInterval: inProgress ? 2000 : false,
   });
 
+  // SSE: the instant the row or its findings change, refetch. The 2s polls
+  // above remain as the fallback when the stream is down.
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "review:updated" && e.review.id === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
+    }
+    if (e.type === "review:findings" && e.reviewId === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "session"] });
+    }
+  }, [resync, numId, queryClient]);
+
   // Auto-select the tab when the review's progress state changes: transcript
   // while running, review once finished. Manual switching within a state is
   // preserved since this only fires on transitions. On the running→done
@@ -180,7 +200,10 @@ export default function ReviewDetailPage() {
             )}
           </div>
         </div>
-        <Badge status={review.status} />
+        <div className="flex items-center gap-2">
+          <LiveBadge status={status} />
+          <Badge status={review.status} />
+        </div>
         {inProgress && (
           <Button
             variant="destructive"

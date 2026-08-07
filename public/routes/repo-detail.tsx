@@ -16,9 +16,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles, FolderX } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { cn } from "@/lib/utils";
 import { Stat } from "@/components/stat";
 
@@ -26,15 +28,43 @@ export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
   const queryClient = useQueryClient();
 
-  const { data: repo } = useQuery({
+  const { data: repo, isError } = useQuery({
     queryKey: ["repos", owner, name],
     queryFn: () => api.repos.get(owner, name),
+    retry: false,
   });
 
   const { data: reviews = [] as ReviewRow[] } = useQuery({
     queryKey: ["repos", owner, name, "reviews"],
     queryFn: () => api.repos.reviews(owner, name),
+    // Fallback polling while a review runs, in case the SSE stream is down.
+    refetchInterval: (q) => {
+      const list = q.state.data;
+      if (!list) return false;
+      return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
+    },
   });
+
+  // Scoped to this repo: the server only sends events for it, so navigating
+  // between repos re-subscribes cleanly (component instance persists across
+  // param changes, the hook's scope key handles the swap).
+  const { status, resync } = useLiveEvents(`${owner}/${name}`, (e) => {
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+    // Removal too: another client deleting this repo must not leave us
+    // rendering a row whose REST endpoint now 404s.
+    if (e.type === "repo:updated" || e.type === "repo:removed") {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name, "reviews"] });
+    }
+  }, [resync, owner, name, queryClient]);
 
   // Improver runs ride the reviews table with trigger 'improve' (pr_number 0),
   // so split them out — they aren't PR reviews and get their own list.
@@ -107,6 +137,22 @@ export default function RepoDetailPage() {
     },
   });
 
+  // A repo:removed refetch 404s, so distinguish gone from still-loading —
+  // otherwise a deleted repo shimmers forever.
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
+        <FolderX size={28} className="text-zinc-700" />
+        <p className="mt-3 text-sm text-zinc-400">
+          {owner}/{name} is no longer registered
+        </p>
+        <Link to="/repos" className="mt-3 text-xs text-zinc-500 hover:text-zinc-300">
+          Back to repositories
+        </Link>
+      </div>
+    );
+  }
+
   if (!repo) {
     return (
       <div className="space-y-6 max-w-5xl">
@@ -151,6 +197,7 @@ export default function RepoDetailPage() {
           >
             <ExternalLink size={14} />
           </a>
+          <LiveBadge status={status} />
         </div>
         <p className="text-sm text-zinc-400 mt-1">Installation ID: {repo.installation_id}</p>
       </div>

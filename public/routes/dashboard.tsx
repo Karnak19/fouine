@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   api,
@@ -10,6 +11,8 @@ import {
   type Stats,
   type TriggerStatsRow,
 } from "@/lib/api";
+import { useLiveEvents } from "@/lib/live";
+import { LiveBadge } from "@/components/live-badge";
 import { Badge } from "@/components/ui/badge";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,6 +22,27 @@ import { Inbox } from "lucide-react";
 const DAY_S = 24 * 60 * 60;
 
 export default function DashboardPage() {
+  const queryClient = useQueryClient();
+  // SSE keeps the lists fresh the moment anything changes; the existing
+  // refetchInterval stays as the fallback when the stream is down.
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+    // Findings land after the review row is already final, and /stats derives
+    // its severity counts from them — without this the KPIs lag a review.
+    if (e.type === "review:findings") {
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+  });
+  useEffect(() => {
+    if (resync > 0) {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+  }, [resync, queryClient]);
+
   const { data: reviews, isPending } = useQuery({
     queryKey: ["reviews"],
     queryFn: api.reviews.list,
@@ -62,9 +86,10 @@ export default function DashboardPage() {
         {inFlight.length > 0 && (
           <span className="flex items-center gap-2 text-xs text-ember-300 tabular-nums">
             <span className="h-1.5 w-1.5 rounded-full bg-ember-400 animate-[fouine-pulse_1.4s_ease-in-out_infinite]" />
-            live · every 5s
+            {inFlight.length} running
           </span>
         )}
+        <LiveBadge status={status} />
       </div>
 
       {/* The two KPI strips are short — stack them on the left and let the 30-day
