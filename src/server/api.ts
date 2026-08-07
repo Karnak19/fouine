@@ -47,11 +47,14 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       wake?.();
     });
 
-    // Elysia awaits the first yield before returning the Response, so open the
-    // stream immediately rather than after the first real event.
-    yield heartbeat();
-
+    // Everything after subscribeEvents lives in the try, first yield included:
+    // a client that disconnects while we're suspended right there closes the
+    // generator, and a finally it never entered can't unsubscribe it.
     try {
+      // Elysia awaits the first yield before returning the Response, so open
+      // the stream immediately rather than after the first real event.
+      yield heartbeat();
+
       while (!request.signal.aborted) {
         while (queue.length) yield sse({ id: eventSeq++, data: queue.shift()! });
         // Park until the next publish, the client disconnecting, or the

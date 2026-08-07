@@ -5,6 +5,7 @@ import {
   publishReviewEvent,
   publishWebhook,
   upsertRepoAndPublish,
+  subscriberCount,
   type ServerEvent,
 } from "~/server/events";
 import { repos, reviews } from "~/db";
@@ -168,6 +169,24 @@ test("GET /api/events?repo= scopes the stream to that repo", async () => {
   expect(frame).toContain('"type":"review:created"');
   expect(seen).not.toContain("repo:removed");
   await reader.cancel();
+});
+
+test("disconnecting at the opening frame still unsubscribes", async () => {
+  const app = await createServer();
+  const before = subscriberCount();
+  const ac = new AbortController();
+  const res = await app.handle(
+    new Request("http://localhost/api/events", { signal: ac.signal }),
+  );
+  // Deliberately do NOT read: Elysia has pulled the opening heartbeat, so the
+  // generator is suspended at its very first yield and nothing has resumed it.
+  // Reading first would move it into the loop and miss the window entirely.
+  expect(subscriberCount()).toBe(before + 1);
+
+  ac.abort();
+  await res.body!.cancel().catch(() => {});
+  for (let i = 0; i < 20 && subscriberCount() > before; i++) await Bun.sleep(5);
+  expect(subscriberCount()).toBe(before);
 });
 
 test("the stream opens before any event is published", async () => {

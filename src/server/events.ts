@@ -29,6 +29,10 @@ interface Sub {
 
 const subs = new Set<Sub>();
 
+// Exported for the tests: a stream that fails to unsubscribe leaks silently —
+// it keeps queueing events for a dead connection — so it needs to be countable.
+export const subscriberCount = (): number => subs.size;
+
 // Returns an unsubscribe function. No replay: events published before a
 // subscription exist are not buffered — clients recover via their REST
 // snapshot/refetch on (re)connect.
