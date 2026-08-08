@@ -101,7 +101,10 @@ for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tok
 // disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
 // once it's enabled in the dashboard. Existing rows keep whatever they were set
 // to — ON CONFLICT never touches enabled.
-for (const def of ["enabled INTEGER NOT NULL DEFAULT 0"]) addColumn("repos", def);
+// repos.triggers is a per-repo override of the global review_triggers setting:
+// JSON {"actions":[...],"reviewDrafts":bool}, or NULL to inherit the global rules.
+// Nothing is backfilled — every existing row stays NULL and keeps inheriting.
+for (const def of ["enabled INTEGER NOT NULL DEFAULT 0", "triggers TEXT"]) addColumn("repos", def);
 
 export interface RepoRow {
   full_name: string;
@@ -109,6 +112,7 @@ export interface RepoRow {
   prompt: string | null;
   model: string | null;
   enabled: number;
+  triggers: string | null; // JSON ReviewTriggers, or null to inherit the global rules
   created_at: number;
 }
 
@@ -235,6 +239,13 @@ export const repos = {
     { $full_name: string; $prompt: string | null; $model: string | null; $enabled: number }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled WHERE full_name = $full_name`,
+  ),
+  // Trigger rules get their own write rather than riding repos.update: that
+  // statement treats an omitted field as null, and the repos-list enable toggle
+  // calls it without triggers — a shared statement would silently wipe the
+  // override every time someone flipped a repo on or off.
+  setTriggers: db.prepare<null, { $full_name: string; $triggers: string | null }>(
+    "UPDATE repos SET triggers = $triggers WHERE full_name = $full_name",
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",

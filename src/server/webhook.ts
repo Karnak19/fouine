@@ -4,11 +4,24 @@ import { runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
+import { resolveTriggers } from "~/settings";
 
-// `ready_for_review` matters: draft PRs are skipped below, so without it a PR
-// opened as a draft (what `gh stack submit` does) is never reviewed at all.
-const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 const TRIGGER = "/review";
+
+// The configurable half of the pull_request gate, pulled out so it can be
+// tested directly — dispatching a real webhook to exercise it would queue an
+// actual review. Returns null to proceed, or the skip reason to log. The repo's
+// own rules win over the global ones; both fall back to the defaults.
+export function triggerSkipReason(
+  repoTriggers: string | null,
+  action: string,
+  draft: boolean | undefined,
+): string | null {
+  const triggers = resolveTriggers(repoTriggers);
+  if (!(triggers.actions as readonly string[]).includes(action)) return "action not handled";
+  if (draft && !triggers.reviewDrafts) return "draft PR";
+  return null;
+}
 
 let handlersRegistered = false;
 export function ensureHandlers(): void {
@@ -41,19 +54,11 @@ export function registerHandlers(): void {
     const fullName = payload.repository.full_name;
     const number = payload.pull_request.number;
 
-    if (!HANDLED_ACTIONS.has(payload.action)) {
-      log.debug("pull_request skipped", {
-        repo: fullName,
-        number,
-        action: payload.action,
-        reason: "action not handled",
-      });
-      return;
-    }
-    if (payload.pull_request.draft) {
-      log.debug("pull_request skipped", { repo: fullName, number, reason: "draft PR" });
-      return;
-    }
+    // The trigger rules can be overridden per repo, so the repo row has to be
+    // fetched before the action/draft checks — which is why the installation and
+    // enabled gates now come first. Everything still exits through a
+    // log.debug/warn with a reason: those lines are the only way to work out
+    // from the outside why a PR wasn't reviewed.
     const installationId = payload.installation?.id;
     if (!installationId) {
       log.warn("pull_request skipped", { repo: fullName, number, reason: "no installation id" });
@@ -63,6 +68,17 @@ export function registerHandlers(): void {
     const repoRow = upsertRepoAndPublish(fullName, installationId);
     if (!repoRow.enabled) {
       log.debug("pull_request skipped", { repo: fullName, number, reason: "repo disabled" });
+      return;
+    }
+
+    const skip = triggerSkipReason(repoRow.triggers, payload.action, payload.pull_request.draft);
+    if (skip) {
+      log.debug("pull_request skipped", {
+        repo: fullName,
+        number,
+        action: payload.action,
+        reason: skip,
+      });
       return;
     }
 
@@ -128,6 +144,9 @@ export function registerHandlers(): void {
       return;
     }
 
+    // No trigger-rule check here, deliberately: `/review` is a human asking for
+    // a review on this PR right now. It works on drafts and on repos whose rules
+    // exclude every automatic action — an explicit command beats the config.
     log.info("/review triggered", { repo: fullName, number: prNumber });
 
     try {
