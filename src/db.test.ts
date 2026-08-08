@@ -100,6 +100,35 @@ test("byRepoPR returns only that PR's reviews, newest first", () => {
   expect(got.every((r) => r.pr_number === 11)).toBe(true);
 });
 
+test("repos.triggers defaults to null (existing installs inherit the global rules)", () => {
+  const full = "acme/triggers-default";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  // The migration adds the column but backfills nothing.
+  expect(repos.get.get({ $full_name: full })?.triggers).toBeNull();
+});
+
+test("setTriggers writes and clears the per-repo override without touching prompt/model", () => {
+  const full = "acme/triggers-write";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  repos.update.run({ $full_name: full, $prompt: "p", $model: "m", $enabled: 1 });
+
+  repos.setTriggers.run({
+    $full_name: full,
+    $triggers: JSON.stringify({ actions: ["opened"], reviewDrafts: true }),
+  });
+  let got = repos.get.get({ $full_name: full })!;
+  expect(JSON.parse(got.triggers!)).toEqual({ actions: ["opened"], reviewDrafts: true });
+  expect(got.prompt).toBe("p");
+  expect(got.model).toBe("m");
+  expect(got.enabled).toBe(1);
+
+  // Back to inheriting.
+  repos.setTriggers.run({ $full_name: full, $triggers: null });
+  got = repos.get.get({ $full_name: full })!;
+  expect(got.triggers).toBeNull();
+  expect(got.prompt).toBe("p");
+});
+
 test("settings get/set and settingValue helper", () => {
   const key = "test_setting_key";
   expect(settingValue(key)).toBeUndefined();

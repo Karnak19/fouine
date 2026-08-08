@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Settings } from "@/lib/api";
+import {
+  api,
+  parseTriggers,
+  DEFAULT_TRIGGERS,
+  type SettingsUpdate,
+  type ReviewTriggers,
+} from "@/lib/api";
+import { TriggerFields } from "@/components/trigger-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +36,7 @@ export default function SettingsPage() {
 
   const updateMut = useMutation({
     mutationFn: () => {
-      const data: Settings = {};
+      const data: SettingsUpdate = {};
       if (apiKey.trim()) data.opencode_api_key = apiKey.trim();
       if (model.trim()) data.opencode_model = model.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
@@ -139,8 +146,59 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <TriggersCard />
+
       <SkillsCard />
     </div>
+  );
+}
+
+// Global trigger rules. A repo can override the whole object; see the repo page.
+function TriggersCard() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const [triggers, setTriggers] = useState<ReviewTriggers>(DEFAULT_TRIGGERS);
+
+  useEffect(() => {
+    if (settings) setTriggers(parseTriggers(settings.review_triggers) ?? DEFAULT_TRIGGERS);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: () => api.settings.update({ review_triggers: triggers }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Review triggers</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveMut.mutate();
+          }}
+          className="space-y-4"
+        >
+          <p className="text-xs text-zinc-500">
+            Which GitHub events start an automatic review. Applies to every enabled repo unless
+            that repo sets its own rules. A <code>/review</code> comment always works, whatever is
+            checked here.
+          </p>
+          <TriggerFields value={triggers} onChange={setTriggers} idPrefix="global_trigger" />
+          {triggers.actions.length === 0 && (
+            <p className="text-xs text-amber-400">
+              No events selected — reviews will only run from a <code>/review</code> comment or the
+              dashboard.
+            </p>
+          )}
+          <Button type="submit" disabled={saveMut.isPending}>
+            Save triggers
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

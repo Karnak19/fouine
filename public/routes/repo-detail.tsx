@@ -1,7 +1,16 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type ReviewRow } from "@/lib/api";
+import {
+  api,
+  parseTriggers,
+  DEFAULT_TRIGGERS,
+  type ReviewRow,
+  type RepoRow,
+  type ReviewTriggers,
+  type Settings,
+} from "@/lib/api";
+import { TriggerFields } from "@/components/trigger-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -285,6 +294,10 @@ export default function RepoDetailPage() {
           </form>
         </CardContent>
       </Card>
+
+      <div className="mt-6">
+        <TriggersCard repo={repo} owner={owner} name={name} />
+      </div>
       </div>
 
       <div className="order-2 lg:order-1 space-y-6">
@@ -410,5 +423,89 @@ export default function RepoDetailPage() {
       </div>
       </div>
     </div>
+  );
+}
+
+// Per-repo trigger rules. Three states, and the difference between the last two
+// matters: inheriting the global rules (triggers = null), overriding with a set
+// of events, or overriding with an empty set (never auto-review). The checkbox
+// is what separates "I haven't chosen" from "I chose nothing".
+function TriggersCard({ repo, owner, name }: { repo: RepoRow; owner: string; name: string }) {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const globalTriggers = parseTriggers((settings as Settings | undefined)?.review_triggers) ??
+    DEFAULT_TRIGGERS;
+
+  const stored = parseTriggers(repo.triggers);
+  const [override, setOverride] = useState(stored !== null);
+  // Seeded from the global rules when there's no override yet, so ticking the
+  // box starts from what the repo is doing today rather than from nothing.
+  const [triggers, setTriggers] = useState<ReviewTriggers>(stored ?? globalTriggers);
+
+  useEffect(() => {
+    const next = parseTriggers(repo.triggers);
+    setOverride(next !== null);
+    setTriggers(next ?? globalTriggers);
+    // globalTriggers is derived from the settings query; re-seed when either moves.
+  }, [repo.triggers, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveMut = useMutation({
+    mutationFn: () => api.repos.setTriggers(owner, name, override ? triggers : null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Review triggers</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveMut.mutate();
+          }}
+          className="space-y-4"
+        >
+          <label className="flex items-start gap-2 text-sm text-zinc-300 select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-zinc-200"
+              checked={override}
+              onChange={(e) => setOverride(e.target.checked)}
+            />
+            <span>
+              Override the global rules
+              <span className="block text-xs text-zinc-500">
+                {override
+                  ? "This repo uses the events below."
+                  : `Inheriting the global rules: ${
+                      globalTriggers.actions.length
+                        ? globalTriggers.actions.join(", ")
+                        : "no events"
+                    }${globalTriggers.reviewDrafts ? ", drafts included" : ""}.`}
+              </span>
+            </span>
+          </label>
+          <div className={override ? undefined : "opacity-50"}>
+            <TriggerFields
+              value={triggers}
+              onChange={setTriggers}
+              idPrefix="repo_trigger"
+              disabled={!override}
+            />
+          </div>
+          {override && triggers.actions.length === 0 && (
+            <p className="text-xs text-amber-400">
+              No events selected — this repo will only be reviewed from a <code>/review</code>{" "}
+              comment.
+            </p>
+          )}
+          <Button type="submit" disabled={saveMut.isPending}>
+            Save triggers
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

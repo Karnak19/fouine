@@ -18,7 +18,48 @@ export interface RepoRow {
   prompt: string | null;
   model: string | null;
   enabled: number;
+  /** JSON ReviewTriggers, or null to inherit the global rules. */
+  triggers: string | null;
   created_at: number;
+}
+
+/** Which pull_request webhook actions start a review. Mirrors src/settings.ts. */
+export const TRIGGER_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"] as const;
+export type TriggerAction = (typeof TRIGGER_ACTIONS)[number];
+
+export interface ReviewTriggers {
+  actions: TriggerAction[];
+  reviewDrafts: boolean;
+}
+
+export const DEFAULT_TRIGGERS: ReviewTriggers = {
+  actions: [...TRIGGER_ACTIONS],
+  reviewDrafts: false,
+};
+
+/** Plain-language labels — raw GitHub action names don't say what they cost. */
+export const TRIGGER_LABELS: Record<TriggerAction, string> = {
+  opened: "Pull request opened",
+  synchronize: "New commits pushed",
+  reopened: "Pull request reopened",
+  ready_for_review: "Draft marked ready for review",
+};
+
+/** Tolerant parse of a stored triggers JSON string; null when unusable. */
+export function parseTriggers(raw: string | null | undefined): ReviewTriggers | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { actions?: unknown; reviewDrafts?: unknown };
+    if (!Array.isArray(v?.actions)) return null;
+    return {
+      actions: v.actions.filter((a): a is TriggerAction =>
+        (TRIGGER_ACTIONS as readonly unknown[]).includes(a),
+      ),
+      reviewDrafts: v.reviewDrafts === true,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface ReviewRow {
@@ -102,12 +143,19 @@ export interface Stats {
   severity: SeverityStatsRow[];
 }
 
+/** What GET /settings returns: raw stored strings, review_triggers included. */
 export interface Settings {
   opencode_api_key?: string;
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
+  review_triggers?: string;
 }
+
+/** What PUT /settings accepts — triggers go up as an object, not a string. */
+export type SettingsUpdate = Omit<Settings, "review_triggers"> & {
+  review_triggers?: ReviewTriggers;
+};
 
 export interface SkillRow {
   name: string;
@@ -142,6 +190,12 @@ export const api = {
       request<ReviewRow[]>(`/repos/${owner}/${name}/reviews`),
     prReviews: (owner: string, name: string, number: number) =>
       request<ReviewRow[]>(`/repos/${owner}/${name}/pr/${number}`),
+    // null = inherit the global trigger rules.
+    setTriggers: (owner: string, name: string, triggers: ReviewTriggers | null) =>
+      request<RepoRow>(`/repos/${owner}/${name}/triggers`, {
+        method: "PUT",
+        body: JSON.stringify({ triggers }),
+      }),
     improve: (owner: string, name: string) =>
       request<{ ok: boolean }>(`/repos/${owner}/${name}/improve`, { method: "POST" }),
   },
@@ -161,7 +215,7 @@ export const api = {
   },
   settings: {
     get: () => request<Settings>("/settings"),
-    update: (data: Settings) =>
+    update: (data: SettingsUpdate) =>
       request<Settings>("/settings", { method: "PUT", body: JSON.stringify(data) }),
     test: () => request<{ ok: boolean; text?: string; error?: string }>("/settings/test"),
   },

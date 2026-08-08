@@ -9,7 +9,7 @@ import {
   subscribeEvents,
   type ServerEvent,
 } from "~/server/events";
-import { SETTINGS, resolveDefaultModel } from "~/settings";
+import { SETTINGS, resolveDefaultModel, TRIGGER_ACTIONS } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
@@ -26,6 +26,17 @@ const HEARTBEAT_MS = 25_000;
 // Named event, so the browser routes it to a 'heartbeat' listener nobody
 // registers instead of onmessage — the client never sees keepalive traffic.
 const heartbeat = () => sse({ event: "heartbeat", data: "" });
+
+// Trigger rules on the wire. The action list is a union of literals, so an
+// unknown action is rejected by Elysia's validation (422) instead of being
+// stored and silently ignored later.
+const triggersBody = t.Object({
+  actions: t.Array(t.Union(TRIGGER_ACTIONS.map((a) => t.Literal(a)))),
+  reviewDrafts: t.Boolean(),
+});
+
+const serializeTriggers = (v: { actions: string[]; reviewDrafts: boolean }) =>
+  JSON.stringify({ actions: [...new Set(v.actions)], reviewDrafts: v.reviewDrafts });
 
 export const apiRoutes = new Elysia({ prefix: "/api" })
   // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
@@ -120,6 +131,28 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         enabled: t.Optional(t.Number()),
       }),
     },
+  )
+
+  // Per-repo trigger rules. Own endpoint rather than a field on PUT /repos/*:
+  // that route treats an omitted field as null, and the repo list's enable
+  // toggle calls it without triggers, which would wipe the override.
+  // `triggers: null` here means "inherit the global rules" — distinct from
+  // `{ actions: [], reviewDrafts: false }`, which means "never auto-review".
+  .put(
+    "/repos/:owner/:name/triggers",
+    ({ params, body }) => {
+      const full = `${params.owner}/${params.name}`;
+      const existing = repos.get.get({ $full_name: full });
+      if (!existing) return new Response("Not found", { status: 404 });
+      repos.setTriggers.run({
+        $full_name: full,
+        $triggers: body.triggers ? serializeTriggers(body.triggers) : null,
+      });
+      const row = repos.get.get({ $full_name: full })!;
+      publishRepoUpdated(row);
+      return row;
+    },
+    { body: t.Object({ triggers: t.Union([triggersBody, t.Null()]) }) },
   )
 
   .delete("/repos/:owner/:name", ({ params, set }) => {
@@ -263,6 +296,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       if (body.improver_model) {
         settings.set.run({ $key: SETTINGS.IMPROVER_MODEL, $value: body.improver_model });
       }
+      // An object, so this is a presence check, not the truthiness check the
+      // strings above use: an empty action list is a meaningful choice
+      // ("never auto-review") and must be storable.
+      if (body.review_triggers !== undefined) {
+        settings.set.run({
+          $key: SETTINGS.TRIGGERS,
+          $value: serializeTriggers(body.review_triggers),
+        });
+      }
       const all = settings.all.all();
       return Object.fromEntries(all.map((s) => [s.key, s.value]));
     },
@@ -272,6 +314,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),
+        review_triggers: t.Optional(triggersBody),
       }),
     },
   )
