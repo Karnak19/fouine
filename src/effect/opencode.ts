@@ -44,7 +44,16 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
               // can overwrite process.env between here and createOpencode's
               // (synchronous) spawn, so the subprocess snapshots this review's
               // context. No restore needed — the parent never reads FOUINE_*.
-              if (opts.env) Object.assign(process.env, opts.env);
+              // Clear first: Object.assign only overwrites the keys present in
+              // opts.env, so a key the *previous* spawn set and this one omits
+              // would leak. improveToolEnv deliberately drops FOUINE_PR_NUMBER,
+              // and inheriting a stale one points the improver at a real PR.
+              if (opts.env) {
+                for (const key of Object.keys(process.env)) {
+                  if (key.startsWith("FOUINE_")) delete process.env[key];
+                }
+                Object.assign(process.env, opts.env);
+              }
               const oc = await createOpencode({ port, signal: ctrl.signal });
               return {
                 ...oc,
