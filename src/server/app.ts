@@ -9,7 +9,7 @@ import { auth, migrateAuth } from "~/server/auth";
 import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills } from "~/skills";
-import { runImproverSweep } from "~/review";
+import { reapOrphanReviews, runImproverSweep } from "~/review";
 
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = isProd ? "dist" : "public";
@@ -195,6 +195,12 @@ export async function boot(): Promise<void> {
   // matters: seed creates the skills/ dir the reconcile writes into.
   seedOpencodeConfig();
   reconcileSkills();
+  // Nothing survives a restart mid-review, so reconcile the rows that still
+  // claim to be in flight before the dashboard can show them (#60). Never
+  // throws: a GitHub hiccup here must not stop the server from coming up.
+  await reapOrphanReviews().catch((err) =>
+    log.error("orphan reap failed", { error: String(err) }),
+  );
   const app = await createServer();
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });

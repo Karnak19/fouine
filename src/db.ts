@@ -95,7 +95,19 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // model is the resolved model spec (repo override or default) captured at
 // completion, so cost/tokens can be broken down by model. Null for failures,
 // aborts, and rows from before the column existed.
-for (const def of ["title TEXT", "error TEXT", "trigger TEXT", "cost REAL", "tokens INTEGER", "model TEXT"])
+// check_run_id is the GitHub check run this review opened, recorded right after
+// it's created so the boot orphan reaper can close that exact run instead of
+// guessing from the PR's current head. Null for improver runs, for rows that
+// died before the check was created, and for pre-column rows.
+for (const def of [
+  "title TEXT",
+  "error TEXT",
+  "trigger TEXT",
+  "cost REAL",
+  "tokens INTEGER",
+  "model TEXT",
+  "check_run_id INTEGER",
+])
   addColumn("reviews", def);
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
 // disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
@@ -124,6 +136,7 @@ export interface ReviewRow {
   cost: number | null;
   tokens: number | null;
   model: string | null;
+  check_run_id: number | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -280,6 +293,11 @@ export const reviews = {
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
     "UPDATE reviews SET session_id = $session WHERE id = $id",
   ),
+  // Recorded as soon as the check run exists, so a crash mid-review leaves the
+  // reaper an exact check to close.
+  setCheckRun: db.prepare<null, { $check: number | null; $id: number }>(
+    "UPDATE reviews SET check_run_id = $check WHERE id = $id",
+  ),
   recent: db.prepare<ReviewRow, { $limit: number }>(
     "SELECT * FROM reviews ORDER BY id DESC LIMIT $limit",
   ),
@@ -290,6 +308,11 @@ export const reviews = {
     "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
+  // Rows still claiming to be in flight. At boot these are necessarily orphans:
+  // the live-review map is in-memory, so nothing can still be running them.
+  unfinished: db.prepare<ReviewRow, []>(
+    "SELECT * FROM reviews WHERE status IN ('pending', 'running') ORDER BY id",
+  ),
   byProject: db.prepare<ProjectStatsRow, []>(
     `SELECT repo_full_name,
             COUNT(*) AS reviews,

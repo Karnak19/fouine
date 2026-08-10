@@ -32,6 +32,7 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> }) {
     setSession: () => Effect.void,
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
+    status: () => Effect.succeed("running"),
   } as unknown as DbService);
 
   const gh = Layer.succeed(GitHubService, {

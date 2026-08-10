@@ -1,6 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
-import { cloneUrl, readRepoNotes } from "~/effect/review";
+import { cloneUrl, failureMessage, readRepoNotes, writeFailure } from "~/effect/review";
 import { resolveImproverModel } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
@@ -69,72 +69,78 @@ export function improvePipeline(
     yield* Effect.sync(() => onStart(id));
 
     const [owner, repoName] = target.repoFullName.split("/");
-    const worktree = resolve(
-      config.dataDir,
-      "worktrees",
-      `${target.repoFullName.replace("/", "__")}#improve-${id}`,
-    );
 
-    const run = Effect.gen(function* () {
-      log.info("improver starting", {
-        repo: target.repoFullName,
-        review: id,
-        prs: target.prNumbers,
+    const run = (worktree: string) =>
+      Effect.gen(function* () {
+        log.info("improver starting", {
+          repo: target.repoFullName,
+          review: id,
+          prs: target.prNumbers,
+        });
+        yield* db.setRunning(id);
+
+        const octokit = yield* gh.installationClient(target.installationId);
+        const token = yield* gh.installationToken(octokit);
+        const branch = yield* gh.defaultBranch(octokit, owner, repoName);
+
+        yield* git.ensureBare(target.repoFullName, cloneUrl(token, target.repoFullName));
+        const sha = yield* git.fetchRef(target.repoFullName, `refs/heads/${branch}`);
+        yield* git.addWorktree(target.repoFullName, sha, worktree);
+
+        const currentNotes = yield* readRepoNotes(worktree);
+        const prompt = buildImprovePrompt(target, branch, currentNotes);
+        const model = resolveImproverModel();
+
+        const result = yield* oc.runReview(
+          {
+            directory: worktree,
+            prompt,
+            model,
+            agent: "fouine-improver",
+            env: improveToolEnv({
+              githubToken: token,
+              owner,
+              repo: repoName,
+              reviewId: id,
+              internalUrl: internalBaseUrl,
+              internalSecret,
+            }),
+          },
+          (sessionId) =>
+            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
+          signal,
+        );
+
+        log.info("improver done", {
+          repo: target.repoFullName,
+          review: id,
+          session: result.sessionId,
+          preview: result.text.slice(0, 500),
+        });
+        yield* db.complete(id, result.cost, result.tokens, model);
       });
-      yield* db.setRunning(id);
 
-      const octokit = yield* gh.installationClient(target.installationId);
-      const token = yield* gh.installationToken(octokit);
-      const branch = yield* gh.defaultBranch(octokit, owner, repoName);
-
-      yield* git.ensureBare(target.repoFullName, cloneUrl(token, target.repoFullName));
-      const sha = yield* git.fetchRef(target.repoFullName, `refs/heads/${branch}`);
-      yield* git.addWorktree(target.repoFullName, sha, worktree);
-
-      const currentNotes = yield* readRepoNotes(worktree);
-      const prompt = buildImprovePrompt(target, branch, currentNotes);
-      const model = resolveImproverModel();
-
-      const result = yield* oc.runReview(
-        {
-          directory: worktree,
-          prompt,
-          model,
-          agent: "fouine-improver",
-          env: improveToolEnv({
-            githubToken: token,
-            owner,
-            repo: repoName,
-            reviewId: id,
-            internalUrl: internalBaseUrl,
-            internalSecret,
-          }),
-        },
-        (sessionId) =>
-          Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
-        signal,
+    // Same shape as reviewPipeline: the worktree path lives inside the guarded
+    // region so nothing between the `pending` insert and the run can strand the
+    // row, and the finaliser covers defects and interrupts too (#60).
+    const guarded = Effect.suspend(() => {
+      const worktree = resolve(
+        config.dataDir,
+        "worktrees",
+        `${target.repoFullName.replace("/", "__")}#improve-${id}`,
       );
-
-      log.info("improver done", {
-        repo: target.repoFullName,
-        review: id,
-        session: result.sessionId,
-        preview: result.text.slice(0, 500),
-      });
-      yield* db.complete(id, result.cost, result.tokens, model);
+      return run(worktree).pipe(
+        Effect.ensuring(git.removeWorktree(target.repoFullName, worktree)),
+      );
     });
 
-    yield* run.pipe(
-      Effect.catchAll((err) =>
+    yield* guarded.pipe(
+      Effect.onExit((exit) =>
         Effect.gen(function* () {
-          const superseded = signal.aborted && signal.reason === "superseded";
-          const message = !signal.aborted
-            ? String(err.cause)
-            : superseded
-              ? "Superseded by a newer run"
-              : "Stopped by user";
+          if (Exit.isSuccess(exit)) return;
+          const message = failureMessage(exit.cause, signal, "Superseded by a newer run");
           if (signal.aborted) {
-            log.info(superseded ? "improver superseded" : "improver stopped", {
+            log.info(signal.reason === "superseded" ? "improver superseded" : "improver stopped", {
               repo: target.repoFullName,
               review: id,
             });
@@ -145,11 +151,14 @@ export function improvePipeline(
               error: message,
             });
           }
-          yield* db.fail(id, message).pipe(Effect.catchAll(() => Effect.void));
-          if (!signal.aborted) yield* Effect.fail(err);
+          const current = yield* db
+            .status(id)
+            .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
+          if (current === "completed" || current === "failed") return;
+          yield* writeFailure(db, id, message);
         }),
       ),
-      Effect.ensuring(git.removeWorktree(target.repoFullName, worktree)),
+      Effect.catchAll((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
     );
   });
 }
