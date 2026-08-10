@@ -68,8 +68,11 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       checkRunId: number | undefined,
       conclusion: "success" | "failure",
       summary: string,
-    ): Effect.Effect<void> => {
-      if (!checkRunId) return Effect.void;
+      // Returns whether the check run was actually closed: `false` when there is
+      // nothing to close (no check run id) or when the update failed and we
+      // swallowed it. Callers use that to know the run may still be in_progress.
+    ): Effect.Effect<boolean> => {
+      if (!checkRunId) return Effect.succeed(false);
       return Effect.tryPromise(() =>
         octokit.rest.checks.update({
           owner,
@@ -84,9 +87,12 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           },
         }),
       ).pipe(
-        Effect.asVoid,
+        Effect.as(true),
         Effect.catchAll((cause) =>
-          Effect.sync(() => log.warn("check update failed", { error: String(cause) })),
+          Effect.sync(() => {
+            log.warn("check update failed", { error: String(cause) });
+            return false;
+          }),
         ),
       );
     },

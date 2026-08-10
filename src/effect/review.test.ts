@@ -24,7 +24,8 @@ function makeLayer(over: {
   git?: Record<string, () => Effect.Effect<unknown, unknown>>;
   oc?: (signal: AbortSignal) => Effect.Effect<never, OpenCodeError>;
   status?: string;
-  finishCheck?: (conclusion: string) => Effect.Effect<void, unknown>;
+  // Mirrors the real signature: `true` only when GitHub actually closed the run.
+  finishCheck?: (conclusion: string) => Effect.Effect<boolean>;
 }) {
   const calls = {
     completed: 0,
@@ -49,7 +50,7 @@ function makeLayer(over: {
   const gh = Layer.succeed(GitHubService, {
     installationClient: () => Effect.succeed({} as never),
     installationToken: () => Effect.succeed("tok"),
-    startCheck: () => Effect.succeed(undefined),
+    startCheck: () => Effect.succeed(77),
     finishCheck: (
       _o: unknown,
       _owner: string,
@@ -59,7 +60,7 @@ function makeLayer(over: {
     ) =>
       Effect.suspend(() => {
         calls.conclusions.push(conclusion);
-        return over.finishCheck ? over.finishCheck(conclusion) : Effect.void;
+        return over.finishCheck ? over.finishCheck(conclusion) : Effect.succeed(true);
       }),
   } as unknown as GitHubService);
 
@@ -178,28 +179,42 @@ test("a settled row is never overwritten with a failure", async () => {
   expect(calls.failed).toEqual([]);
 });
 
-// db.complete succeeded, then finishCheck("success") threw. The finaliser must
-// still close the check run — otherwise it stays in_progress forever on an
-// already-completed row — without flipping that row to failed.
-test("a throw after complete still closes the check run, leaving the row completed", async () => {
+// db.complete succeeded, then finishCheck("success") swallowed a GitHub error
+// and reported `false`. The review itself is fine, so the run must be retried
+// and closed as a *success* — and nothing anywhere may report it as failed.
+test("a swallowed check-update failure is retried and closed as success", async () => {
+  let first = true;
+  const { layer, calls } = makeLayer({
+    finishCheck: () =>
+      Effect.sync(() => {
+        const closed = !first;
+        first = false;
+        return closed;
+      }),
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.completed).toBe(1);
+  expect(calls.failed).toEqual([]);
+  // The finaliser retried, and on a successful review the retry is a success.
+  expect(calls.conclusions).toEqual(["success", "success"]);
+});
+
+// The same interleaving on a run that then failed: the check must be closed as
+// a failure, and the already-settled row must not be written again.
+test("a failure after complete closes the check as failure without touching the row", async () => {
   const { layer, calls } = makeLayer({
     status: "completed",
-    finishCheck: (conclusion) =>
-      conclusion === "success"
-        ? Effect.sync(() => {
-            throw new Error("check api down");
-          })
-        : Effect.void,
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "late boom" })),
   });
   const exit = await Effect.runPromiseExit(
     reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isFailure(exit)).toBe(true);
-  // (a) the settled row survives untouched
-  expect(calls.completed).toBe(1);
   expect(calls.failed).toEqual([]);
-  // (b) checkDoneRef was never set, so the finaliser closed the run itself
-  expect(calls.conclusions).toEqual(["success", "failure"]);
+  expect(calls.conclusions).toEqual(["failure"]);
 });
 
 test("tool GitHub context is passed per-review, not via global process.env (#23)", async () => {

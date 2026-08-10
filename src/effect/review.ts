@@ -102,10 +102,10 @@ export function reviewPipeline(
     // checkRunId are only acquired partway through the run.
     const octokitRef = yield* Ref.make<Octokit | undefined>(undefined);
     const checkRef = yield* Ref.make<number | undefined>(undefined);
-    // Set only once the check run is actually finalised, so the failure handler
-    // can tell "already closed" from "still in progress" — the row being
-    // terminal doesn't imply the check was closed (finishCheck can throw after
-    // db.complete succeeded).
+    // Set only once the check run is actually finalised, so the finaliser can
+    // tell "already closed" from "still in progress" — neither the row being
+    // terminal nor finishCheck returning implies the check was closed, since
+    // finishCheck swallows its own API errors.
     const checkDoneRef = yield* Ref.make(false);
 
     const run = (worktree: string) =>
@@ -181,8 +181,17 @@ export function reviewPipeline(
           preview: result.text.slice(0, 500),
         });
         yield* db.complete(id, result.cost, result.tokens, model);
-        yield* gh.finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
-        yield* Ref.set(checkDoneRef, true);
+        // finishCheck swallows its own API errors, so its *return value* — not
+        // the fact that it returned — is the only signal the run was closed.
+        const closed = yield* gh.finishCheck(
+          octokit,
+          owner,
+          repoName,
+          checkRunId,
+          "success",
+          result.text,
+        );
+        yield* Ref.set(checkDoneRef, closed);
       });
 
     // Everything from here on is covered by the finaliser below — including the
@@ -205,54 +214,73 @@ export function reviewPipeline(
       // status write survives even a fiber interrupt.
       Effect.onExit((exit) =>
         Effect.gen(function* () {
-          if (Exit.isSuccess(exit)) return;
+          const failed = Exit.isFailure(exit);
           // An abort isn't an error — don't pollute error monitoring. A newer
           // commit superseding the run is signalled via AbortSignal.reason.
           const aborted = signal.aborted;
-          const message = failureMessage(exit.cause, signal, "Superseded by a newer commit");
-          if (aborted) {
-            log.info(signal.reason === "superseded" ? "review superseded" : "review stopped", {
-              repo: pr.repoFullName,
-              number: pr.number,
-              review: id,
-            });
-          } else {
-            log.error("review failed", {
-              repo: pr.repoFullName,
-              number: pr.number,
-              review: id,
-              error: message,
-            });
-          }
-          // The success path already wrote `completed` (and may have failed
-          // afterwards) — never overwrite a settled row with a failure. On a
-          // read error we still attempt the write: a duplicate `failed` is
-          // better than a row stuck at `running`.
-          const current = yield* db
-            .status(id)
-            .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
-          const settled = current === "completed" || current === "failed";
-          if (!settled) yield* writeFailure(db, id, message);
+          const message = failed
+            ? failureMessage(exit.cause, signal, "Superseded by a newer commit")
+            : "";
 
-          // Independent of the row status: db.complete can succeed and the
-          // *following* finishCheck still throw, which would otherwise leave the
-          // check run in_progress forever on a terminal row. checkDoneRef is the
-          // only reliable signal that it was closed. Best-effort — a failure
-          // here must not fail the finaliser and mask the original cause.
+          // The DB failure write stays failure-only: a review that succeeded is
+          // never reported as failed, whatever happened to its check run.
+          if (failed) {
+            if (aborted) {
+              log.info(signal.reason === "superseded" ? "review superseded" : "review stopped", {
+                repo: pr.repoFullName,
+                number: pr.number,
+                review: id,
+              });
+            } else {
+              log.error("review failed", {
+                repo: pr.repoFullName,
+                number: pr.number,
+                review: id,
+                error: message,
+              });
+            }
+            // The success path already wrote `completed` (and may have failed
+            // afterwards) — never overwrite a settled row with a failure. On a
+            // read error we still attempt the write: a duplicate `failed` is
+            // better than a row stuck at `running`.
+            const current = yield* db
+              .status(id)
+              .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
+            const settled = current === "completed" || current === "failed";
+            if (!settled) yield* writeFailure(db, id, message);
+          }
+
+          // Runs on BOTH outcomes, independent of the row status: finishCheck
+          // swallows its own errors, so a review can succeed end to end while
+          // GitHub never heard the check was done. checkDoneRef is the only
+          // reliable signal that it was closed; if it wasn't, retry here — as a
+          // success when the review really did succeed, as a failure otherwise.
+          // Best-effort: a failure here must not fail the finaliser and mask the
+          // original cause.
           const octokit = yield* Ref.get(octokitRef);
           const checkDone = yield* Ref.get(checkDoneRef);
-          if (octokit && !checkDone) {
-            const checkRunId = yield* Ref.get(checkRef);
+          const checkRunId = yield* Ref.get(checkRef);
+          if (octokit && !checkDone && checkRunId !== undefined) {
             yield* gh
-              .finishCheck(octokit, owner, repoName, checkRunId, "failure", message)
+              .finishCheck(
+                octokit,
+                owner,
+                repoName,
+                checkRunId,
+                failed ? "failure" : "success",
+                failed ? message : "Review completed.",
+              )
               .pipe(
-                Effect.catchAll((cause) =>
+                // catchAllCause, not catchAll: finishCheck has no typed error
+                // channel left, but a defect here must still not mask the
+                // original cause.
+                Effect.catchAllCause((cause) =>
                   Effect.sync(() =>
                     log.error("failed to close check run — it may stay in progress", {
                       repo: pr.repoFullName,
                       number: pr.number,
                       review: id,
-                      error: String(cause),
+                      error: String(Cause.squash(cause)),
                     }),
                   ),
                 ),
