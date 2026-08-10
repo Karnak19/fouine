@@ -117,6 +117,9 @@ export function reviewPipeline(
         yield* Ref.set(octokitRef, octokit);
         const checkRunId = yield* gh.startCheck(octokit, owner, repoName, pr.headSha);
         yield* Ref.set(checkRef, checkRunId);
+        // Persisted immediately: if the process dies from here on, the boot
+        // reaper needs this exact id to close the run it left in progress.
+        if (checkRunId !== undefined) yield* db.setCheckRun(id, checkRunId);
         const token = yield* gh.installationToken(octokit);
 
         yield* git.ensureBare(pr.repoFullName, cloneUrl(token, pr.repoFullName));

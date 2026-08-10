@@ -1,5 +1,4 @@
 import { repos, reviews, type ReviewRow } from "~/db";
-import { CHECK_NAME } from "~/effect/github";
 import { getInstallationOctokit } from "~/github";
 import { publishReviewEvent } from "~/server/events";
 import { log } from "~/server/log";
@@ -46,6 +45,9 @@ export async function reapOrphanReviews(): Promise<void> {
   // Best-effort from here on — every failure is logged and swallowed.
   for (const row of reaped) {
     if (row.pr_number <= 0) continue; // improver runs open no check
+    // No stored check run id: either the row predates the column or it died
+    // before the check was created. Nothing of ours is in progress — skip.
+    if (row.check_run_id == null) continue;
     try {
       await closeOrphanCheck(row);
     } catch (err) {
@@ -58,37 +60,30 @@ export async function reapOrphanReviews(): Promise<void> {
   }
 }
 
-// We don't persist the check run id, so we find it the way GitHub lets us: look
-// up the PR's current head sha and complete any in_progress check of ours on it.
+// The check run id is recorded on the row at creation time, so we close exactly
+// the run this review opened. Rediscovering it from the PR's current head would
+// be wrong: a commit pushed after the crash moves the head, and we'd close the
+// newer review's check instead.
 async function closeOrphanCheck(row: ReviewRow): Promise<void> {
+  const checkRunId = row.check_run_id;
+  if (checkRunId == null) return;
   const repo = repos.get.get({ $full_name: row.repo_full_name });
   if (!repo) return;
   const [owner, name] = row.repo_full_name.split("/");
   const octokit = await getInstallationOctokit(repo.installation_id);
 
-  const pr = await octokit.rest.pulls.get({ owner, repo: name, pull_number: row.pr_number });
-  const runs = await octokit.rest.checks.listForRef({
+  await octokit.rest.checks.update({
     owner,
     repo: name,
-    ref: pr.data.head.sha,
-    check_name: CHECK_NAME,
-    status: "in_progress",
+    check_run_id: checkRunId,
+    status: "completed",
+    conclusion: "failure",
+    completed_at: new Date().toISOString(),
+    output: { title: "Review failed", summary: REAP_MESSAGE },
   });
-
-  for (const check of runs.data.check_runs) {
-    await octokit.rest.checks.update({
-      owner,
-      repo: name,
-      check_run_id: check.id,
-      status: "completed",
-      conclusion: "failure",
-      completed_at: new Date().toISOString(),
-      output: { title: "Review failed", summary: REAP_MESSAGE },
-    });
-    log.info("orphan check run closed", {
-      review: row.id,
-      repo: row.repo_full_name,
-      check: check.id,
-    });
-  }
+  log.info("orphan check run closed", {
+    review: row.id,
+    repo: row.repo_full_name,
+    check: checkRunId,
+  });
 }

@@ -51,6 +51,13 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
         publishReviewEvent("updated", id);
       }),
 
+    // No event published: the check run id is reaper bookkeeping, nothing in
+    // the UI reads it.
+    setCheckRun: (id: number, checkRunId: number): Effect.Effect<void, DatabaseError> =>
+      attempt("reviews.setCheckRun", () => {
+        reviews.setCheckRun.run({ $check: checkRunId, $id: id });
+      }),
+
     complete: (
       id: number,
       cost: number,

@@ -49,9 +49,12 @@ test("review lifecycle: pending -> running -> completed", () => {
   })!;
   expect(row.status).toBe("pending");
   expect(row.trigger).toBe("opened");
+  // Null until the GitHub check run exists; the orphan reaper skips rows without one.
+  expect(row.check_run_id).toBeNull();
 
   reviews.updateStatus.run({ $status: "running", $done: 0, $id: row.id });
   reviews.setSession.run({ $session: "sess-1", $id: row.id });
+  reviews.setCheckRun.run({ $check: 9911, $id: row.id });
   // Success path is a single atomic write (status + completed_at + cost + tokens),
   // so a crash mid-completion can't split a "completed" row from its cost.
   reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096, $model: "anthropic/claude-opus-4" });
@@ -64,6 +67,7 @@ test("review lifecycle: pending -> running -> completed", () => {
   expect(target?.cost).toBeCloseTo(0.0123);
   expect(target?.tokens).toBe(4096);
   expect(target?.model).toBe("anthropic/claude-opus-4");
+  expect(target?.check_run_id).toBe(9911);
 });
 
 test("byRepoPR returns only that PR's reviews, newest first", () => {

@@ -32,12 +32,15 @@ function makeLayer(over: {
     agent: undefined as string | undefined,
     env: undefined as Record<string, string> | undefined,
     conclusions: [] as string[],
+    checkRuns: [] as number[],
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
     insertReview: () => Effect.succeed(42),
     setRunning: () => Effect.void,
     setSession: () => Effect.void,
+    setCheckRun: (_id: number, checkRunId: number) =>
+      Effect.sync(() => void calls.checkRuns.push(checkRunId)),
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
     status: () => Effect.succeed(over.status ?? "running"),
