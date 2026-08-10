@@ -24,12 +24,14 @@ function makeLayer(over: {
   git?: Record<string, () => Effect.Effect<unknown, unknown>>;
   oc?: (signal: AbortSignal) => Effect.Effect<never, OpenCodeError>;
   status?: string;
+  finishCheck?: (conclusion: string) => Effect.Effect<void, unknown>;
 }) {
   const calls = {
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
     env: undefined as Record<string, string> | undefined,
+    conclusions: [] as string[],
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
@@ -45,7 +47,17 @@ function makeLayer(over: {
     installationClient: () => Effect.succeed({} as never),
     installationToken: () => Effect.succeed("tok"),
     startCheck: () => Effect.succeed(undefined),
-    finishCheck: () => Effect.void,
+    finishCheck: (
+      _o: unknown,
+      _owner: string,
+      _repo: string,
+      _checkRunId: unknown,
+      conclusion: string,
+    ) =>
+      Effect.suspend(() => {
+        calls.conclusions.push(conclusion);
+        return over.finishCheck ? over.finishCheck(conclusion) : Effect.void;
+      }),
   } as unknown as GitHubService);
 
   const git = Layer.succeed(GitService, { ...gitOk(), ...over.git } as unknown as GitService);
@@ -161,6 +173,30 @@ test("a settled row is never overwritten with a failure", async () => {
   );
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.failed).toEqual([]);
+});
+
+// db.complete succeeded, then finishCheck("success") threw. The finaliser must
+// still close the check run — otherwise it stays in_progress forever on an
+// already-completed row — without flipping that row to failed.
+test("a throw after complete still closes the check run, leaving the row completed", async () => {
+  const { layer, calls } = makeLayer({
+    status: "completed",
+    finishCheck: (conclusion) =>
+      conclusion === "success"
+        ? Effect.sync(() => {
+            throw new Error("check api down");
+          })
+        : Effect.void,
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  // (a) the settled row survives untouched
+  expect(calls.completed).toBe(1);
+  expect(calls.failed).toEqual([]);
+  // (b) checkDoneRef was never set, so the finaliser closed the run itself
+  expect(calls.conclusions).toEqual(["success", "failure"]);
 });
 
 test("tool GitHub context is passed per-review, not via global process.env (#23)", async () => {

@@ -102,6 +102,11 @@ export function reviewPipeline(
     // checkRunId are only acquired partway through the run.
     const octokitRef = yield* Ref.make<Octokit | undefined>(undefined);
     const checkRef = yield* Ref.make<number | undefined>(undefined);
+    // Set only once the check run is actually finalised, so the failure handler
+    // can tell "already closed" from "still in progress" — the row being
+    // terminal doesn't imply the check was closed (finishCheck can throw after
+    // db.complete succeeded).
+    const checkDoneRef = yield* Ref.make(false);
 
     const run = (worktree: string) =>
       Effect.gen(function* () {
@@ -174,6 +179,7 @@ export function reviewPipeline(
         });
         yield* db.complete(id, result.cost, result.tokens, model);
         yield* gh.finishCheck(octokit, owner, repoName, checkRunId, "success", result.text);
+        yield* Ref.set(checkDoneRef, true);
       });
 
     // Everything from here on is covered by the finaliser below — including the
@@ -222,13 +228,32 @@ export function reviewPipeline(
           const current = yield* db
             .status(id)
             .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
-          if (current === "completed" || current === "failed") return;
+          const settled = current === "completed" || current === "failed";
+          if (!settled) yield* writeFailure(db, id, message);
 
-          yield* writeFailure(db, id, message);
+          // Independent of the row status: db.complete can succeed and the
+          // *following* finishCheck still throw, which would otherwise leave the
+          // check run in_progress forever on a terminal row. checkDoneRef is the
+          // only reliable signal that it was closed. Best-effort — a failure
+          // here must not fail the finaliser and mask the original cause.
           const octokit = yield* Ref.get(octokitRef);
-          if (octokit) {
+          const checkDone = yield* Ref.get(checkDoneRef);
+          if (octokit && !checkDone) {
             const checkRunId = yield* Ref.get(checkRef);
-            yield* gh.finishCheck(octokit, owner, repoName, checkRunId, "failure", message);
+            yield* gh
+              .finishCheck(octokit, owner, repoName, checkRunId, "failure", message)
+              .pipe(
+                Effect.catchAll((cause) =>
+                  Effect.sync(() =>
+                    log.error("failed to close check run — it may stay in progress", {
+                      repo: pr.repoFullName,
+                      number: pr.number,
+                      review: id,
+                      error: String(cause),
+                    }),
+                  ),
+                ),
+              );
           }
         }),
       ),
