@@ -290,6 +290,11 @@ export const reviews = {
     "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
+  // Rows still claiming to be in flight. At boot these are necessarily orphans:
+  // the live-review map is in-memory, so nothing can still be running them.
+  unfinished: db.prepare<ReviewRow, []>(
+    "SELECT * FROM reviews WHERE status IN ('pending', 'running') ORDER BY id",
+  ),
   byProject: db.prepare<ProjectStatsRow, []>(
     `SELECT repo_full_name,
             COUNT(*) AS reviews,

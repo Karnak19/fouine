@@ -4,7 +4,7 @@ import { getInstallationOctokit } from "~/github";
 import { log } from "~/server/log";
 import { GitHubError } from "~/effect/errors";
 
-const CHECK_NAME = "fouine";
+export const CHECK_NAME = "fouine";
 const MAX_SUMMARY = 65000;
 
 export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubService", {

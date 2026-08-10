@@ -23,6 +23,7 @@ const pr: PullRequestInfo = {
 function makeLayer(over: {
   git?: Record<string, () => Effect.Effect<unknown, unknown>>;
   oc?: (signal: AbortSignal) => Effect.Effect<never, OpenCodeError>;
+  status?: string;
 }) {
   const calls = {
     completed: 0,
@@ -37,6 +38,7 @@ function makeLayer(over: {
     setSession: () => Effect.void,
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
+    status: () => Effect.succeed(over.status ?? "running"),
   } as unknown as DbService);
 
   const gh = Layer.succeed(GitHubService, {
@@ -125,6 +127,40 @@ test("supersede abort is recorded distinctly from a user stop", async () => {
   );
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.failed).toEqual(["Superseded by a newer commit"]);
+});
+
+// #60: an unexpected throw is a defect, which the old catchAll (typed channel
+// only) let sail past — leaving the row at `running` forever.
+test("a defect still marks the review failed", async () => {
+  const { layer, calls } = makeLayer({
+    git: {
+      addWorktree: () =>
+        Effect.sync(() => {
+          throw new Error("kaboom");
+        }),
+    },
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.completed).toBe(0);
+  expect(calls.failed.length).toBe(1);
+  expect(calls.failed[0]).toContain("kaboom");
+});
+
+// The success path already wrote `completed`; a throw after it must not flip
+// the row to failed.
+test("a settled row is never overwritten with a failure", async () => {
+  const { layer, calls } = makeLayer({
+    status: "completed",
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "late boom" })),
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.failed).toEqual([]);
 });
 
 test("tool GitHub context is passed per-review, not via global process.env (#23)", async () => {

@@ -39,6 +39,12 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
         publishReviewEvent("updated", id);
       }),
 
+    // Current status of a row, so the failure finaliser can tell "still owed a
+    // terminal write" (pending/running) from "already settled" (completed/failed)
+    // and never overwrite a completed review with a failure.
+    status: (id: number): Effect.Effect<string | undefined, DatabaseError> =>
+      attempt("reviews.byId", () => reviews.byId.get({ $id: id })?.status),
+
     setSession: (id: number, session: string): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.setSession", () => {
         reviews.setSession.run({ $session: session, $id: id });
