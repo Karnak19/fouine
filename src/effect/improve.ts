@@ -18,16 +18,21 @@ export interface ImproveTarget {
   prNumbers: number[];
 }
 
+// Must match BRANCH in opencode-config/tools/propose_review_notes.ts.
+export const PROPOSAL_BRANCH = "fouine/review-notes";
+
 export function buildImprovePrompt(
   target: ImproveTarget,
   defaultBranch: string,
   currentNotes: string | undefined,
+  pendingProposal = false,
 ): string {
   return [
     `# Review-notes improvement pass`,
     ``,
     `- Repository: ${target.repoFullName}`,
-    `- Default branch: ${defaultBranch} (checked out in the current directory)`,
+    `- Default branch: ${defaultBranch}`,
+    `- Checked out here: ${pendingProposal ? `${PROPOSAL_BRANCH} (open proposal PR)` : defaultBranch}`,
     ``,
     `fouine recently reviewed these PRs: ${target.prNumbers.map((n) => `#${n}`).join(", ")}`,
     ``,
@@ -35,7 +40,9 @@ export function buildImprovePrompt(
     `distill the durable learnings, and propose an updated REVIEW.md via propose_review_notes —`,
     `or reply "no learnings" if there is nothing worth remembering.`,
     ``,
-    `## Current REVIEW.md`,
+    pendingProposal
+      ? `## Current REVIEW.md (from the still-open proposal PR, not yet merged — build on it, do not drop what it already added)`
+      : `## Current REVIEW.md`,
     ``,
     currentNotes ?? "_(none yet — you would be creating it)_",
   ].join("\n");
@@ -83,12 +90,29 @@ export function improvePipeline(
         const token = yield* gh.installationToken(octokit);
         const branch = yield* gh.defaultBranch(octokit, owner, repoName);
 
+        // If a previous proposal is still open and unmerged, check that branch
+        // out instead of the default one. Otherwise the agent reads the default
+        // branch's REVIEW.md, rewrites it whole, and silently reverts learnings
+        // a human hasn't merged yet.
+        const pending = yield* Effect.tryPromise(() =>
+          octokit.rest.pulls.list({
+            owner,
+            repo: repoName,
+            state: "open",
+            head: `${owner}:${PROPOSAL_BRANCH}`,
+          }),
+        ).pipe(
+          Effect.map((res) => res.data.length > 0),
+          Effect.catchAll(() => Effect.succeed(false)),
+        );
+        const checkout = pending ? PROPOSAL_BRANCH : branch;
+
         yield* git.ensureBare(target.repoFullName, cloneUrl(token, target.repoFullName));
-        const sha = yield* git.fetchRef(target.repoFullName, `refs/heads/${branch}`);
+        const sha = yield* git.fetchRef(target.repoFullName, `refs/heads/${checkout}`);
         yield* git.addWorktree(target.repoFullName, sha, worktree);
 
         const currentNotes = yield* readRepoNotes(worktree);
-        const prompt = buildImprovePrompt(target, branch, currentNotes);
+        const prompt = buildImprovePrompt(target, branch, currentNotes, pending);
         const model = resolveImproverModel();
 
         const result = yield* oc.runReview(

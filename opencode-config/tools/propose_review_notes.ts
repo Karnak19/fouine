@@ -31,24 +31,33 @@ export default tool({
 
     const repoInfo = (await gh(`${base}`, { headers: get })) as { default_branch: string };
     const defaultBranch = repoInfo.default_branch;
-    const head = (await gh(`${base}/git/ref/heads/${defaultBranch}`, { headers: get })) as {
-      object: { sha: string };
-    };
 
-    // Reset the branch onto the default head (create if missing) so re-runs
-    // produce exactly one commit on top and one open PR, never a pile-up.
-    const create = await fetch(`${base}/git/refs`, {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify({ ref: `refs/heads/${BRANCH}`, sha: head.object.sha }),
-    });
-    if (!create.ok) {
-      if (create.status !== 422) throw new Error(`GitHub ${create.status}: ${await create.text()}`);
-      await gh(`${base}/git/refs/heads/${BRANCH}`, {
-        method: "PATCH",
+    const open = (await gh(`${base}/pulls?head=${owner}:${encodeURIComponent(BRANCH)}&state=open`, {
+      headers: get,
+    })) as Array<{ number: number; html_url: string }>;
+
+    // With a proposal still open, the branch is live review state a human hasn't
+    // merged yet: commit on top of it. Only when nothing is open do we reset the
+    // branch onto the default head (create if missing), so a stale branch left
+    // behind by a merged/closed PR can't stack commits forever.
+    if (!open.length) {
+      const head = (await gh(`${base}/git/ref/heads/${defaultBranch}`, { headers: get })) as {
+        object: { sha: string };
+      };
+      const create = await fetch(`${base}/git/refs`, {
+        method: "POST",
         headers: json,
-        body: JSON.stringify({ sha: head.object.sha, force: true }),
+        body: JSON.stringify({ ref: `refs/heads/${BRANCH}`, sha: head.object.sha }),
       });
+      if (!create.ok) {
+        if (create.status !== 422)
+          throw new Error(`GitHub ${create.status}: ${await create.text()}`);
+        await gh(`${base}/git/refs/heads/${BRANCH}`, {
+          method: "PATCH",
+          headers: json,
+          body: JSON.stringify({ sha: head.object.sha, force: true }),
+        });
+      }
     }
 
     // Existing file sha on the branch, if any (contents PUT requires it to update).
@@ -66,10 +75,6 @@ export default tool({
       }),
     });
 
-    const open = (await gh(
-      `${base}/pulls?head=${owner}:${encodeURIComponent(BRANCH)}&state=open`,
-      { headers: get },
-    )) as Array<{ number: number; html_url: string }>;
     const body = args.summary + PR_FOOTER;
     if (open.length) {
       await gh(`${base}/pulls/${open[0].number}`, {
