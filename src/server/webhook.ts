@@ -5,7 +5,9 @@ import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
 
-const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+// `ready_for_review` matters: draft PRs are skipped below, so without it a PR
+// opened as a draft (what `gh stack submit` does) is never reviewed at all.
+const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 const TRIGGER = "/review";
 
 let handlersRegistered = false;
