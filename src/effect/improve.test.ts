@@ -13,13 +13,19 @@ const target: ImproveTarget = {
   prNumbers: [7, 9],
 };
 
-function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> }) {
+function makeLayer(over: {
+  oc?: () => Effect.Effect<never, OpenCodeError>;
+  openProposals?: number;
+  proposalLookupFails?: boolean;
+}) {
   const calls = {
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
     env: undefined as Record<string, string> | undefined,
     inserted: undefined as { pr: number; trigger: string | null } | undefined,
+    fetchedRef: undefined as string | undefined,
+    prompt: undefined as string | undefined,
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
@@ -35,23 +41,34 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> }) {
     status: () => Effect.succeed("running"),
   } as unknown as DbService);
 
+  const octokit = {
+    rest: {
+      pulls: {
+        list: async () => {
+          if (over.proposalLookupFails) throw new Error("rate limited");
+          return { data: Array(over.openProposals ?? 0).fill({ number: 3 }) };
+        },
+      },
+    },
+  };
   const gh = Layer.succeed(GitHubService, {
-    installationClient: () => Effect.succeed({} as never),
+    installationClient: () => Effect.succeed(octokit as never),
     installationToken: () => Effect.succeed("tok"),
     defaultBranch: () => Effect.succeed("main"),
   } as unknown as GitHubService);
 
   const git = Layer.succeed(GitService, {
     ensureBare: () => Effect.succeed("bare"),
-    fetchRef: () => Effect.succeed("sha"),
+    fetchRef: (_repo: string, ref: string) => Effect.sync(() => ((calls.fetchedRef = ref), "sha")),
     addWorktree: () => Effect.void,
     removeWorktree: () => Effect.void,
   } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (o: { agent?: string; env?: Record<string, string> }) => {
+    runReview: (o: { agent?: string; env?: Record<string, string>; prompt?: string }) => {
       calls.agent = o.agent;
       calls.env = o.env;
+      calls.prompt = o.prompt;
       return over.oc
         ? over.oc()
         : Effect.succeed({ sessionId: "s", text: "no learnings", cost: 1, tokens: 2 });
@@ -88,6 +105,29 @@ test("failure marks the run failed and propagates", async () => {
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.completed).toBe(0);
   expect(calls.failed).toEqual(["boom"]);
+});
+
+test("an open proposal PR is built on, not overwritten", async () => {
+  const { layer, calls } = makeLayer({ openProposals: 1 });
+  await Effect.runPromise(improvePipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)));
+  expect(calls.fetchedRef).toBe("refs/heads/fouine/review-notes");
+  expect(calls.prompt).toContain("not yet merged");
+
+  const { layer: clean, calls: cleanCalls } = makeLayer({});
+  await Effect.runPromise(improvePipeline(target, noAbort(), () => {}).pipe(Effect.provide(clean)));
+  expect(cleanCalls.fetchedRef).toBe("refs/heads/main");
+});
+
+// Fail closed: falling back to the default branch on an unknown proposal state
+// is exactly how an open proposal gets overwritten.
+test("a failed proposal lookup fails the run instead of using the default branch", async () => {
+  const { layer, calls } = makeLayer({ proposalLookupFails: true });
+  const exit = await Effect.runPromiseExit(
+    improvePipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.fetchedRef).toBeUndefined();
+  expect(calls.completed).toBe(0);
 });
 
 test("prompt lists the PRs and the current notes", () => {
