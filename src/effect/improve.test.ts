@@ -16,6 +16,7 @@ const target: ImproveTarget = {
 function makeLayer(over: {
   oc?: () => Effect.Effect<never, OpenCodeError>;
   openProposals?: number;
+  proposalLookupFails?: boolean;
 }) {
   const calls = {
     completed: 0,
@@ -43,7 +44,10 @@ function makeLayer(over: {
   const octokit = {
     rest: {
       pulls: {
-        list: async () => ({ data: Array(over.openProposals ?? 0).fill({ number: 3 }) }),
+        list: async () => {
+          if (over.proposalLookupFails) throw new Error("rate limited");
+          return { data: Array(over.openProposals ?? 0).fill({ number: 3 }) };
+        },
       },
     },
   };
@@ -112,6 +116,18 @@ test("an open proposal PR is built on, not overwritten", async () => {
   const { layer: clean, calls: cleanCalls } = makeLayer({});
   await Effect.runPromise(improvePipeline(target, noAbort(), () => {}).pipe(Effect.provide(clean)));
   expect(cleanCalls.fetchedRef).toBe("refs/heads/main");
+});
+
+// Fail closed: falling back to the default branch on an unknown proposal state
+// is exactly how an open proposal gets overwritten.
+test("a failed proposal lookup fails the run instead of using the default branch", async () => {
+  const { layer, calls } = makeLayer({ proposalLookupFails: true });
+  const exit = await Effect.runPromiseExit(
+    improvePipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.fetchedRef).toBeUndefined();
+  expect(calls.completed).toBe(0);
 });
 
 test("prompt lists the PRs and the current notes", () => {

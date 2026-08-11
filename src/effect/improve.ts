@@ -10,7 +10,7 @@ import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { OpenCodeService } from "~/effect/opencode";
 import { improveToolEnv } from "~/review/opencode";
-import { type ReviewError } from "~/effect/errors";
+import { GitHubError, type ReviewError } from "~/effect/errors";
 
 export interface ImproveTarget {
   repoFullName: string;
@@ -94,17 +94,20 @@ export function improvePipeline(
         // out instead of the default one. Otherwise the agent reads the default
         // branch's REVIEW.md, rewrites it whole, and silently reverts learnings
         // a human hasn't merged yet.
-        const pending = yield* Effect.tryPromise(() =>
-          octokit.rest.pulls.list({
-            owner,
-            repo: repoName,
-            state: "open",
-            head: `${owner}:${PROPOSAL_BRANCH}`,
-          }),
-        ).pipe(
-          Effect.map((res) => res.data.length > 0),
-          Effect.catchAll(() => Effect.succeed(false)),
-        );
+        // Fails closed on purpose: an unknown proposal state must not fall back
+        // to the default branch, or a transient GitHub error would undo an open
+        // proposal. Failing the run is cheap — the marker doesn't advance, so
+        // the next sweep retries.
+        const pending = yield* Effect.tryPromise({
+          try: () =>
+            octokit.rest.pulls.list({
+              owner,
+              repo: repoName,
+              state: "open",
+              head: `${owner}:${PROPOSAL_BRANCH}`,
+            }),
+          catch: (cause) => new GitHubError({ op: "pulls.list", cause }),
+        }).pipe(Effect.map((res) => res.data.length > 0));
         const checkout = pending ? PROPOSAL_BRANCH : branch;
 
         yield* git.ensureBare(target.repoFullName, cloneUrl(token, target.repoFullName));
