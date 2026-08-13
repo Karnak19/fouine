@@ -1,3 +1,4 @@
 # Review guidance
 
 - For remote lookups that determine a write or checkout target, treat errors and unknown states as failures. Do not convert lookup failures into “not found” and proceed with a default branch or potentially stale content; fail closed and preserve retry behavior so existing data is not overwritten or lost.
+- When a finding depends on code apparently missing from the changed branch, verify the current target branch and the eventual merge base before concluding that integration is absent. A stale PR base can omit an already-landed dependency and produce a false positive; distinguish stale-base findings from defects in the PR itself.
