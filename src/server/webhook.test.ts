@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
-import { verifyAndDispatch, VerificationError } from "~/server/webhook";
+import { verifyAndDispatch, VerificationError, isStopCommand } from "~/server/webhook";
 
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 
@@ -57,4 +57,13 @@ test("accepts a valid GitHub-style signature", async () => {
       signature: sign(PING),
     }),
   ).resolves.toBeUndefined();
+});
+
+test("recognises /review stop, and only stop", () => {
+  expect(isStopCommand("/review stop")).toBe(true);
+  expect(isStopCommand("  /review   stop  ")).toBe(true);
+  expect(isStopCommand("/review")).toBe(false);
+  // Must not swallow a plain review request that merely starts with "stop".
+  expect(isStopCommand("/review stopwatch")).toBe(false);
+  expect(isStopCommand("/review stop please")).toBe(false);
 });

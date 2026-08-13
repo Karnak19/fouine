@@ -1,6 +1,6 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
-import { runReviewForPR } from "~/review";
+import { abortReviewsForPR, runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
@@ -9,6 +9,37 @@ import { log } from "~/server/log";
 // opened as a draft (what `gh stack submit` does) is never reviewed at all.
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 const TRIGGER = "/review";
+
+// `/review stop` and nothing else — an exact match on the argument, so
+// `/review stopwatch` (or any future subcommand starting with "stop") still
+// falls through to a normal review instead of silently cancelling one.
+export function isStopCommand(body: string): boolean {
+  return body.trim().slice(TRIGGER.length).trim() === "stop";
+}
+
+// Best-effort ack on the triggering comment. Never throws: a failed reaction
+// must not turn a successful stop into a logged error, and the abort has
+// already happened by the time we get here.
+async function react(
+  installationId: number | undefined,
+  fullName: string,
+  commentId: number,
+  content: "+1" | "confused",
+): Promise<void> {
+  if (!installationId) return;
+  const [owner, repo] = fullName.split("/");
+  try {
+    const octokit = await getInstallationOctokit(installationId);
+    await octokit.rest.reactions.createForIssueComment({
+      owner,
+      repo,
+      comment_id: commentId,
+      content,
+    });
+  } catch (err) {
+    log.warn("comment reaction failed", { repo: fullName, comment: commentId, error: String(err) });
+  }
+}
 
 let handlersRegistered = false;
 export function ensureHandlers(): void {
@@ -91,7 +122,7 @@ export function registerHandlers(): void {
         action: string;
         installation?: { id: number };
         repository: { full_name: string };
-        comment: { body: string };
+        comment: { id: number; body: string };
         issue: { number: number; pull_request?: unknown };
       };
     };
@@ -125,6 +156,23 @@ export function registerHandlers(): void {
         reason: "no /review trigger",
         body: body.slice(0, 80),
       });
+      return;
+    }
+
+    // `/review stop` aborts whatever is running for this PR. The abort happens
+    // before any GitHub round-trip — stopping must stay instant — and only then
+    // do we tell the commenter what happened.
+    if (isStopCommand(body)) {
+      const stopped = abortReviewsForPR(fullName, prNumber);
+      log.info("/review stop", { repo: fullName, number: prNumber, stopped });
+      await react(
+        payload.installation?.id,
+        fullName,
+        payload.comment.id,
+        // "+1" = stopped something, "confused" = nothing was running. A reaction
+        // rather than a reply comment: the same ack without the PR noise.
+        stopped > 0 ? "+1" : "confused",
+      );
       return;
     }
 

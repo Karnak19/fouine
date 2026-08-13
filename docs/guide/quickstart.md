@@ -55,4 +55,6 @@ Comment `/review` on any PR to trigger an on-demand review:
 /review
 ```
 
+To cancel a review that's still running on that PR, comment `/review stop`. fouine reacts 👍 if it stopped something, 😕 if nothing was running.
+
 That's it. Check the [Configuration](/guide/configuration) page to customize the review prompt, model, and more.
