@@ -19,6 +19,21 @@ export function abortReview(id: number): boolean {
   return true;
 }
 
+// `/review stop` on a PR: the commenter knows the PR, not the review id, so the
+// lookup goes through the same repo#pr key supersession uses. Returns how many
+// runs were aborted (0 = nothing was running, worth telling the user).
+export function abortReviewsForPR(repoFullName: string, prNumber: number): number {
+  let n = 0;
+  for (const [id, entry] of activeReviews) {
+    if (entry.key === `${repoFullName}#${prNumber}`) {
+      log.info("stopping review by comment", { review: id, pr: entry.key });
+      entry.ctrl.abort();
+      n++;
+    }
+  }
+  return n;
+}
+
 function prKey(pr: PullRequestInfo): string {
   return `${pr.repoFullName}#${pr.number}`;
 }

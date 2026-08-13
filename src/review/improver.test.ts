@@ -4,8 +4,14 @@ import type { ImproveTarget } from "~/effect/improve";
 
 // Stub the runner so gating tests never touch git/opencode. Must be registered
 // before importing the module under test.
+//
+// mock.module replaces the module process-wide for every test file, so the stub
+// has to keep the real exports and override only runImprove — a bare
+// `{ runImprove }` makes any later importer of ~/review/index die with
+// "export 'x' not found in '~/review/runner'", depending on file order.
+const actual = await import("~/review/runner");
 const runImprove = mock((_target: ImproveTarget) => Promise.resolve());
-mock.module("~/review/runner", () => ({ runImprove }));
+mock.module("~/review/runner", () => ({ ...actual, runImprove }));
 const { runImproverForRepo } = await import("~/review/improver");
 
 const FULL = "acme/improver";
