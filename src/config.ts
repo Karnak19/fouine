@@ -36,7 +36,10 @@ export const config = {
   },
   review: {
     defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",
-    timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 10 * 60 * 1000),
+    // ponytail: 30 min, not 10 — a review on a big diff legitimately runs past
+    // 10 minutes and was being killed mid-run. This is the "wedged, kill it"
+    // ceiling, not a target duration; raise it if real reviews still hit it.
+    timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 30 * 60 * 1000),
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth

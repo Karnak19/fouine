@@ -21,7 +21,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
 | `OPENCODE_MODEL` | no | `opencode-go/glm-5.2` | Default model for reviews |
-| `REVIEW_TIMEOUT_MS` | no | `600000` (10 min) | Max review duration in milliseconds |
+| `REVIEW_TIMEOUT_MS` | no | `1800000` (30 min) | Max review duration in milliseconds |
 | `OPENCODE_CONFIG_DIR` | no | — | Path to OpenCode config (tools directory) |
 
 \* Provide the private key via one of the two variables. `*_PATH` is recommended.
