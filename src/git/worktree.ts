@@ -78,18 +78,33 @@ export async function patchId(
   fullName: string,
   baseRef: string,
   headSha: string,
+  reviewId: number,
 ): Promise<string | undefined> {
   const bare = barePath(fullName);
   // The bare clone has no tracking refspec, so its refs/heads/* go stale after
-  // the initial clone — fetch the base branch explicitly. Into a per-review ref,
-  // never FETCH_HEAD: that one is repo-global and two concurrent reviews of the
-  // same repo would overwrite each other's base.
-  const baseLocal = `refs/fouine/base/${headSha}`;
+  // the initial clone — fetch the base branch explicitly.
+  //
+  // Two levels of isolation here, both deliberate, following #23's precedent:
+  // don't make a shared mutable name cleverer, stop depending on one.
+  //
+  // 1. The ref is keyed by review id, which is unique per run by construction.
+  //    Not FETCH_HEAD (repo-global) and emphatically not the head SHA: two PRs
+  //    can point at the same head commit while targeting different base
+  //    branches, and those are legitimately different diffs. A SHA-keyed ref
+  //    lets one review's fetch overwrite the other's base, and the loser hashes
+  //    its head against the wrong base with no error anywhere. That inverts the
+  //    whole feature — a genuinely changed diff silently not reviewed.
+  // 2. The ref is resolved to a commit SHA immediately and everything below
+  //    diffs against that SHA, never the ref. So even if a future caller
+  //    reintroduces a shared name, or this run's own cleanup races another, the
+  //    hash is taken against the exact commit we fetched.
+  const baseLocal = `refs/fouine/base/${reviewId}`;
   try {
     await git(["fetch", "origin", `refs/heads/${baseRef}:${baseLocal}`, "--quiet", "--force"], bare);
+    const baseSha = await git(["rev-parse", `${baseLocal}^{commit}`], bare);
 
     // Bound the work before doing it (issue trap 7).
-    const shortstat = await git(["diff", "--shortstat", `${baseLocal}...${headSha}`], bare);
+    const shortstat = await git(["diff", "--shortstat", `${baseSha}...${headSha}`], bare);
     const changed = [...shortstat.matchAll(/(\d+) (?:insertion|deletion)/g)].reduce(
       (n, m) => n + Number(m[1]),
       0,
@@ -98,7 +113,7 @@ export async function patchId(
     // "run the review", which is what a caller does with undefined anyway.
     if (changed > MAX_DIFF_LINES) return undefined;
 
-    const proc = await $`git diff --no-color ${baseLocal}...${headSha} | git patch-id --stable`
+    const proc = await $`git diff --no-color ${baseSha}...${headSha} | git patch-id --stable`
       .cwd(bare)
       .quiet()
       .nothrow();

@@ -35,7 +35,9 @@ export class GitService extends Effect.Service<GitService>()("app/GitService", {
       fullName: string,
       baseRef: string,
       headSha: string,
-    ): Effect.Effect<string | undefined> => Effect.promise(() => patchId(fullName, baseRef, headSha)),
+      reviewId: number,
+    ): Effect.Effect<string | undefined> =>
+      Effect.promise(() => patchId(fullName, baseRef, headSha, reviewId)),
 
     // Cleanup is best-effort — removeWorktree already falls back to rmSync and
     // prunes and never rejects; a failure there must never mask the review.

@@ -137,7 +137,7 @@ export function reviewPipeline(
         // need anyway to see the commits) and before the worktree, the install
         // and the model call — those are the cost. Everything above this point is
         // cheap and local.
-        const patch = yield* git.patchId(pr.repoFullName, pr.baseRef, pr.headSha);
+        const patch = yield* git.patchId(pr.repoFullName, pr.baseRef, pr.headSha, id);
         // Explicit human triggers always review — someone asking after a rebase
         // has a reason, and we must not second-guess it.
         const forced = trigger === "command" || trigger === "retry";
