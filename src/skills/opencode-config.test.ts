@@ -1,5 +1,19 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
 import { buildOpencodeConfig } from "~/skills/materialize";
+
+const original = process.env.POSTHOG_API_KEY;
+afterEach(() => {
+  if (original === undefined) delete process.env.POSTHOG_API_KEY;
+  else process.env.POSTHOG_API_KEY = original;
+});
+
+test("the PostHog plugin is declared only when an API key is set", () => {
+  delete process.env.POSTHOG_API_KEY;
+  expect(buildOpencodeConfig().plugin).toBeUndefined();
+
+  process.env.POSTHOG_API_KEY = "phc_test";
+  expect(buildOpencodeConfig().plugin).toEqual(["@posthog/opencode"]);
+});
 
 test("bash denies dependency installs but stays allowed by default", () => {
   const bash = (buildOpencodeConfig().permission as { bash: Record<string, string> }).bash;

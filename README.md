@@ -79,6 +79,47 @@ See [`.env.example`](.env.example) for the annotated list, or the
 [Configuration guide](https://karnak19.github.io/fouine/guide/configuration) for
 the full reference (login setup, log levels, timeouts, data paths).
 
+### AI observability (PostHog, optional)
+
+Off by default. Set `POSTHOG_API_KEY` and fouine adds the
+[`@posthog/opencode`](https://posthog.com/docs/ai-observability/installation/opencode)
+plugin to the opencode config it generates, so every review reports:
+
+- `$ai_generation` — one per LLM roundtrip: model, tokens, cost, stop reason
+- `$ai_span` — one per tool execution, with real per-tool latency
+- `$ai_trace` — one per prompt, emitted when the session goes idle
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `POSTHOG_API_KEY` | — | Project API key. **Unset = feature entirely absent**: the plugin is not declared, not downloaded, and makes no network calls. |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | Use `https://eu.i.posthog.com` or your self-hosted URL. |
+| `POSTHOG_PRIVACY_MODE` | `false` | `true` drops prompts, completions and tool input/output; still reports tokens, cost, latency and model. |
+| `POSTHOG_ENABLED` | `true` | Set to `false` to disable without removing the key. |
+| `POSTHOG_DISTINCT_ID` | container hostname | Identifies this fouine instance. |
+| `POSTHOG_PROJECT_NAME` | working directory name | Per-review this is the checked-out repo. |
+| `POSTHOG_TAGS` | — | `k:v,k:v`, merged into every event. |
+| `POSTHOG_MAX_ATTRIBUTE_LENGTH` | `12000` | Truncation limit for captured content. |
+
+Two things worth knowing before you trust a dashboard built on this:
+
+- **A hung tool call reports nothing.** Spans are emitted only when a tool
+  reaches `completed`/`error`, and `$ai_trace` only on `session.idle`. A review
+  that wedges shows its generations up to the hang and then simply stops — no
+  error event. Missing trace means "wedged", not "never ran".
+- The plugin is fetched from npm on the first review after you enable it and
+  cached in `~/.cache/opencode/packages/`, so it costs one download, not one per
+  review. That cache lives in the container's filesystem, so it is re-fetched
+  after an image update unless you persist it.
+
+### Runaway shell commands
+
+opencode lets the model choose its own `bash` timeout and, on expiry, invites it
+to retry with a bigger one — so a single wedged command can escalate until it
+consumes the whole review budget. fouine ships a small opencode plugin
+(`opencode-config/plugin/cap-bash-timeout.ts`) that caps the model's value at
+`OPENCODE_BASH_TIMEOUT_MAX_MS` (default `120000`). Raise it only if real reviews
+legitimately need longer single commands.
+
 ## Development
 
 ```bash
