@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/direction.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-direction';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,8BAAc,sCAAd;",
+  "names": []
+}

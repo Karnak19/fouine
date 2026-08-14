@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/slider.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-slider';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

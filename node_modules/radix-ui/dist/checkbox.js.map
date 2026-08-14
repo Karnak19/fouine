@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/checkbox.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-checkbox';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,6BAAc,qCAAd;",
+  "names": []
+}

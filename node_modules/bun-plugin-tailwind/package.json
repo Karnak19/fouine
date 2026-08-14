@@ -1,0 +1,41 @@
+{
+  "name": "bun-plugin-tailwind",
+  "version": "0.1.2",
+  "description": "Bun plugin for Tailwind CSS v4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tailwindlabs/tailwindcss.git",
+    "directory": "packages/@tailwindcss-bun"
+  },
+  "bugs": "https://github.com/tailwindlabs/tailwindcss/issues",
+  "homepage": "https://tailwindcss.com",
+  "type": "module",
+  "main": "./index.mjs",
+  "module": "./index.mjs",
+  "types": "./index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "import": "./index.mjs",
+      "default": "./index.mjs"
+    }
+  },
+  "files": [
+    "./index.mjs",
+    "./index.d.mts",
+    "./tailwindcss-oxide.android-arm64.node",
+    "./tailwindcss-oxide.darwin-arm64.node",
+    "./tailwindcss-oxide.darwin-x64.node",
+    "./tailwindcss-oxide.linux-arm64-gnu.node",
+    "./tailwindcss-oxide.linux-arm64-musl.node",
+    "./tailwindcss-oxide.linux-x64-gnu.node",
+    "./tailwindcss-oxide.linux-x64-musl.node",
+    "./tailwindcss-oxide.win32-arm64-msvc.node",
+    "./tailwindcss-oxide.win32-x64-msvc.node"
+  ],
+  "dependencies": {},
+  "peerDependencies": {
+    "bun": ">=1.0.0"
+  }
+}

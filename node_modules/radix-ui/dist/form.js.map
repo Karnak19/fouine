@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/form.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-form';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,yBAAc,iCAAd;",
+  "names": []
+}

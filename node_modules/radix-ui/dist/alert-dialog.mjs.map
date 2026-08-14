@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/alert-dialog.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-alert-dialog';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

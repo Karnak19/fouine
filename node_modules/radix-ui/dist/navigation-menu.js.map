@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/navigation-menu.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-navigation-menu';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,oCAAc,4CAAd;",
+  "names": []
+}

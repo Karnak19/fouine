@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/toggle-group.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-toggle-group';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,iCAAc,yCAAd;",
+  "names": []
+}

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/tooltip.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-tooltip';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,4BAAc,oCAAd;",
+  "names": []
+}

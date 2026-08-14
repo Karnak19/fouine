@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/toggle.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-toggle';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,2BAAc,mCAAd;",
+  "names": []
+}

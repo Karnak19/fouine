@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/label.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-label';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,0BAAc,kCAAd;",
+  "names": []
+}

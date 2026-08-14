@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/tabs.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-tabs';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,yBAAc,iCAAd;",
+  "names": []
+}

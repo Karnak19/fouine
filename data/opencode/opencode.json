@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "skill": {
+      "*": "allow"
+    },
+    "bash": {
+      "*": "allow",
+      "bun install": "deny",
+      "bun install *": "deny",
+      "bun add": "deny",
+      "bun add *": "deny",
+      "bun i": "deny",
+      "bun i *": "deny",
+      "npm install": "deny",
+      "npm install *": "deny",
+      "npm ci": "deny",
+      "npm ci *": "deny",
+      "npm add": "deny",
+      "npm add *": "deny",
+      "npm i": "deny",
+      "npm i *": "deny",
+      "pnpm install": "deny",
+      "pnpm install *": "deny",
+      "pnpm add": "deny",
+      "pnpm add *": "deny",
+      "pnpm i": "deny",
+      "pnpm i *": "deny",
+      "yarn": "deny",
+      "yarn *": "deny",
+      "yarn install": "deny",
+      "yarn install *": "deny",
+      "yarn add": "deny",
+      "yarn add *": "deny"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/separator.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-separator';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,8BAAc,sCAAd;",
+  "names": []
+}

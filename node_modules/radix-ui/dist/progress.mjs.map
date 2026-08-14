@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/progress.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-progress';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

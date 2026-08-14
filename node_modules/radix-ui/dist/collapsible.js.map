@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/collapsible.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-collapsible';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,gCAAc,wCAAd;",
+  "names": []
+}

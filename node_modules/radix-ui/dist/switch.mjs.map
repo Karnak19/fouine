@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/switch.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-switch';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

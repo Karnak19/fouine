@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/dropdown-menu.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-dropdown-menu';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,kCAAc,0CAAd;",
+  "names": []
+}

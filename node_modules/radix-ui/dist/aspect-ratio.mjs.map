@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/aspect-ratio.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-aspect-ratio';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

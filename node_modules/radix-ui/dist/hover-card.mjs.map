@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/hover-card.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-hover-card';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/context-menu.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-context-menu';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

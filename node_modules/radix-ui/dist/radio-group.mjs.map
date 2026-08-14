@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/radio-group.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-radio-group';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

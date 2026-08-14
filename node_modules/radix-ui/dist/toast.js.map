@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/toast.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-toast';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,0BAAc,kCAAd;",
+  "names": []
+}

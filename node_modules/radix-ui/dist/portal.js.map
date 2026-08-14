@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/portal.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-portal';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,2BAAc,mCAAd;",
+  "names": []
+}

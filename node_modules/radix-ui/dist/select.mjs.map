@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/select.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-select';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/accordion.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-accordion';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}

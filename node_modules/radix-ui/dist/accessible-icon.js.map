@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/accessible-icon.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-accessible-icon';\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA,oCAAc,4CAAd;",
+  "names": []
+}

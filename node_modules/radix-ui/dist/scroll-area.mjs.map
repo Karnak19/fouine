@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/scroll-area.ts"],
+  "sourcesContent": ["export * from '@radix-ui/react-scroll-area';\n"],
+  "mappings": ";AAAA,cAAc;",
+  "names": []
+}
