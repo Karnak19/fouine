@@ -81,6 +81,18 @@ export default function SettingsPage() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
+              {/* The opencode-go gateway is not uniformly OpenAI-shaped, and
+                  the two consumers differ: reviews go through the opencode
+                  server, which picks the right adapter itself, while Chat talks
+                  to the gateway directly over @ai-sdk/openai-compatible. A model
+                  needing the Anthropic shape reviews fine and breaks Chat with
+                  an unhelpful upstream error, so say so here rather than
+                  letting it be discovered at request time. */}
+              <p className="text-xs text-zinc-500">
+                Used for reviews and for Chat. Chat needs an OpenAI-compatible model — a few
+                opencode-go models use the Anthropic API shape and will work for reviews but fail
+                in Chat.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="improver_model">Improver model</Label>
