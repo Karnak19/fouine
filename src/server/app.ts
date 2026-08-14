@@ -41,6 +41,26 @@ export async function createServer() {
       if (config.auth.enabled && pathname(request.url).startsWith("/api/auth/")) {
         return auth.handler(request);
       }
+      // SPA deep links, same escape hatch and same reason as better-auth above:
+      // the static plugin's catch-all answers unknown GETs with a 404 *Response*
+      // rather than throwing, so the onError fallback below never sees them and
+      // every client route 404s on reload. Serve the shell from here instead.
+      // "/" is left to the static plugin, which already serves index.html.
+      if (request.method === "GET") {
+        const p = pathname(request.url);
+        if (
+          p !== "/" &&
+          !p.startsWith("/api") &&
+          !p.startsWith("/webhook") &&
+          !p.startsWith("/internal") &&
+          p !== "/health" &&
+          !isAssetPath(p)
+        ) {
+          return new Response(Bun.file(`${assetsDir}/index.html`), {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+      }
     })
     .onAfterHandle(({ request, set }) => {
       const ms = Date.now() - (startedAt.get(request) ?? Date.now());

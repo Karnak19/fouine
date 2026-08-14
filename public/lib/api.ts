@@ -100,6 +100,34 @@ export interface Stats {
     model: string | null;
   }[];
   severity: SeverityStatsRow[];
+  // Every model ever seen, unfiltered and alphabetical — it populates the
+  // model dropdown, so it must not shrink when a filter is applied.
+  allModels: string[];
+}
+
+export type StatsRange = "24h" | "7d" | "30d" | "90d" | "all";
+
+export interface StatsQuery {
+  range?: StatsRange;
+  repo?: string;
+  model?: string;
+}
+
+export interface ReviewsQuery extends StatsQuery {
+  status?: string;
+  limit?: number;
+}
+
+// Only known keys land in the URL — the filter objects come straight from
+// router search params.
+function qs(q: ReviewsQuery): string {
+  const p = new URLSearchParams();
+  for (const k of ["range", "repo", "model", "status", "limit"] as const) {
+    const v = q[k];
+    if (v) p.set(k, String(v));
+  }
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 export interface Settings {
@@ -147,6 +175,9 @@ export const api = {
   },
   reviews: {
     list: () => request<ReviewRow[]>("/reviews"),
+    // Kept separate from `list` so the zero-arg version stays usable as a bare
+    // react-query queryFn (which would otherwise pass its context as filters).
+    query: (q: ReviewsQuery) => request<ReviewRow[]>(`/reviews${qs(q)}`),
     get: (id: number) => request<ReviewRow>(`/reviews/${id}`),
     findings: (id: number) => request<FindingRow[]>(`/reviews/${id}/findings`),
     session: (id: number) => request<unknown>(`/reviews/${id}/session`),
@@ -158,6 +189,7 @@ export const api = {
   },
   stats: {
     get: () => request<Stats>("/stats"),
+    query: (q: StatsQuery) => request<Stats>(`/stats${qs(q)}`),
   },
   settings: {
     get: () => request<Settings>("/settings"),

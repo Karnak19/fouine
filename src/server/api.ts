@@ -27,6 +27,35 @@ const HEARTBEAT_MS = 25_000;
 // registers instead of onmessage — the client never sees keepalive traffic.
 const heartbeat = () => sse({ event: "heartbeat", data: "" });
 
+// Date ranges for the stats page. null = no cutoff ("all").
+const RANGE_SECONDS: Record<string, number | null> = {
+  "24h": 86400,
+  "7d": 7 * 86400,
+  "30d": 30 * 86400,
+  "90d": 90 * 86400,
+  all: null,
+};
+
+// Empty query strings are "no filter", not a filter on the empty string.
+const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+// No range param at all means unfiltered, so the dashboard — which sends none —
+// keeps the all-time totals it has always shown. The stats page always sends an
+// explicit range (its 30d default included), even when the URL omits it for a
+// clean link, so only an unrecognised *explicit* value falls back to 30d.
+function statsFilter(query: Record<string, unknown>) {
+  const key = str(query.range);
+  if (key === null) return { $from: null, $repo: str(query.repo), $model: str(query.model) };
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so ?range=toString
+  // would resolve to a function and poison $from with NaN.
+  const secs = Object.hasOwn(RANGE_SECONDS, key) ? RANGE_SECONDS[key]! : RANGE_SECONDS["30d"]!;
+  return {
+    $from: secs === null ? null : Math.floor(Date.now() / 1000) - secs,
+    $repo: str(query.repo),
+    $model: str(query.model),
+  };
+}
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
   // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
   // so a client can only subscribe to the repo it's viewing); no scope = all
@@ -158,22 +187,32 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     });
   })
 
-  .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
+  .get("/reviews", ({ query }) => {
+    const limit = Number(str(query.limit));
+    return reviews.recent.all({
+      ...statsFilter(query),
+      $status: str(query.status),
+      $limit: Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 1000) : 100,
+    });
+  })
 
-  .get("/stats", () => {
-    const agg = reviews.latencyAgg.get();
+  .get("/stats", ({ query }) => {
+    const f = statsFilter(query);
+    const agg = reviews.latencyAgg.get(f);
     return {
-      projects: reviews.byProject.all(),
-      models: reviews.byModel.all(),
-      daily: reviews.daily.all(),
-      triggers: reviews.triggers.all(),
+      projects: reviews.byProject.all(f),
+      models: reviews.byModel.all(f),
+      daily: reviews.daily.all(f),
+      triggers: reviews.triggers.all(f),
       latency: {
         avg: agg?.avg ?? null,
         count: agg?.count ?? 0,
-        p95: reviews.latencyP95.get()?.d ?? null,
+        p95: reviews.latencyP95.get(f)?.d ?? null,
       },
-      topCost: reviews.topCost.all(),
-      severity: findings.bySeverity.all(),
+      topCost: reviews.topCost.all(f),
+      severity: findings.bySeverity.all(f),
+      // Unfiltered on purpose — the dropdown must keep every option.
+      allModels: reviews.allModels.all().map((r) => r.model),
     };
   })
 
