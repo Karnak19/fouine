@@ -41,8 +41,8 @@ const INSTALL_COMMANDS = [
 ];
 
 // The opencode.json fouine writes into the runtime config dir. Pure so the
-// interesting part — which keys appear — is testable without touching the
-// filesystem.
+// interesting part — which keys appear, and the POSTHOG_API_KEY branch — is
+// testable without touching the filesystem.
 //
 // Relies on opencode reading opencode.json from OPENCODE_CONFIG_DIR, and on that
 // dir being LAST in opencode's config-dir list so these keys win over global and
@@ -73,6 +73,24 @@ export function buildOpencodeConfig(): Record<string, unknown> {
       skill: { "*": "allow" },
       bash,
     },
+    // PostHog AI observability ($ai_generation per LLM roundtrip, $ai_span per
+    // tool call with real latency, $ai_trace per prompt). Declared only when an
+    // API key is present, for two reasons: the plugin is a no-op without one
+    // anyway (it returns zero hooks), and listing it unconditionally would make
+    // every fresh deployment fetch the package from npm on its first review for
+    // no benefit. Self-hosters with no PostHog therefore get byte-identical
+    // behaviour to before: no package fetch, no network, no log output.
+    //
+    // The install is cached per package spec under ~/.cache/opencode/packages/,
+    // so even when enabled it is a one-time cost, not per-spawn. It also happens
+    // after the server is already listening, so it does not block the spawn.
+    //
+    // Blind spot worth knowing before trusting a PostHog dashboard: spans are
+    // emitted only when a tool reaches completed/error, and $ai_trace only on
+    // session.idle. A tool call that HANGS produces neither — PostHog shows the
+    // generations up to the hang and then silence, with no error event. Absence
+    // of a trace means "wedged", not "never ran".
+    ...(process.env.POSTHOG_API_KEY ? { plugin: ["@posthog/opencode"] } : {}),
   };
 }
 
