@@ -1,21 +1,44 @@
-import { Database } from "bun:sqlite";
 import { config } from "~/config";
 // Imported for the side effect: src/db.ts owns the read/write handle that
 // creates the file and the schema. A readonly connection cannot create either,
 // so it must not be the first to open the path.
 import "~/db";
 
-// A SECOND connection to the same file, opened readonly. This is the primary
-// guard: a write throws in the driver, not in a regex we have to get right.
-// Separate from the app's read/write handle on purpose — nothing the chat agent
-// does can reach a writable connection.
-//
-// Opened on first use rather than at import, so merely loading this module (a
-// test, a CLI) doesn't hold a handle it never uses.
-let ro: Database | undefined;
-function readonlyDb(): Database {
-  ro ??= new Database(config.dbPath, { readonly: true });
-  return ro;
+// Queries run in a worker (src/chat/query-worker.ts) against a readonly
+// connection it opens itself. Readonly is still the primary guard — a write
+// throws in the driver, not in a regex we have to get right — and the worker
+// adds the one thing an in-process query cannot have: a deadline. bun:sqlite is
+// synchronous with no interrupt, so a runaway query on this thread would block
+// the whole server.
+function runInWorker(sql: string): Promise<{
+  ok: boolean;
+  rows?: unknown[];
+  truncated?: boolean;
+  error?: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./query-worker.ts", import.meta.url).href);
+    const timer = setTimeout(() => {
+      worker.terminate();
+      reject(
+        new Error(
+          `Query timed out after ${QUERY_TIMEOUT_MS}ms — it is doing too much work. Aggregate in SQL, or narrow the window.`,
+        ),
+      );
+    }, QUERY_TIMEOUT_MS);
+
+    worker.onmessage = (e: MessageEvent) => {
+      clearTimeout(timer);
+      worker.terminate();
+      resolve(e.data);
+    };
+    worker.onerror = (e: ErrorEvent) => {
+      clearTimeout(timer);
+      worker.terminate();
+      reject(new Error(`query worker failed: ${e.message}`));
+    };
+    worker.postMessage({ sql, dbPath: config.dbPath, maxBytes: MAX_JSON_BYTES });
+  });
 }
 
 // Rows and bytes a single answer may pull back. Generous for an aggregate,
@@ -111,33 +134,29 @@ export interface QueryOutcome {
   ms?: number;
 }
 
-export function runStatsQuery(raw: string): QueryOutcome {
+// A query that returns almost nothing can still run forever: `SELECT count(*)`
+// over a runaway recursive CTE returns one row and never terminates. Row and
+// byte caps bound the OUTPUT; only a deadline bounds the WORK.
+export const QUERY_TIMEOUT_MS = 5_000;
+
+export async function runStatsQuery(raw: string): Promise<QueryOutcome> {
   const guard = guardQuery(raw);
   if (!guard.ok) return { ok: false, text: `Query rejected: ${guard.reason}` };
 
   const started = Date.now();
-  const rows: unknown[] = [];
-  let budget = MAX_JSON_BYTES;
-  let truncated = false;
+  let result: { ok: boolean; rows?: unknown[]; truncated?: boolean; error?: string };
   try {
-    // iterate(), not all(): the byte budget is spent as rows arrive, so a query
-    // whose ROWS are individually reasonable but collectively enormous stops
-    // being pulled instead of being fully materialised and then trimmed.
-    // (500 rows x 100KB used to allocate ~50MB before the cap applied.)
-    for (const row of readonlyDb().prepare(guard.sql).iterate()) {
-      const size = JSON.stringify(row).length + 1;
-      if (size > budget) {
-        truncated = true;
-        break;
-      }
-      budget -= size;
-      rows.push(row);
-    }
+    result = await runInWorker(guard.sql);
   } catch (err) {
+    return { ok: false, text: String((err as Error)?.message ?? err) };
+  }
+  if (!result.ok) {
     // A malformed query is normal — the model should see the error and retry,
     // not have the request fail.
-    return { ok: false, text: `SQL error: ${String((err as Error)?.message ?? err)}` };
+    return { ok: false, text: `SQL error: ${result.error}` };
   }
+  const rows = result.rows ?? [];
+  const truncated = result.truncated ?? false;
   const ms = Date.now() - started;
 
   let text = JSON.stringify(rows);

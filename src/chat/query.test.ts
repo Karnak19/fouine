@@ -69,30 +69,30 @@ test("a legitimate aggregate is accepted and wrapped with a row cap", () => {
   expect(guardQuery("WITH d AS (SELECT 1 AS n) SELECT n FROM d").ok).toBe(true);
 });
 
-test("a legitimate query executes against the real schema", () => {
-  const out = runStatsQuery("SELECT count(*) AS n FROM reviews");
+test("a legitimate query executes against the real schema", async () => {
+  const out = await runStatsQuery("SELECT count(*) AS n FROM reviews");
   expect(out.ok).toBe(true);
   expect(out.text).toContain("n");
   expect(out.rowCount).toBe(1);
 });
 
-test("a rejected query returns a message, never throws", () => {
-  const out = runStatsQuery("SELECT * FROM settings");
+test("a rejected query returns a message, never throws", async () => {
+  const out = await runStatsQuery("SELECT * FROM settings");
   expect(out.ok).toBe(false);
   expect(out.text).toContain("rejected");
 });
 
-test("a malformed query returns the SQL error instead of throwing", () => {
-  const out = runStatsQuery("SELECT * FROM no_such_table");
+test("a malformed query returns the SQL error instead of throwing", async () => {
+  const out = await runStatsQuery("SELECT * FROM no_such_table");
   expect(out.ok).toBe(false);
   expect(out.text).toContain("SQL error");
 });
 
 // The bound that actually stops a runaway query: the wrap makes SQLite stop
 // pulling rows, which terminates the recursion instead of hanging the process.
-test("a recursive CTE bomb is bounded by the row cap", () => {
+test("a recursive CTE bomb is bounded by the row cap", async () => {
   const started = Date.now();
-  const out = runStatsQuery(
+  const out = await runStatsQuery(
     "WITH RECURSIVE bomb(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM bomb) SELECT x FROM bomb",
   );
   expect(out.ok).toBe(true);
@@ -127,10 +127,10 @@ test("value-inflation builtins are refused", () => {
 // A query whose rows are individually fine but collectively enormous must stop
 // being pulled, not be fully materialised and then trimmed. Rows here are ~1KB,
 // so the byte budget bites well before the 500-row cap does.
-test("the byte budget is spent while rows arrive, not after", () => {
+test("the byte budget is spent while rows arrive, not after", async () => {
   const pad = "x".repeat(1000);
   const started = Date.now();
-  const out = runStatsQuery(
+  const out = await runStatsQuery(
     `WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i, '${pad}' AS pad FROM r`,
   );
   expect(out.ok).toBe(true);
@@ -139,4 +139,30 @@ test("the byte budget is spent while rows arrive, not after", () => {
   expect(out.rowCount).toBeLessThan(500);
   expect(out.text.length).toBeLessThan(250_000);
   expect(Date.now() - started).toBeLessThan(5000);
+});
+
+// Row and byte caps bound the OUTPUT. Only a deadline bounds the WORK: an
+// aggregate over a runaway recursive CTE returns one row and never finishes,
+// and bun:sqlite is synchronous with no interrupt, so in-process it would hang
+// the entire server. The worker exists so it can be killed.
+test("a query that never finishes is killed by the deadline", async () => {
+  const started = Date.now();
+  const out = await runStatsQuery(
+    "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT count(*) AS n FROM r",
+  );
+  const elapsed = Date.now() - started;
+  expect(out.ok).toBe(false);
+  expect(out.text).toContain("timed out");
+  expect(elapsed).toBeGreaterThan(4000);
+  expect(elapsed).toBeLessThan(15000);
+}, 20000);
+
+// The deadline must not punish ordinary queries.
+test("a normal aggregate is nowhere near the deadline", async () => {
+  const started = Date.now();
+  const out = await runStatsQuery(
+    "SELECT repo_full_name, COUNT(*) AS n FROM reviews GROUP BY repo_full_name",
+  );
+  expect(out.ok).toBe(true);
+  expect(Date.now() - started).toBeLessThan(2000);
 });

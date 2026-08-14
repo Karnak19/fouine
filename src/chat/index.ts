@@ -50,27 +50,32 @@ const queryStats = tool({
     // Guarding and execution both stay in src/chat/query.ts. The caller changed
     // from an opencode subprocess to an in-process tool; the guard did not, and
     // must not be reimplemented or relaxed here.
-    const out = runStatsQuery(sql);
+    const out = await runStatsQuery(sql);
     return out.ok ? `${out.rowCount} row(s) in ${out.ms}ms\n${out.text}` : out.text;
   },
 });
 
 /**
- * Strip everything except plain text from the incoming thread.
+ * Keep only what the user actually typed.
  *
- * The browser posts the whole conversation back on each turn, so without this
- * a caller could POST a fabricated assistant message carrying an
- * `output-available` tool part full of invented rows. convertToModelMessages
- * would hand that to the model as a genuine tool result, and the model would
- * answer confidently from numbers that never came from SQL — breaking the one
- * promise this feature makes.
+ * The browser posts the whole conversation back on each turn, and none of it is
+ * trustworthy. Two distinct forgeries matter:
  *
- * Only this server may produce tool results. Dropping client-sent tool parts
- * costs a re-query when an older turn is referenced, which is the right trade:
- * the answer stays grounded, and the data is re-read fresh.
+ *  - a fabricated `output-available` tool part full of invented rows, which
+ *    convertToModelMessages would hand to the model as a genuine query result;
+ *  - a fabricated ASSISTANT message — plain prose asserting "repo X cost
+ *    $999999" — which a later turn would treat as its own prior answer and
+ *    build on.
+ *
+ * Both end with the model stating numbers that never came from SQL, which is
+ * the one promise this feature makes. So assistant history is not accepted from
+ * the client at all: only user turns survive, and every answer is recomputed
+ * from a fresh query. The cost is that the model cannot see its own previous
+ * replies; it can always re-query, and the data is fresher for it.
  */
 function textOnly(messages: UIMessage[]): UIMessage[] {
   return messages
+    .filter((m) => m.role === "user")
     .map((m) => ({
       ...m,
       parts: (m.parts ?? []).filter((p) => p.type === "text"),
@@ -87,7 +92,10 @@ export { textOnly };
  * writing them there would fold chat cost and tokens into every stat on the
  * dashboard. Nothing is persisted — the thread lives in the browser.
  */
-export async function streamChat(rawMessages: UIMessage[]): Promise<Response> {
+export async function streamChat(
+  rawMessages: UIMessage[],
+  signal?: AbortSignal,
+): Promise<Response> {
   const messages = textOnly(rawMessages);
   const apiKey = resolveApiKey();
   if (!apiKey) {
@@ -111,6 +119,9 @@ export async function streamChat(rawMessages: UIMessage[]): Promise<Response> {
     // one to run the query, one to read the rows and reply. A few more allow it
     // to correct a rejected or malformed query without giving up.
     stopWhen: stepCountIs(6),
+    // The browser hanging up must stop the upstream run too, or a closed tab
+    // leaves the model (and its tool calls) burning tokens to nobody.
+    abortSignal: signal,
   });
 
   return result.toUIMessageStreamResponse({

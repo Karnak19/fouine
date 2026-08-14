@@ -168,9 +168,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   // no hand-rolled SSE here — useChat on the client speaks this natively.
   .post(
     "/chat",
-    async ({ body, set }) => {
+    async ({ body, set, request }) => {
       try {
-        return await streamChat(body.messages as UIMessage[]);
+        return await streamChat(body.messages as UIMessage[], request.signal);
       } catch (err) {
         // Config problems (no API key) surface as a readable message rather
         // than an opaque 500 the UI would render as a blank bubble.
