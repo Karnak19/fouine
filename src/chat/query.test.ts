@@ -109,3 +109,34 @@ test("the connection itself is readonly", () => {
   const ro = new Database(config.dbPath, { readonly: true });
   expect(() => ro.prepare("CREATE TABLE chat_evil (x INT)").run()).toThrow();
 });
+
+// The row LIMIT bounds how many rows come back, but not how big one value can
+// be. Without these, `SELECT hex(zeroblob(50000000))` materialises ~100MB in
+// the driver before any cap of ours can trim it.
+test("value-inflation builtins are refused", () => {
+  for (const sql of [
+    "SELECT hex(zeroblob(50000000)) AS b",
+    "SELECT randomblob(10000000)",
+    "SELECT group_concat(body) FROM findings",
+    "SELECT printf('%.1000000d', 1)",
+    "SELECT char(65) FROM reviews",
+  ])
+    expect(rejected(sql)).toBeTruthy();
+});
+
+// A query whose rows are individually fine but collectively enormous must stop
+// being pulled, not be fully materialised and then trimmed. Rows here are ~1KB,
+// so the byte budget bites well before the 500-row cap does.
+test("the byte budget is spent while rows arrive, not after", () => {
+  const pad = "x".repeat(1000);
+  const started = Date.now();
+  const out = runStatsQuery(
+    `WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i, '${pad}' AS pad FROM r`,
+  );
+  expect(out.ok).toBe(true);
+  expect(out.text).toContain("truncated");
+  // Bounded by bytes: stopped short of the row cap, near the byte budget.
+  expect(out.rowCount).toBeLessThan(500);
+  expect(out.text.length).toBeLessThan(250_000);
+  expect(Date.now() - started).toBeLessThan(5000);
+});

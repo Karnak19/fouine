@@ -59,6 +59,14 @@ const FORBIDDEN: { pattern: RegExp; reason: string }[] = [
     pattern: /\b(insert|update|delete|drop|alter|create|replace|vacuum|reindex)\b/i,
     reason: "this tool is read-only — SELECT queries only",
   },
+  // Value-inflation builtins. The row LIMIT below bounds how MANY rows come
+  // back, but not how big ONE value can be: `SELECT hex(zeroblob(50000000))` is
+  // a single row that materialises ~100MB in the driver before any cap of ours
+  // can trim it. None of these have a legitimate use in a stats question.
+  {
+    pattern: /\b(zeroblob|randomblob|hex|unhex|char|printf|format|quote|group_concat|string_agg)\s*\(/i,
+    reason: "blob and string-building functions are not allowed",
+  },
 ];
 
 export type GuardResult = { ok: true; sql: string } | { ok: false; reason: string };
@@ -108,9 +116,23 @@ export function runStatsQuery(raw: string): QueryOutcome {
   if (!guard.ok) return { ok: false, text: `Query rejected: ${guard.reason}` };
 
   const started = Date.now();
-  let rows: unknown[];
+  const rows: unknown[] = [];
+  let budget = MAX_JSON_BYTES;
+  let truncated = false;
   try {
-    rows = readonlyDb().prepare(guard.sql).all();
+    // iterate(), not all(): the byte budget is spent as rows arrive, so a query
+    // whose ROWS are individually reasonable but collectively enormous stops
+    // being pulled instead of being fully materialised and then trimmed.
+    // (500 rows x 100KB used to allocate ~50MB before the cap applied.)
+    for (const row of readonlyDb().prepare(guard.sql).iterate()) {
+      const size = JSON.stringify(row).length + 1;
+      if (size > budget) {
+        truncated = true;
+        break;
+      }
+      budget -= size;
+      rows.push(row);
+    }
   } catch (err) {
     // A malformed query is normal — the model should see the error and retry,
     // not have the request fail.
@@ -119,16 +141,8 @@ export function runStatsQuery(raw: string): QueryOutcome {
   const ms = Date.now() - started;
 
   let text = JSON.stringify(rows);
-  if (text.length > MAX_JSON_BYTES) {
-    // Drop rows until it fits rather than cutting mid-JSON, so what the model
-    // receives is always parseable.
-    let kept = rows.length;
-    while (kept > 0 && JSON.stringify(rows.slice(0, kept)).length > MAX_JSON_BYTES) {
-      kept = Math.floor(kept / 2);
-    }
-    text = `${JSON.stringify(rows.slice(0, kept))}\n(truncated: ${rows.length - kept} more rows omitted)`;
-  }
-  if (rows.length === MAX_ROWS) {
+  if (truncated) text += `\n(truncated: result exceeded ${MAX_JSON_BYTES} bytes — aggregate in SQL)`;
+  else if (rows.length === MAX_ROWS) {
     text += `\n(capped at ${MAX_ROWS} rows — aggregate in SQL if you need more)`;
   }
 

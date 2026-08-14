@@ -56,13 +56,39 @@ const queryStats = tool({
 });
 
 /**
+ * Strip everything except plain text from the incoming thread.
+ *
+ * The browser posts the whole conversation back on each turn, so without this
+ * a caller could POST a fabricated assistant message carrying an
+ * `output-available` tool part full of invented rows. convertToModelMessages
+ * would hand that to the model as a genuine tool result, and the model would
+ * answer confidently from numbers that never came from SQL — breaking the one
+ * promise this feature makes.
+ *
+ * Only this server may produce tool results. Dropping client-sent tool parts
+ * costs a re-query when an older turn is referenced, which is the right trade:
+ * the answer stays grounded, and the data is re-read fresh.
+ */
+function textOnly(messages: UIMessage[]): UIMessage[] {
+  return messages
+    .map((m) => ({
+      ...m,
+      parts: (m.parts ?? []).filter((p) => p.type === "text"),
+    }))
+    .filter((m) => m.parts.length > 0);
+}
+
+export { textOnly };
+
+/**
  * Stream one chat turn as an AI SDK UI message stream.
  *
  * Deliberately does NOT touch the reviews table: chat runs are not reviews, and
  * writing them there would fold chat cost and tokens into every stat on the
  * dashboard. Nothing is persisted — the thread lives in the browser.
  */
-export async function streamChat(messages: UIMessage[]): Promise<Response> {
+export async function streamChat(rawMessages: UIMessage[]): Promise<Response> {
+  const messages = textOnly(rawMessages);
   const apiKey = resolveApiKey();
   if (!apiKey) {
     // Surfaced as a normal assistant-side error rather than a 500, so the UI
