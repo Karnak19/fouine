@@ -133,6 +133,41 @@ function qs(q: ReviewsQuery): string {
   return s ? `?${s}` : "";
 }
 
+export interface ReliabilityRow {
+  day: string;
+  completed: number;
+  failed: number;
+  // pending + running: no outcome yet, so excluded from the success rate.
+  in_flight: number;
+}
+
+// p50/p95 are null for a day with no completed reviews — render a dash, not a 0.
+export interface LatencyDayRow {
+  day: string;
+  count: number;
+  p50: number | null;
+  p95: number | null;
+}
+
+export interface FindingsDailyRow {
+  day: string;
+  severity: string;
+  count: number;
+}
+
+export interface TopFileRow {
+  path: string;
+  count: number;
+}
+
+export interface StatsCharts {
+  reliability: ReliabilityRow[];
+  latency: LatencyDayRow[];
+  latencyTruncated: boolean;
+  findingsDaily: FindingsDailyRow[];
+  topFiles: TopFileRow[];
+}
+
 export interface Settings {
   opencode_api_key?: string;
   opencode_model?: string;
@@ -193,6 +228,9 @@ export const api = {
   stats: {
     get: () => request<Stats>("/stats"),
     query: (q: StatsQuery) => request<Stats>(`/stats${qs(q)}`),
+    // Separate route so the dashboard's /stats payload doesn't carry the
+    // latency samples these panels need and it never renders.
+    charts: (q: StatsQuery) => request<StatsCharts>(`/stats/charts${qs(q)}`),
   },
   settings: {
     get: () => request<Settings>("/settings"),

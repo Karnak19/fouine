@@ -4,6 +4,10 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   api,
   type DailyStatsRow,
+  type FindingsDailyRow,
+  type LatencyDayRow,
+  type ReliabilityRow,
+  type TopFileRow,
   type ModelStatsRow,
   type ProjectStatsRow,
   type ReviewRow,
@@ -97,18 +101,24 @@ export default function StatsPage() {
     if (e.type.startsWith("review:")) {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["stats-charts"] });
     }
   });
   useEffect(() => {
     if (resync > 0) {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["stats-charts"] });
     }
   }, [resync, queryClient]);
 
   const { data: stats } = useQuery({
     queryKey: ["stats", filters],
     queryFn: () => api.stats.query(filters),
+  });
+  const { data: charts } = useQuery({
+    queryKey: ["stats-charts", filters],
+    queryFn: () => api.stats.charts(filters),
   });
   const { data: repos } = useQuery({ queryKey: ["repos"], queryFn: api.repos.list });
   const { data: reviews, isPending: reviewsPending } = useQuery({
@@ -249,6 +259,23 @@ export default function StatsPage() {
         <div className="space-y-7 min-w-0">
           <SeverityMix severity={stats?.severity} />
           <TriggerMix triggers={stats?.triggers} />
+        </div>
+      </div>
+
+      {/* Reliability first: "is the reviewer working" outranks what it costs.
+          Paired with the latency trend, which answers "and is it getting
+          slower" from the same completed reviews. */}
+      <div className="grid gap-7 lg:grid-cols-2 items-start">
+        <Reliability rows={charts?.reliability} />
+        <LatencyTrend rows={charts?.latency} truncated={charts?.latencyTruncated} />
+      </div>
+
+      <div className="grid gap-7 lg:grid-cols-5 items-start">
+        <div className="lg:col-span-3 min-w-0">
+          <FindingsTrend rows={charts?.findingsDaily} />
+        </div>
+        <div className="lg:col-span-2 min-w-0">
+          <TopFiles rows={charts?.topFiles} />
         </div>
       </div>
 
@@ -826,6 +853,239 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
             </TableBody>
           </Table>
         </div>
+      )}
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Chart panels. Hand-rolled like CostTrend — no chart library. Every one of
+// these can be handed an empty window, which is a normal outcome, so each guards
+// its own max (Math.max over an empty array is -Infinity) and renders an empty
+// state rather than a NaN.
+// ---------------------------------------------------------------------------
+
+// Shared with CostTrend: never divide by zero when every value is 0.
+const scaleMax = (values: number[]) => Math.max(...values, 0.0001);
+
+function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
+  const totals = (rows ?? []).reduce(
+    (a, r) => {
+      a.completed += r.completed;
+      a.failed += r.failed;
+      a.inFlight += r.in_flight;
+      return a;
+    },
+    { completed: 0, failed: 0, inFlight: 0 },
+  );
+  // Only settled reviews have an outcome. With none, the rate is undefined —
+  // a dash, not 0%.
+  const settled = totals.completed + totals.failed;
+  const rate = settled === 0 ? null : (totals.completed / settled) * 100;
+  const max = scaleMax((rows ?? []).map((r) => r.completed + r.failed + r.in_flight));
+
+  return (
+    <Panel title="Reliability">
+      {!rows ? (
+        <Skeleton rows={6} />
+      ) : rows.length === 0 ? (
+        <Empty label="No reviews in this window." />
+      ) : (
+        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-semibold tabular-nums text-zinc-100">
+              {rate === null ? "—" : `${rate.toFixed(1)}%`}
+            </span>
+            <span className="text-xs text-zinc-500">
+              {settled === 0
+                ? "nothing settled yet"
+                : `${totals.completed} of ${settled} succeeded`}
+            </span>
+          </div>
+          <div className="mt-3 flex items-end gap-1 h-32">
+            {rows.map((r) => {
+              const total = r.completed + r.failed + r.in_flight;
+              return (
+                <div
+                  key={r.day}
+                  className="flex flex-1 min-w-0 flex-col justify-end"
+                  style={{ height: `${Math.max(2, (total / max) * 100)}%` }}
+                  title={`${r.day} · ${r.completed} completed · ${r.failed} failed${
+                    r.in_flight ? ` · ${r.in_flight} in flight` : ""
+                  }`}
+                >
+                  {/* Stack order matches the legend: failed on top, so a bad
+                      day reads as a red cap rather than a hidden slice. */}
+                  {r.in_flight > 0 && (
+                    <div className="w-full bg-zinc-600" style={{ flex: r.in_flight }} />
+                  )}
+                  {r.failed > 0 && <div className="w-full bg-red-400" style={{ flex: r.failed }} />}
+                  {r.completed > 0 && (
+                    <div
+                      className="w-full rounded-b bg-emerald-500/80"
+                      style={{ flex: r.completed }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
+            <LegendDot className="bg-emerald-500/80" label={`completed ${totals.completed}`} />
+            <LegendDot className="bg-red-400" label={`failed ${totals.failed}`} />
+            {totals.inFlight > 0 && (
+              <LegendDot className="bg-zinc-600" label={`in flight ${totals.inFlight}`} />
+            )}
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-2 w-2 rounded-full ${className}`} />
+      {label}
+    </span>
+  );
+}
+
+function LatencyTrend({ rows, truncated }: { rows?: LatencyDayRow[]; truncated?: boolean }) {
+  // Scale on p95 — the taller of the two series — so p50 never overflows.
+  const max = scaleMax((rows ?? []).map((r) => r.p95 ?? 0));
+  return (
+    <Panel title="Latency trend">
+      {!rows ? (
+        <Skeleton rows={6} />
+      ) : rows.length === 0 ? (
+        <Empty label="No completed reviews in this window." />
+      ) : (
+        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
+          <div className="flex items-end gap-1 h-32">
+            {rows.map((r) => (
+              <div
+                key={r.day}
+                className="relative flex-1 min-w-0 h-full"
+                title={`${r.day} · p50 ${formatSeconds(r.p50) ?? "—"} · p95 ${
+                  formatSeconds(r.p95) ?? "—"
+                } · ${r.count} review${r.count === 1 ? "" : "s"}`}
+              >
+                {/* p95 as the pale column, p50 as the solid one inside it —
+                    two bars, no line maths, same idiom as the cost trend. */}
+                <div
+                  className="absolute inset-x-0 bottom-0 rounded-t bg-ember-500/25"
+                  style={{ height: `${Math.max(2, ((r.p95 ?? 0) / max) * 100)}%` }}
+                />
+                <div
+                  className="absolute inset-x-0 bottom-0 rounded-t bg-ember-500/80"
+                  style={{ height: `${Math.max(2, ((r.p50 ?? 0) / max) * 100)}%` }}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
+            <LegendDot className="bg-ember-500/80" label="p50" />
+            <LegendDot className="bg-ember-500/25" label="p95" />
+            <span className="ml-auto tabular-nums">
+              {rows[0]!.day} → {rows[rows.length - 1]!.day}
+            </span>
+          </div>
+          {truncated && (
+            <p className="mt-1 text-[0.7rem] text-amber-500/80">
+              Window capped at 5000 completed reviews; trend covers the oldest of them.
+            </p>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+const SEVERITY_ORDER = ["blocking", "question", "nit"] as const;
+
+function FindingsTrend({ rows }: { rows?: FindingsDailyRow[] }) {
+  // Pivot the (day, severity) rows into one stacked bar per day.
+  const byDay = new Map<string, Record<string, number>>();
+  for (const r of rows ?? []) {
+    const bucket = byDay.get(r.day) ?? {};
+    bucket[r.severity] = (bucket[r.severity] ?? 0) + r.count;
+    byDay.set(r.day, bucket);
+  }
+  const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const totalOf = (m: Record<string, number>) => Object.values(m).reduce((s, n) => s + n, 0);
+  const max = scaleMax(days.map(([, m]) => totalOf(m)));
+  const grand = days.reduce((s, [, m]) => s + totalOf(m), 0);
+
+  return (
+    <Panel title="Findings per day">
+      {!rows ? (
+        <Skeleton rows={6} />
+      ) : days.length === 0 ? (
+        <Empty label="No findings in this window." />
+      ) : (
+        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
+          <div className="flex items-end gap-1 h-32">
+            {days.map(([day, mix]) => (
+              <div
+                key={day}
+                className="flex flex-1 min-w-0 flex-col justify-end"
+                style={{ height: `${Math.max(2, (totalOf(mix) / max) * 100)}%` }}
+                title={`${day} · ${SEVERITY_ORDER.filter((s) => mix[s])
+                  .map((s) => `${mix[s]} ${s}`)
+                  .join(" · ")}`}
+              >
+                {SEVERITY_ORDER.filter((s) => mix[s]).map((s, i) => (
+                  <div
+                    key={s}
+                    className={`w-full ${SEVERITY_COLORS[s]} ${i === SEVERITY_ORDER.length - 1 ? "rounded-b" : ""}`}
+                    style={{ flex: mix[s] }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
+            {SEVERITY_ORDER.map((s) => (
+              <LegendDot key={s} className={SEVERITY_COLORS[s]!} label={s} />
+            ))}
+            <span className="ml-auto tabular-nums">{grand} total</span>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function TopFiles({ rows }: { rows?: TopFileRow[] }) {
+  const max = scaleMax((rows ?? []).map((r) => r.count));
+  return (
+    <Panel title="Files with the most findings">
+      {!rows ? (
+        <Skeleton rows={5} />
+      ) : rows.length === 0 ? (
+        <Empty label="No findings with a file in this window." />
+      ) : (
+        <ul className="divide-y divide-zinc-800/80">
+          {rows.map((r) => (
+            <li key={r.path} className="relative px-4 py-2">
+              {/* Horizontal bar behind the label, so the row reads as both a
+                  list entry and a magnitude. */}
+              <div
+                aria-hidden
+                className="absolute inset-y-0 left-0 bg-ember-500/10"
+                style={{ width: `${(r.count / max) * 100}%` }}
+              />
+              <div className="relative flex items-center justify-between gap-3">
+                <span className="truncate font-mono text-xs text-zinc-300" title={r.path}>
+                  {r.path}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-zinc-400">{r.count}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </Panel>
   );
