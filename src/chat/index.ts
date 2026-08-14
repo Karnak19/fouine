@@ -46,11 +46,11 @@ const queryStats = tool({
       .string()
       .describe("A single SQLite SELECT (or WITH ... SELECT) statement, no trailing semicolon needed."),
   }),
-  execute: async ({ sql }) => {
+  execute: async ({ sql }, { abortSignal }) => {
     // Guarding and execution both stay in src/chat/query.ts. The caller changed
     // from an opencode subprocess to an in-process tool; the guard did not, and
     // must not be reimplemented or relaxed here.
-    const out = await runStatsQuery(sql);
+    const out = await runStatsQuery(sql, abortSignal);
     return out.ok ? `${out.rowCount} row(s) in ${out.ms}ms\n${out.text}` : out.text;
   },
 });
@@ -92,11 +92,30 @@ export { textOnly };
  * writing them there would fold chat cost and tokens into every stat on the
  * dashboard. Nothing is persisted — the thread lives in the browser.
  */
+// Bounds on what one request may carry. The browser posts the whole thread back
+// every turn, and nothing stops a caller posting a hundred thousand of them: the
+// cost is paid upstream in tokens, on a key that is not free.
+export const MAX_TURNS = 40;
+export const MAX_QUESTION_CHARS = 4_000;
+
 export async function streamChat(
   rawMessages: UIMessage[],
   signal?: AbortSignal,
 ): Promise<Response> {
-  const messages = textOnly(rawMessages);
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+    throw new Error("No question to answer.");
+  }
+  // Keep the most recent turns: the tail is the conversation, the head is
+  // history the model no longer needs (it re-queries anyway).
+  const messages = textOnly(rawMessages).slice(-MAX_TURNS);
+  if (messages.length === 0) throw new Error("No question to answer.");
+  for (const m of messages) {
+    for (const p of m.parts) {
+      if (p.type === "text" && p.text.length > MAX_QUESTION_CHARS) {
+        throw new Error(`Question too long — keep it under ${MAX_QUESTION_CHARS} characters.`);
+      }
+    }
+  }
   const apiKey = resolveApiKey();
   if (!apiKey) {
     // Surfaced as a normal assistant-side error rather than a 500, so the UI

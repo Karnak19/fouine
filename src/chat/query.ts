@@ -10,7 +10,10 @@ import "~/db";
 // adds the one thing an in-process query cannot have: a deadline. bun:sqlite is
 // synchronous with no interrupt, so a runaway query on this thread would block
 // the whole server.
-function runInWorker(sql: string): Promise<{
+function runInWorker(
+  sql: string,
+  signal?: AbortSignal,
+): Promise<{
   ok: boolean;
   rows?: unknown[];
   truncated?: boolean;
@@ -19,6 +22,7 @@ function runInWorker(sql: string): Promise<{
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./query-worker.ts", import.meta.url).href);
     const timer = setTimeout(() => {
+      cleanup();
       worker.terminate();
       reject(
         new Error(
@@ -29,14 +33,30 @@ function runInWorker(sql: string): Promise<{
 
     worker.onmessage = (e: MessageEvent) => {
       clearTimeout(timer);
+      cleanup();
       worker.terminate();
       resolve(e.data);
     };
     worker.onerror = (e: ErrorEvent) => {
       clearTimeout(timer);
+      cleanup();
       worker.terminate();
       reject(new Error(`query worker failed: ${e.message}`));
     };
+
+    // A client that hangs up should not leave SQL grinding for nobody. The
+    // worker is killed immediately rather than left to run out its deadline.
+    const onAbort = () => {
+      clearTimeout(timer);
+      worker.terminate();
+      reject(new Error("query aborted"));
+    };
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
     worker.postMessage({ sql, dbPath: config.dbPath, maxBytes: MAX_JSON_BYTES });
   });
 }
@@ -139,14 +159,14 @@ export interface QueryOutcome {
 // byte caps bound the OUTPUT; only a deadline bounds the WORK.
 export const QUERY_TIMEOUT_MS = 5_000;
 
-export async function runStatsQuery(raw: string): Promise<QueryOutcome> {
+export async function runStatsQuery(raw: string, signal?: AbortSignal): Promise<QueryOutcome> {
   const guard = guardQuery(raw);
   if (!guard.ok) return { ok: false, text: `Query rejected: ${guard.reason}` };
 
   const started = Date.now();
   let result: { ok: boolean; rows?: unknown[]; truncated?: boolean; error?: string };
   try {
-    result = await runInWorker(guard.sql);
+    result = await runInWorker(guard.sql, signal);
   } catch (err) {
     return { ok: false, text: String((err as Error)?.message ?? err) };
   }

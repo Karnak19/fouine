@@ -56,3 +56,20 @@ test("a user message left with no text parts is dropped, not sent empty", () => 
   ] as unknown as UIMessage[];
   expect(textOnly(odd)).toHaveLength(1);
 });
+
+test("input bounds: oversized and empty requests are refused", async () => {
+  const { streamChat, MAX_QUESTION_CHARS } = await import("~/chat");
+
+  await expect(streamChat([] as UIMessage[])).rejects.toThrow("No question");
+
+  const huge = [
+    { id: "1", role: "user", parts: [{ type: "text", text: "x".repeat(MAX_QUESTION_CHARS + 1) }] },
+  ] as unknown as UIMessage[];
+  await expect(streamChat(huge)).rejects.toThrow("too long");
+
+  // A thread of only assistant messages has nothing to answer once stripped.
+  const assistantOnly = [
+    { id: "1", role: "assistant", parts: [{ type: "text", text: "hi" }] },
+  ] as unknown as UIMessage[];
+  await expect(streamChat(assistantOnly)).rejects.toThrow("No question");
+});
