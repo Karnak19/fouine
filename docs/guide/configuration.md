@@ -21,7 +21,8 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
 | `OPENCODE_MODEL` | no | `opencode-go/glm-5.2` | Default model for reviews |
-| `REVIEW_TIMEOUT_MS` | no | `1800000` (30 min) | Max review duration in milliseconds |
+| `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
+| `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |
 | `OPENCODE_CONFIG_DIR` | no | — | Path to OpenCode config (tools directory) |
 | `OPENCODE_BASH_TIMEOUT_MAX_MS` | no | `120000` (2 min) | Ceiling on the `bash` timeout the model may request. Prevents the retry-with-a-larger-timeout escalation that wedges reviews |
 

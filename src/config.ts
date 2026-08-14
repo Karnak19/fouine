@@ -36,10 +36,23 @@ export const config = {
   },
   review: {
     defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",
-    // ponytail: 30 min, not 10 — a review on a big diff legitimately runs past
-    // 10 minutes and was being killed mid-run. This is the "wedged, kill it"
-    // ceiling, not a target duration; raise it if real reviews still hit it.
-    timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 30 * 60 * 1000),
+    // The real "wedged, kill it" rule: no opencode event for the review's
+    // session in this long. Elapsed time never told us whether a review was
+    // slow or stuck (see the long comment in src/review/opencode.ts) — silence
+    // does. Generous on purpose: a model can reason, or run one quiet command,
+    // for minutes without emitting anything, and killing that is worse than
+    // waiting.
+    idleTimeoutMs: Number(process.env.REVIEW_IDLE_TIMEOUT_MS ?? 5 * 60 * 1000),
+    // Absolute backstop, now that idleTimeoutMs does the real work. Hitting it
+    // means something is looping while still emitting events — which is exactly
+    // the known failure mode: a command times out, opencode tells the model
+    // "retry with a larger timeout", and the model escalates. Every retry emits
+    // events, so the idle rule above can NOT see it; this ceiling is its only
+    // killer. That's why it's 45 min and not the hours you'd pick for a pure
+    // "can't ever be legitimate" bound — until the bash-timeout clamp in
+    // opencode-config lands, this number IS the escalation-loop cutoff. Raise it
+    // only once that clamp is deployed and you've watched real durations.
+    timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 45 * 60 * 1000),
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth

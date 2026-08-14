@@ -1,8 +1,22 @@
-import { Duration, Effect, Exit } from "effect";
+import { Effect, Exit } from "effect";
 import { createOpencode } from "@opencode-ai/sdk";
 import { config } from "~/config";
-import { freePort, runReview, type RunOptions, type RunResult } from "~/review/opencode";
+import {
+  freePort,
+  newActivityState,
+  observeEvent,
+  runReview,
+  stalledTool,
+  watchdogVerdict,
+  type RunOptions,
+  type RunResult,
+} from "~/review/opencode";
 import { OpenCodeError } from "~/effect/errors";
+import { log } from "~/server/log";
+
+// How often the watchdog re-evaluates. Cheap (one Date.now() compare), and the
+// resolution only needs to be coarse relative to the minute-scale timeouts.
+const WATCHDOG_TICK_MS = 5_000;
 
 // Each review runs in its own opencode subprocess, which snapshots the parent's
 // process.env at spawn — and the custom tools read their GitHub context
@@ -64,24 +78,83 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
             catch: (cause) => new OpenCodeError({ op: "createOpencode", cause }),
           }),
         ),
-        ({ client, ctrl }) =>
-          Effect.tryPromise({
-            try: () => runReview(client, opts, onSession),
+        ({ client, ctrl }) => {
+          // The watchdog #60 was missing: opencode can wedge mid-tool-call and
+          // never return, which left the review row at `running` forever. It is
+          // now driven by activity rather than elapsed time — see the long
+          // comment above watchdogVerdict in src/review/opencode.ts for why.
+          const state = newActivityState(Date.now());
+          // The session id only exists after runReview creates it, so events are
+          // matched against this box. Nothing arrives for the session before it
+          // exists anyway, and create-to-prompt is milliseconds.
+          const session: { id?: string } = {};
+
+          // Fire-and-forget pump. Deliberately NOT part of the Effect: a broken
+          // event stream must degrade the watchdog, never fail a review. If the
+          // subscribe throws, or the stream dies mid-run, streaming goes false
+          // and we fall back to the plain absolute ceiling — the pre-#66
+          // behaviour. Teardown is free: the SSE fetch rides `ctrl.signal`, and
+          // ctrl is aborted on every exit path (onExit below on failure, release
+          // unconditionally), so the connection and this loop always end.
+          void (async () => {
+            try {
+              const sub = await client.event.subscribe({ signal: ctrl.signal });
+              state.streaming = true;
+              for await (const event of sub.stream) {
+                observeEvent(state, event, session.id, Date.now());
+              }
+            } catch (cause) {
+              if (!ctrl.signal.aborted) {
+                log.warn("opencode event stream lost, idle watchdog disabled", {
+                  cause: String(cause),
+                });
+              }
+            } finally {
+              state.streaming = false;
+            }
+          })();
+
+          const watchdog = Effect.async<never, OpenCodeError>((resume) => {
+            const timer = setInterval(() => {
+              const verdict = watchdogVerdict(
+                state,
+                Date.now(),
+                config.review.idleTimeoutMs,
+                config.review.timeoutMs,
+              );
+              if (!verdict) return;
+              const stalled = stalledTool(state);
+              log.error("review watchdog fired", {
+                session: session.id,
+                verdict,
+                tool: stalled?.tool,
+                input: stalled?.input,
+              });
+              resume(Effect.fail(new OpenCodeError({ op: "runReview", cause: verdict })));
+            }, WATCHDOG_TICK_MS);
+            return Effect.sync(() => clearInterval(timer));
+          });
+
+          return Effect.tryPromise({
+            try: () =>
+              runReview(client, opts, (id) => {
+                session.id = id;
+                onSession(id);
+              }),
             catch: (cause) => new OpenCodeError({ op: "runReview", cause }),
           }).pipe(
-            // The watchdog #60 was missing: opencode can wedge mid-tool-call and
-            // never return, which left the review row at `running` forever.
-            Effect.timeoutFail({
-              duration: Duration.millis(config.review.timeoutMs),
-              onTimeout: () =>
-                new OpenCodeError({
-                  op: "runReview",
-                  cause: `timed out after ${Math.round(config.review.timeoutMs / 1000)}s`,
-                }),
-            }),
+            // raceFirst, not race: the watchdog only ever *fails*, and we want
+            // that failure to win immediately instead of being held back waiting
+            // for a run that by definition is never going to finish. Losing the
+            // race interrupts the watchdog, which clears its interval.
+            Effect.raceFirst(watchdog),
             // Abort as soon as we stop waiting (timeout, failure, interrupt) so
             // the child dies now rather than at release — release still runs and
-            // closes the server either way.
+            // closes the server either way. Note this aborts our *inner* ctrl
+            // only: the caller's signal stays untouched, which is what keeps a
+            // watchdog kill reportable as a timeout rather than as "Stopped by
+            // user" (src/effect/review.ts checks signal.aborted to tell them
+            // apart). Do not "fix" this by aborting the outer signal.
             Effect.onExit((exit) =>
               Effect.sync(() => {
                 if (Exit.isSuccess(exit)) return;
@@ -92,7 +165,8 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                 }
               }),
             ),
-          ),
+          );
+        },
         ({ server, ctrl, detach }) =>
           Effect.sync(() => {
             detach();

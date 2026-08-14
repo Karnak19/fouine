@@ -1,5 +1,6 @@
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 import { resolveApiKey, resolveDefaultModel } from "~/settings";
+import { log } from "~/server/log";
 import { createServer } from "node:net";
 
 // ponytail: grab an ephemeral port so concurrent reviews don't all try to bind
@@ -188,4 +189,178 @@ export async function runReview(
   }
 
   return { sessionId: session.id, text, cost, tokens };
+}
+
+// ─── idle watchdog ──────────────────────────────────────────────────────────
+//
+// A review that never returns is one of two things, and they need opposite
+// treatment: it is either *legitimately long* (big diff, hundreds of tool
+// calls) or *wedged* (opencode stops making progress mid tool call and the
+// blocking session.prompt() never resolves). A flat wall-clock ceiling cannot
+// tell them apart, so every value is wrong twice: too short for the first and
+// far too long for the second. #64 raised it 10 → 30 min and reviews still died
+// having burned $0.002 of model spend across the whole 1800s window — i.e. the
+// model had stopped thinking almost immediately and we waited half an hour.
+//
+// So the primary rule is *idleness*, not elapsed time: no event for this
+// session within idleTimeoutMs means wedged, kill it now. Elapsed time stays
+// only as an absolute backstop for the pathological case (something spewing
+// events forever without ever finishing).
+//
+// The heartbeat is opencode's SSE event stream (`client.event.subscribe()`).
+// VERIFIED against the pinned @opencode-ai/sdk 1.18.11 types and empirically
+// against the 1.18.18 binary: there is no per-tool-call event in this API
+// version (the `session.next.*` family is v2-only). Tool lifecycle rides on
+// `message.part.updated` carrying a ToolPart whose `state.status` walks
+// pending → running → completed | error, and `state.input` holds the actual
+// tool arguments — for bash, the command text. That is what we log.
+//
+// Any event counts as activity, deliberately: a model can reason for minutes
+// without touching a tool, and restricting the heartbeat to tool events would
+// kill healthy reviews.
+
+/** A tool call opencode has started but not yet finished. */
+interface InFlightTool {
+  tool: string;
+  /** JSON of the tool's arguments, truncated — for bash this is the command. */
+  input: string;
+  startedAt: number;
+}
+
+export interface ActivityState {
+  startedAt: number;
+  lastActivity: number;
+  // The idle rule only means anything while events can actually reach us. If
+  // the subscription never opened, or opened and then died, a cold heartbeat
+  // is OUR fault, not the review's — judging idleness then would kill healthy
+  // runs. So the pump owns this flag and the idle check refuses to fire while
+  // it is false; the absolute ceiling still applies, which is exactly the old
+  // wall-clock behaviour we degrade back to.
+  streaming: boolean;
+  inFlight: Map<string, InFlightTool>;
+  lastTool?: string;
+}
+
+export function newActivityState(now: number): ActivityState {
+  return { startedAt: now, lastActivity: now, streaming: false, inFlight: new Map() };
+}
+
+// ponytail: 500 chars of raw JSON, no per-tool formatting. It keeps the whole
+// argument object, which is what makes the known failure mode readable: the
+// model retrying the same grep with a growing `timeout` shows up as
+// near-identical lines with a climbing number.
+const MAX_INPUT = 500;
+
+function summarizeInput(input: unknown): string {
+  const json = (() => {
+    try {
+      return JSON.stringify(input) ?? "";
+    } catch {
+      return "<unserializable>";
+    }
+  })();
+  return json.length > MAX_INPUT ? `${json.slice(0, MAX_INPUT)}…` : json;
+}
+
+// Events carry their session id in one of three places depending on the event,
+// so probe all of them rather than switching on ~30 event names (and the binary
+// emits events the pinned types don't even know about, e.g. `plugin.added`).
+export function eventSessionId(event: unknown): string | undefined {
+  const props = (event as { properties?: Record<string, unknown> } | null)?.properties;
+  if (!props) return undefined;
+  const direct = props.sessionID;
+  if (typeof direct === "string") return direct;
+  for (const key of ["part", "info"] as const) {
+    const nested = props[key] as { sessionID?: unknown } | undefined;
+    if (nested && typeof nested.sessionID === "string") return nested.sessionID;
+  }
+  return undefined;
+}
+
+/**
+ * Fold one SSE event into the activity state. Events for other sessions (or
+ * server-wide ones like `plugin.added`) are ignored so an unrelated concurrent
+ * review can't keep a wedged one alive.
+ */
+export function observeEvent(
+  state: ActivityState,
+  event: unknown,
+  sessionId: string | undefined,
+  now: number,
+): void {
+  if (!sessionId || eventSessionId(event) !== sessionId) return;
+  state.lastActivity = now;
+
+  const ev = event as { type?: string; properties?: { part?: Record<string, unknown> } };
+  if (ev.type !== "message.part.updated") return;
+  const part = ev.properties?.part as
+    | {
+        type?: string;
+        callID?: string;
+        tool?: string;
+        state?: { status?: string; input?: unknown };
+      }
+    | undefined;
+  if (part?.type !== "tool" || !part.callID || !part.tool) return;
+
+  const status = part.state?.status;
+  if (status === "running") {
+    // `running` is the first state carrying the resolved arguments (`pending`
+    // arrives with an empty input while the model is still streaming them), so
+    // that is where we snapshot the command. Guard on has() because opencode
+    // re-publishes `running` on every output chunk of a bash command.
+    if (state.inFlight.has(part.callID)) return;
+    const input = summarizeInput(part.state?.input);
+    state.inFlight.set(part.callID, { tool: part.tool, input, startedAt: now });
+    state.lastTool = part.tool;
+    log.info("tool call started", { session: sessionId, tool: part.tool, input });
+    return;
+  }
+  if (status === "completed" || status === "error") {
+    const call = state.inFlight.get(part.callID);
+    state.inFlight.delete(part.callID);
+    log.info("tool call finished", {
+      session: sessionId,
+      tool: part.tool,
+      status,
+      durationMs: call ? now - call.startedAt : undefined,
+      input: call?.input ?? summarizeInput(part.state?.input),
+    });
+  }
+}
+
+const secs = (ms: number): number => Math.round(ms / 1000);
+
+/** The oldest in-flight tool call — the one most likely to be the wedge. */
+export function stalledTool(state: ActivityState): InFlightTool | undefined {
+  let oldest: InFlightTool | undefined;
+  for (const call of state.inFlight.values()) {
+    if (!oldest || call.startedAt < oldest.startedAt) oldest = call;
+  }
+  return oldest;
+}
+
+/**
+ * Decide whether to kill the run. Returns null to keep waiting, or a diagnostic
+ * message — it lands in the reviews table's `error` column and on the
+ * dashboard, so it names which rule fired and what was in flight.
+ */
+export function watchdogVerdict(
+  state: ActivityState,
+  now: number,
+  idleMs: number,
+  ceilingMs: number,
+): string | null {
+  const idleFor = now - state.lastActivity;
+  if (state.streaming && idleFor > idleMs) {
+    const stalled = stalledTool(state);
+    const detail = stalled
+      ? `in-flight tool ${stalled.tool} running ${secs(now - stalled.startedAt)}s: ${stalled.input}`
+      : state.lastTool
+        ? `no tool in flight, last tool: ${state.lastTool}`
+        : "no tool calls seen";
+    return `no activity for ${secs(idleFor)}s (${detail})`;
+  }
+  if (now - state.startedAt > ceilingMs) return `exceeded absolute ceiling of ${secs(ceilingMs)}s`;
+  return null;
 }
