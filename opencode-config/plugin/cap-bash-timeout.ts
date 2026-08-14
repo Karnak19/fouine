@@ -37,7 +37,26 @@ import type { Plugin } from "@opencode-ai/plugin";
 // function" on anything else (packages/opencode/src/plugin/index.ts:101-105) —
 // which would break the plugin load, and with it every review. So keep this
 // constant unexported, and don't add an exported helper or type value here.
-const MAX_BASH_TIMEOUT_MS = Number(process.env.OPENCODE_BASH_TIMEOUT_MAX_MS ?? 120_000);
+const DEFAULT_MAX_BASH_TIMEOUT_MS = 120_000;
+
+// Validated, not just coerced. A bare Number() here fails in two silent ways,
+// both of which are worse than the bug this plugin exists to fix:
+//   OPENCODE_BASH_TIMEOUT_MAX_MS=oops -> NaN, and `requested > NaN` is always
+//     false, so the model regains an UNBOUNDED timeout while the config still
+//     claims a ceiling.
+//   OPENCODE_BASH_TIMEOUT_MAX_MS=     -> `??` only catches null/undefined, so an
+//     empty string becomes Number("") === 0 — a 0ms cap that kills every command.
+// Anything non-finite or non-positive therefore falls back to the default rather
+// than being trusted.
+function maxBashTimeoutMs(): number {
+  const raw = process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_MAX_BASH_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_BASH_TIMEOUT_MS;
+  return parsed;
+}
+
+const MAX_BASH_TIMEOUT_MS = maxBashTimeoutMs();
 
 export const CapBashTimeout: Plugin = async () => ({
   "tool.execute.before": async (input, output) => {
