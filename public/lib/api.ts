@@ -109,6 +109,9 @@ export type StatsRange = "24h" | "7d" | "30d" | "90d" | "all";
 
 export interface StatsQuery {
   range?: StatsRange;
+  // YYYY-MM-DD custom window. When either is set the server ignores `range`.
+  from?: string;
+  to?: string;
   repo?: string;
   model?: string;
 }
@@ -122,7 +125,7 @@ export interface ReviewsQuery extends StatsQuery {
 // router search params.
 function qs(q: ReviewsQuery): string {
   const p = new URLSearchParams();
-  for (const k of ["range", "repo", "model", "status", "limit"] as const) {
+  for (const k of ["range", "from", "to", "repo", "model", "status", "limit"] as const) {
     const v = q[k];
     if (v) p.set(k, String(v));
   }

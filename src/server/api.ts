@@ -39,18 +39,57 @@ const RANGE_SECONDS: Record<string, number | null> = {
 // Empty query strings are "no filter", not a filter on the empty string.
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
+// A YYYY-MM-DD picker value as a UTC epoch, or null for anything that isn't one.
+// UTC on purpose: created_at is epoch and reviews.daily buckets with
+// date(created_at, 'unixepoch'), which is UTC, so interpreting the picked days
+// as UTC keeps the picker, the guards and the chart bars describing the same
+// days. A Europe/Paris user sees boundaries a couple of hours off local
+// midnight, which is consistent; mixing local days with UTC bars would not be.
+// Round-tripped through toISOString to reject real-looking nonsense like
+// 2026-13-45 and 2026-02-30, which Date.UTC would happily roll over.
+export function dayEpoch(raw: string | null): number | null {
+  if (raw === null || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const ms = Date.parse(`${raw}T00:00:00Z`);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10) === raw ? Math.floor(ms / 1000) : null;
+}
+
+const DAY_SECONDS = 86400;
+
 // No range param at all means unfiltered, so the dashboard — which sends none —
 // keeps the all-time totals it has always shown. The stats page always sends an
 // explicit range (its 30d default included), even when the URL omits it for a
 // clean link, so only an unrecognised *explicit* value falls back to 30d.
-function statsFilter(query: Record<string, unknown>) {
+//
+// from/to win over range when either is a valid date: one source of truth, so
+// the page can never show a custom window while claiming a preset. `to` is
+// inclusive of the day picked, so it becomes the START of the next day and the
+// SQL compares with a strict `<` — otherwise the whole final day, the one most
+// likely being looked at, silently disappears.
+export function statsFilter(query: Record<string, unknown>) {
+  const from = dayEpoch(str(query.from));
+  const toDay = dayEpoch(str(query.to));
+  const to = toDay === null ? null : toDay + DAY_SECONDS;
+  if (from !== null || to !== null) {
+    // An inverted window would just return nothing; drop the bound that makes
+    // it impossible rather than erroring, and let the UI's min/max prevent it.
+    const inverted = from !== null && to !== null && from >= to;
+    return {
+      $from: from,
+      $to: inverted ? null : to,
+      $repo: str(query.repo),
+      $model: str(query.model),
+    };
+  }
   const key = str(query.range);
-  if (key === null) return { $from: null, $repo: str(query.repo), $model: str(query.model) };
+  if (key === null)
+    return { $from: null, $to: null, $repo: str(query.repo), $model: str(query.model) };
   // Object.hasOwn, not `in`: `in` walks the prototype chain, so ?range=toString
   // would resolve to a function and poison $from with NaN.
   const secs = Object.hasOwn(RANGE_SECONDS, key) ? RANGE_SECONDS[key]! : RANGE_SECONDS["30d"]!;
   return {
     $from: secs === null ? null : Math.floor(Date.now() / 1000) - secs,
+    $to: null,
     $repo: str(query.repo),
     $model: str(query.model),
   };

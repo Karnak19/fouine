@@ -18,7 +18,10 @@ import { Badge } from "@/components/ui/badge";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
-import { Inbox, ListFilter, SlidersHorizontal, X } from "lucide-react";
+import { Calendar as CalendarIcon, Inbox, ListFilter, SlidersHorizontal, X } from "lucide-react";
+import { type DateRange } from "react-day-picker";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const RANGES = ["24h", "7d", "30d", "90d", "all"] as const;
 const DEFAULT_RANGE: StatsRange = "30d";
@@ -29,6 +32,11 @@ export interface StatsSearch {
   // `range` is absent from the URL when it's the default — a clean link for the
   // default view. Everything reads it through `search.range ?? DEFAULT_RANGE`.
   range?: StatsRange;
+  // Custom window, YYYY-MM-DD. Either bound alone is valid. When either is set
+  // it wins and `range` is ignored, so the UI can never show a custom window
+  // while a preset still looks selected.
+  from?: string;
+  to?: string;
   repo?: string;
   model?: string;
   status?: Status;
@@ -36,10 +44,33 @@ export interface StatsSearch {
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
+// Same shape of validation as the server's dayEpoch: a real UTC calendar day or
+// nothing. Keeps `from=lol` out of the URL instead of round-tripping garbage.
+// The NaN check is load-bearing: "2026-13-45" passes the regex, and calling
+// toISOString() on the resulting Invalid Date throws a RangeError that takes
+// the whole page down rather than falling back to the preset.
+const isDay = (v: unknown): v is string => {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const ms = Date.parse(`${v}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === v;
+};
+
+const day = (v: unknown) => (isDay(v) ? v : undefined);
+
 export function validateStatsSearch(raw: Record<string, unknown>): StatsSearch {
   const range = RANGES.find((r) => r === raw.range && r !== DEFAULT_RANGE);
   const status = STATUSES.find((s) => s === raw.status);
-  return { range, repo: str(raw.repo), model: str(raw.model), status };
+  const from = day(raw.from);
+  const to = day(raw.to);
+  return {
+    // A custom window owns the time axis; drop range so the two can't disagree.
+    range: from || to ? undefined : range,
+    from,
+    to,
+    repo: str(raw.repo),
+    model: str(raw.model),
+    status,
+  };
 }
 
 export default function StatsPage() {
@@ -47,8 +78,13 @@ export default function StatsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  // A custom window replaces the preset entirely — `custom` drives both the
+  // request and whether any preset button renders as selected.
+  const custom = Boolean(search.from || search.to);
   const range = search.range ?? DEFAULT_RANGE;
-  const filters = { range, repo: search.repo, model: search.model };
+  const filters = custom
+    ? { from: search.from, to: search.to, repo: search.repo, model: search.model }
+    : { range, repo: search.repo, model: search.model };
   const reviewFilters = { ...filters, status: search.status };
 
   const setFilters = (patch: StatsSearch) =>
@@ -90,7 +126,9 @@ export default function StatsPage() {
     { reviews: 0, cost: 0, tokens: 0 },
   );
   const avgCost = totals && stats?.latency.count ? totals.cost / stats.latency.count : null;
-  const filtered = Boolean(search.repo || search.model || search.status || search.range);
+  const filtered = Boolean(
+    search.repo || search.model || search.status || search.range || custom,
+  );
 
   return (
     <div className="space-y-7 min-w-0">
@@ -116,10 +154,18 @@ export default function StatsPage() {
             <button
               key={r}
               type="button"
-              aria-pressed={r === range}
-              onClick={() => setFilters({ range: r === DEFAULT_RANGE ? undefined : r })}
+              // Deselected while a custom window is active: the presets must
+              // never claim "30d" over a view that isn't 30 days.
+              aria-pressed={!custom && r === range}
+              onClick={() =>
+                setFilters({
+                  range: r === DEFAULT_RANGE ? undefined : r,
+                  from: undefined,
+                  to: undefined,
+                })
+              }
               className={`px-2.5 py-1 text-xs font-medium tabular-nums transition-colors cursor-pointer ${
-                r === range
+                !custom && r === range
                   ? "bg-ember-950/60 text-ember-300"
                   : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100"
               }`}
@@ -128,6 +174,14 @@ export default function StatsPage() {
             </button>
           ))}
         </div>
+        {/* The presets stay; this sits beside them for an arbitrary window.
+            Selecting a range writes from/to, which wins over range server-side
+            and deselects every preset. */}
+        <RangePicker
+          from={search.from}
+          to={search.to}
+          onChange={({ from, to }) => setFilters({ from, to })}
+        />
         <Select
           label="Repository"
           value={search.repo ?? ""}
@@ -178,7 +232,19 @@ export default function StatsPage() {
           beside it. Everything collapses to one column below `lg`. */}
       <div className="grid gap-7 lg:grid-cols-3 items-start">
         <div className="lg:col-span-2 min-w-0">
-          <CostTrend daily={stats?.daily} range={range} />
+          <CostTrend
+            daily={stats?.daily}
+            range={range}
+            windowLabel={
+              custom
+                ? search.from && search.to
+                  ? `${search.from} → ${search.to}`
+                  : search.from
+                    ? `since ${search.from}`
+                    : `until ${search.to}`
+                : undefined
+            }
+          />
         </div>
         <div className="space-y-7 min-w-0">
           <SeverityMix severity={stats?.severity} />
@@ -213,6 +279,70 @@ export default function StatsPage() {
         <TopCost rows={stats?.topCost} />
       </div>
     </div>
+  );
+}
+
+// The URL carries plain calendar days and the server reads them as UTC, but
+// react-day-picker hands back a Date at LOCAL midnight. Convert through the
+// local Y/M/D parts, never toISOString(): in Europe/Paris a local midnight is
+// the previous day in UTC, so toISOString() would shift every picked date back
+// by one. Going through the parts keeps the day the user clicked, the day in
+// the URL and the day the SQL buckets all the same day.
+function toDayString(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function fromDayString(s: string | undefined): Date | undefined {
+  if (!s) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y!, m! - 1, d!);
+}
+
+function RangePicker({
+  from,
+  to,
+  onChange,
+}: {
+  from?: string;
+  to?: string;
+  onChange: (r: { from?: string; to?: string }) => void;
+}) {
+  const selected: DateRange | undefined = from || to ? { from: fromDayString(from), to: fromDayString(to) } : undefined;
+  const label =
+    from && to ? `${from} → ${to}` : from ? `since ${from}` : to ? `until ${to}` : "Custom range";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Custom date range"
+          className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs tabular-nums transition-colors cursor-pointer ${
+            from || to
+              ? "border-ember-900 bg-ember-950/60 text-ember-300"
+              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-700 hover:text-zinc-100"
+          }`}
+        >
+          <CalendarIcon size={13} />
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="range"
+          defaultMonth={fromDayString(from) ?? fromDayString(to)}
+          selected={selected}
+          onSelect={(r: DateRange | undefined) =>
+            onChange({
+              from: r?.from ? toDayString(r.from) : undefined,
+              to: r?.to ? toDayString(r.to) : undefined,
+            })
+          }
+          numberOfMonths={2}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -328,10 +458,18 @@ const RANGE_LABELS: Record<StatsRange, string> = {
   all: "all time",
 };
 
-function CostTrend({ daily, range }: { daily?: DailyStatsRow[]; range: StatsRange }) {
+function CostTrend({
+  daily,
+  range,
+  windowLabel,
+}: {
+  daily?: DailyStatsRow[];
+  range: StatsRange;
+  windowLabel?: string;
+}) {
   const max = Math.max(...(daily ?? []).map((d) => d.cost), 0.0001);
   return (
-    <Panel title={`Cost · ${RANGE_LABELS[range]}`}>
+    <Panel title={`Cost · ${windowLabel ?? RANGE_LABELS[range]}`}>
       {!daily ? (
         <Skeleton rows={6} />
       ) : daily.length === 0 ? (

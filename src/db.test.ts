@@ -60,7 +60,7 @@ test("review lifecycle: pending -> running -> completed", () => {
   reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096, $model: "anthropic/claude-opus-4" });
 
   const recent = reviews.recent.all({
-    $from: null,
+    $from: null, $to: null,
     $repo: null,
     $model: null,
     $status: null,
@@ -135,7 +135,7 @@ test("bySeverity follows the review's date, not the finding's", () => {
   ).run(inWindow.id, NOW + 40 * 86400);
 
   const within = findings.bySeverity.all({
-    $from: NOW - 86400,
+    $from: NOW - 86400, $to: null,
     $repo: "sev/lag",
     $model: null,
   });
@@ -148,8 +148,40 @@ test("bySeverity follows the review's date, not the finding's", () => {
      VALUES (?1, 'sev/lag', 1, 'inline', 'nit', 'x', ?2)`,
   ).run(older.id, NOW);
   expect(
-    findings.bySeverity.all({ $from: NOW - 86400, $repo: "sev/lag", $model: null }),
+    findings.bySeverity.all({ $from: NOW - 86400, $to: null, $repo: "sev/lag", $model: null }),
   ).toEqual([{ severity: "blocking", count: 1 }]);
+});
+
+// The $to bound is exclusive, so an inclusive "to the 14th" is the epoch of the
+// 15th. A review created late on the 14th must still count — getting this wrong
+// drops the most recent day, which is the one usually being looked at.
+test("$to is an exclusive bound, so the whole 'to' day counts", () => {
+  repos.upsert.run({ $full_name: "win/dow", $installation_id: 1, $prompt: null, $model: null });
+  const day = Math.floor(NOW / 86400) * 86400; // midnight UTC of NOW's day
+  const lateThatDay = day + 86400 - 1; // 23:59:59
+  seedReview.get("win/dow", "win-model", lateThatDay, lateThatDay + 5)!;
+
+  const base = { $repo: "win/dow", $model: null };
+  // to = that day, passed as the start of the next -> the 23:59:59 row counts.
+  expect(
+    reviews.byProject.all({ ...base, $from: null, $to: day + 86400 })[0]?.reviews,
+  ).toBe(1);
+  // The naive off-by-one (<= the day's own midnight) would have dropped it.
+  expect(reviews.byProject.all({ ...base, $from: null, $to: day })).toHaveLength(0);
+
+  // from-only: from that midnight onward includes it.
+  expect(reviews.byProject.all({ ...base, $from: day, $to: null })[0]?.reviews).toBe(1);
+  // to-only: everything before the next midnight includes it.
+  expect(
+    reviews.byProject.all({ ...base, $from: null, $to: day + 86400 })[0]?.reviews,
+  ).toBe(1);
+  // Both bounds around the day.
+  expect(
+    reviews.byProject.all({ ...base, $from: day, $to: day + 86400 })[0]?.reviews,
+  ).toBe(1);
+  // An inverted window that reaches the DB simply returns nothing, no error.
+  expect(reviews.byProject.all({ ...base, $from: day + 86400, $to: day })).toHaveLength(0);
+  expect(reviews.daily.all({ ...base, $from: day + 86400, $to: day })).toHaveLength(0);
 });
 
 test("stats filters narrow by repo, model and date", () => {
@@ -179,7 +211,7 @@ test("stats filters narrow by repo, model and date", () => {
       $github_comment_id: null,
     });
 
-  const none = { $from: null, $repo: null, $model: null };
+  const none = { $from: null, $to: null, $repo: null, $model: null };
 
   // Repo filter narrows byProject to that one row, and daily to its rows.
   const byProject = reviews.byProject.all({ ...none, $repo: "filt/beta" });
@@ -196,9 +228,9 @@ test("stats filters narrow by repo, model and date", () => {
   expect(sev).toEqual([{ severity: "nit", count: 2 }]);
 
   // $from cutoff drops the 100-day-old row.
-  const recent = reviews.byProject.all({ ...none, $from: NOW - 86400, $repo: "filt/alpha" });
+  const recent = reviews.byProject.all({ ...none, $from: NOW - 86400, $to: null, $repo: "filt/alpha" });
   expect(recent[0]?.reviews).toBe(1);
-  expect(reviews.daily.all({ ...none, $from: NOW - 86400, $repo: "filt/alpha" })).toHaveLength(1);
+  expect(reviews.daily.all({ ...none, $from: NOW - 86400, $to: null, $repo: "filt/alpha" })).toHaveLength(1);
 
   // All-null params see everything, old rows included.
   expect(reviews.byProject.all(none).find((r) => r.repo_full_name === "filt/alpha")?.reviews).toBe(2);

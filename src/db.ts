@@ -236,6 +236,9 @@ export interface TopCostRow {
 // implicit index signature, which interfaces don't have.
 export type StatsFilter = {
   $from: number | null;
+  // Exclusive upper bound, so an inclusive "to 2026-08-14" is passed as the
+  // epoch of 2026-08-15T00:00:00Z — see toEpoch in src/server/api.ts.
+  $to: number | null;
   $repo: string | null;
   $model: string | null;
 };
@@ -311,6 +314,7 @@ export const reviews = {
   recent: db.prepare<ReviewRow, StatsFilter & { $status: string | null; $limit: number }>(
     `SELECT * FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
        AND ($status IS NULL OR status = $status)
@@ -337,6 +341,7 @@ export const reviews = {
                      THEN completed_at - created_at END) AS avg_duration
      FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY repo_full_name
@@ -350,6 +355,7 @@ export const reviews = {
      FROM reviews
      WHERE model IS NOT NULL
        AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY model
@@ -362,6 +368,7 @@ export const reviews = {
             COALESCE(SUM(tokens), 0) AS tokens
      FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY day
@@ -371,6 +378,7 @@ export const reviews = {
     `SELECT COALESCE(trigger, 'unknown') AS trigger, COUNT(*) AS count
      FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY COALESCE(trigger, 'unknown')
@@ -389,6 +397,7 @@ export const reviews = {
      FROM reviews
      WHERE status = 'completed' AND completed_at IS NOT NULL
        AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)`,
   ),
@@ -399,6 +408,7 @@ export const reviews = {
      FROM reviews
      WHERE status = 'completed' AND completed_at IS NOT NULL
        AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      ORDER BY d
@@ -407,6 +417,7 @@ export const reviews = {
              FROM reviews
              WHERE status = 'completed' AND completed_at IS NOT NULL
                AND ($from IS NULL OR created_at >= $from)
+               AND ($to IS NULL OR created_at < $to)
                AND ($repo IS NULL OR repo_full_name = $repo)
                AND ($model IS NULL OR model = $model))`,
   ),
@@ -428,6 +439,7 @@ export const reviews = {
      FROM reviews
      WHERE cost IS NOT NULL
        AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      ORDER BY cost DESC
@@ -473,6 +485,7 @@ export const findings = {
      JOIN reviews ON findings.review_id = reviews.id
      WHERE findings.kind = 'inline' AND findings.severity IS NOT NULL
        AND ($from IS NULL OR reviews.created_at >= $from)
+       AND ($to IS NULL OR reviews.created_at < $to)
        AND ($repo IS NULL OR reviews.repo_full_name = $repo)
        AND ($model IS NULL OR reviews.model = $model)
      GROUP BY findings.severity
