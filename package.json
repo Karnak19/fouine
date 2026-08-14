@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.30",
+    "@ai-sdk/react": "^4.0.68",
     "@elysia/static": "^1.4.11",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opencode-ai/sdk": "^1.18.11",
@@ -18,6 +20,7 @@
     "@tanstack/react-router": "^1.170.16",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "ai": "^7.0.65",
     "better-auth": "^1.6.23",
     "bun-plugin-tailwind": "^0.1.2",
     "class-variance-authority": "^0.7.1",

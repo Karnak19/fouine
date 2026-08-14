@@ -16,6 +16,8 @@ import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
+import { streamChat } from "~/chat";
+import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
 // at a known point (we ignore Last-Event-ID; ids exist for the spec).
@@ -160,6 +162,24 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       unsubscribe();
     }
   })
+
+  // Chat over the review data. The AI SDK produces a UI message stream and
+  // Elysia can return that Response as-is, so there is no second transport and
+  // no hand-rolled SSE here — useChat on the client speaks this natively.
+  .post(
+    "/chat",
+    async ({ body, set }) => {
+      try {
+        return await streamChat(body.messages as UIMessage[]);
+      } catch (err) {
+        // Config problems (no API key) surface as a readable message rather
+        // than an opaque 500 the UI would render as a blank bubble.
+        set.status = 400;
+        return { error: String((err as Error)?.message ?? err) };
+      }
+    },
+    { body: t.Object({ messages: t.Array(t.Any()) }) },
+  )
 
   .get("/repos", () => repos.list.all())
 

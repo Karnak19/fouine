@@ -9,6 +9,7 @@ import {
   Download,
   LogOut,
   ChartNoAxesColumn,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth, signOut } from "../lib/auth";
 
@@ -47,6 +48,7 @@ const NAV = [
   { to: "/repos", label: "Repositories", icon: <FolderGit2 size={16} /> },
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest size={16} /> },
   { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn size={16} /> },
+  { to: "/chat", label: "Chat", icon: <MessageSquare size={16} /> },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
@@ -105,7 +107,7 @@ function RootLayout() {
         </div>
       </main>
       {/* Mobile: bottom tab bar with safe-area padding for the home indicator. */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         {NAV.map((n) => (
           <TabLink key={n.to} {...n} />
         ))}
@@ -149,6 +151,7 @@ import ReviewDetailPage from "./review-detail";
 import SettingsPage from "./settings";
 import DashboardPage from "./dashboard";
 import StatsPage, { validateStatsSearch } from "./stats";
+import ChatPage from "./chat";
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -186,6 +189,12 @@ const statsRoute = createRoute({
   component: StatsPage,
   validateSearch: validateStatsSearch,
 });
+// No validateSearch: this page is deliberately not filter-driven.
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/chat",
+  component: ChatPage,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -200,5 +209,6 @@ export const routeTree = rootRoute.addChildren([
   reviewsRoute,
   reviewDetailRoute,
   statsRoute,
+  chatRoute,
   settingsRoute,
 ]);
