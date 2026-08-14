@@ -5,6 +5,77 @@ import { skills as skillsDb, type SkillRow } from "~/db";
 import { log } from "~/server/log";
 import type { SkillFile } from "~/skills/install";
 
+// Commands the reviewer agent must never run itself. fouine installs the repo's
+// dependencies for it (bounded, before the session starts), so an agent-initiated
+// install is always either a duplicate or an unbounded network wait — and it was
+// a reliable way to burn the whole review budget.
+//
+// Pattern semantics (opencode's own matcher, NOT real globs): `*` expands to `.*`
+// and crosses `/`, and the WHOLE string must match. opencode special-cases a
+// trailing " *" so that "yarn *" also matches a bare "yarn" — but that special
+// case is the one rule here we did not verify ourselves, so every command is
+// listed in both bare and trailing-`*` form. Redundant if the special case works,
+// correct either way.
+//
+// Matching is per parsed command node, so `cd /tmp && npm install` is checked as
+// two commands and still denied.
+//
+// ponytail: textual/AST matching, not a sandbox. `sh -c 'npm install'`, `eval`, a
+// shell script, or an alias does not decompose into the inner command and slips
+// straight through. This stops the model doing the obvious thing, which is the
+// actual failure mode; it is not a containment boundary. The container is.
+const INSTALL_COMMANDS = [
+  "bun install",
+  "bun add",
+  "bun i",
+  "npm install",
+  "npm ci",
+  "npm add",
+  "npm i",
+  "pnpm install",
+  "pnpm add",
+  "pnpm i",
+  "yarn",
+  "yarn install",
+  "yarn add",
+];
+
+// The opencode.json fouine writes into the runtime config dir. Pure so the
+// interesting part — which keys appear — is testable without touching the
+// filesystem.
+//
+// Relies on opencode reading opencode.json from OPENCODE_CONFIG_DIR, and on that
+// dir being LAST in opencode's config-dir list so these keys win over global and
+// project config. Verified empirically against opencode 1.18.18 (`opencode debug
+// config` and the server's /config endpoint both echo these keys back, including
+// under the SDK's OPENCODE_CONFIG_CONTENT={} spawn env, and with insertion order
+// preserved so the deny-after-allow ordering below survives).
+//
+// This is NOT a documented guarantee — opencode's docs only promise
+// agents/commands/modes/plugins from that dir, so re-run that check when bumping
+// the pinned opencode version in the Dockerfile.
+export function buildOpencodeConfig(): Record<string, unknown> {
+  const bash: Record<string, string> = { "*": "allow" };
+  // Last matching rule wins, so the blanket allow must be written first and the
+  // denies after it. Never use a "*" DENY here: a "*"-pattern deny makes opencode
+  // drop the tool from the model's tool list entirely, which would leave the
+  // reviewer unable to run anything at all.
+  for (const cmd of INSTALL_COMMANDS) {
+    bash[cmd] = "deny";
+    bash[`${cmd} *`] = "deny";
+  }
+
+  return {
+    $schema: "https://opencode.ai/config.json",
+    permission: {
+      // Self-hosted, single-operator: whoever installs a skill owns the box, so
+      // there's no third party to gate against — allow the skill tool outright.
+      skill: { "*": "allow" },
+      bash,
+    },
+  };
+}
+
 // fouine points opencode at a config dir it fully owns on the data volume,
 // rather than the read-only shipped dir. This seeds that runtime dir: copy
 // every shipped entry (agent, tools, …) across so the fouine agent + custom
@@ -31,6 +102,9 @@ export function seedOpencodeConfig(): void {
     // skills/ and opencode.json are fouine-owned in the runtime dir; opencode's
     // own dep install (node_modules, package*.json) regenerates in the runtime
     // dir on first prompt, so don't drag a stale dev copy across.
+    // NOTE: plugin/ is NOT skipped — it must be copied, since opencode discovers
+    // local plugins by globbing {plugin,plugins}/*.{ts,js} inside each config
+    // dir, and the dir it globs is this runtime dir, not the shipped one.
     if (
       entry === "skills" ||
       entry === "opencode.json" ||
@@ -42,12 +116,7 @@ export function seedOpencodeConfig(): void {
     cpSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry), { recursive: true });
   }
 
-  // Self-hosted, single-operator: whoever installs a skill owns the box, so
-  // there's no third party to gate against — allow the skill tool outright.
-  writeFileSync(
-    join(runtimeDir, "opencode.json"),
-    JSON.stringify({ permission: { skill: { "*": "allow" } } }, null, 2),
-  );
+  writeFileSync(join(runtimeDir, "opencode.json"), JSON.stringify(buildOpencodeConfig(), null, 2));
   mkdirSync(config.opencode.skillsDir, { recursive: true });
   process.env.OPENCODE_CONFIG_DIR = runtimeDir;
   log.info("seeded opencode config", { runtimeDir, shippedConfigDir, copied: shipped.length });

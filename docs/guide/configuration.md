@@ -23,6 +23,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `OPENCODE_MODEL` | no | `opencode-go/glm-5.2` | Default model for reviews |
 | `REVIEW_TIMEOUT_MS` | no | `1800000` (30 min) | Max review duration in milliseconds |
 | `OPENCODE_CONFIG_DIR` | no | — | Path to OpenCode config (tools directory) |
+| `OPENCODE_BASH_TIMEOUT_MAX_MS` | no | `120000` (2 min) | Ceiling on the `bash` timeout the model may request. Prevents the retry-with-a-larger-timeout escalation that wedges reviews |
 
 \* Provide the private key via one of the two variables. `*_PATH` is recommended.
 
