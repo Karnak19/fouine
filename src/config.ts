@@ -49,7 +49,7 @@ export const config = {
     skillsDir: resolve(`${dataDir}/opencode/skills`),
   },
   review: {
-    defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/glm-5.2",
+    defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/deepseek-v4-flash",
     // The real "wedged, kill it" rule: no opencode event for the review's
     // session in this long. Elapsed time never told us whether a review was
     // slow or stuck (see the long comment in src/review/opencode.ts) — silence

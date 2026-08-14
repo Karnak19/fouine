@@ -40,7 +40,7 @@ Content-Type: application/json
 
 {
   "prompt": "Review this code for...",
-  "model": "opencode-go/glm-5.2",
+  "model": "opencode-go/deepseek-v4-flash",
   "enabled": 1
 }
 ```
@@ -110,7 +110,7 @@ Returns all dashboard-configured settings as a key-value object:
 ```json
 {
   "opencode_api_key": "***",
-  "opencode_model": "opencode-go/glm-5.2",
+  "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR..."
 }
 ```
@@ -123,7 +123,7 @@ Content-Type: application/json
 
 {
   "opencode_api_key": "your-key",
-  "opencode_model": "opencode-go/glm-5.2",
+  "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR..."
 }
 ```
