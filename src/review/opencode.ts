@@ -230,19 +230,25 @@ interface InFlightTool {
 export interface ActivityState {
   startedAt: number;
   lastActivity: number;
-  // The idle rule only means anything while events can actually reach us. If
-  // the subscription never opened, or opened and then died, a cold heartbeat
-  // is OUR fault, not the review's — judging idleness then would kill healthy
-  // runs. So the pump owns this flag and the idle check refuses to fire while
-  // it is false; the absolute ceiling still applies, which is exactly the old
-  // wall-clock behaviour we degrade back to.
-  streaming: boolean;
+  // The idle rule only means anything once we have PROVEN we can see this
+  // session's events — set by the first event that matches the session, not by
+  // the subscription opening.
+  //
+  // That distinction is the whole bug this flag was introduced for and then got
+  // wrong: an open socket carrying somebody else's events looks identical to a
+  // silent model. opencode routes `/event` per project directory, so subscribing
+  // without the review's `directory` yields a live stream of the WRONG
+  // instance's events — none of which match. `lastActivity` then never advances
+  // and every review is killed at exactly idleTimeoutMs, mid-work, reported as
+  // "no tool calls seen". Arming on first match makes that failure degrade to
+  // the absolute ceiling (the old wall-clock behaviour) instead of killing.
+  armed: boolean;
   inFlight: Map<string, InFlightTool>;
   lastTool?: string;
 }
 
 export function newActivityState(now: number): ActivityState {
-  return { startedAt: now, lastActivity: now, streaming: false, inFlight: new Map() };
+  return { startedAt: now, lastActivity: now, armed: false, inFlight: new Map() };
 }
 
 // ponytail: 500 chars of raw JSON, no per-tool formatting. It keeps the whole
@@ -289,6 +295,9 @@ export function observeEvent(
   now: number,
 ): void {
   if (!sessionId || eventSessionId(event) !== sessionId) return;
+  // Past the session filter, so this stream really does carry our events: from
+  // here the idle rule is trustworthy. Before it, silence proves nothing.
+  state.armed = true;
   state.lastActivity = now;
 
   const ev = event as { type?: string; properties?: { part?: Record<string, unknown> } };
@@ -352,7 +361,7 @@ export function watchdogVerdict(
   ceilingMs: number,
 ): string | null {
   const idleFor = now - state.lastActivity;
-  if (state.streaming && idleFor > idleMs) {
+  if (state.armed && idleFor > idleMs) {
     const stalled = stalledTool(state);
     const detail = stalled
       ? `in-flight tool ${stalled.tool} running ${secs(now - stalled.startedAt)}s: ${stalled.input}`
