@@ -9,6 +9,9 @@ const variants: Record<string, { dot: string; pill: string; label?: string }> = 
     label: "completed",
   },
   failed: { dot: "bg-red-400", pill: "bg-red-950/40 text-red-300 ring-red-800/40" },
+  // Not an outcome — the push carried no diff change, so nothing ran. Muted on
+  // purpose: it should read as "nothing to see", not as a result.
+  skipped: { dot: "bg-sky-400", pill: "bg-sky-950/40 text-sky-300 ring-sky-800/40" },
 };
 
 export function Badge({ status, className }: { status: string; className?: string }) {

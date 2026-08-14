@@ -33,6 +33,7 @@ export interface ReviewRow {
   cost: number | null;
   tokens: number | null;
   model: string | null;
+  patch_id: string | null;
   created_at: number;
   completed_at: number | null;
 }

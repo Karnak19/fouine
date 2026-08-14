@@ -33,7 +33,7 @@ function seedCompletedReview(pr: number, agoSeconds = 0, repo = FULL) {
     $status: "pending",
     $trigger: "opened",
   })!;
-  reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m" });
+  reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m", $patch: null });
   if (agoSeconds) {
     db.exec(`UPDATE reviews SET created_at = created_at - ${agoSeconds} WHERE id = ${row.id}`);
   }
@@ -88,7 +88,7 @@ test("improver gating: failed run does not advance the marker", async () => {
     $status: "pending",
     $trigger: "opened",
   })!;
-  reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m" });
+  reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m", $patch: null });
 
   runImprove.mockRejectedValueOnce(new Error("boom"));
   await expect(runImproverForRepo(full)).rejects.toThrow("boom");

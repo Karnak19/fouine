@@ -26,6 +26,10 @@ function makeLayer(over: {
   status?: string;
   // Mirrors the real signature: `true` only when GitHub actually closed the run.
   finishCheck?: (conclusion: string) => Effect.Effect<boolean>;
+  // The diff identity this push carries; undefined = helper bailed.
+  patchId?: string | undefined;
+  // The last successfully-reviewed diff identity for this PR, or null.
+  baseline?: { id: number; patch_id: string } | null;
 }) {
   const calls = {
     completed: 0,
@@ -33,7 +37,12 @@ function makeLayer(over: {
     agent: undefined as string | undefined,
     env: undefined as Record<string, string> | undefined,
     conclusions: [] as string[],
+    checkBodies: [] as string[],
     checkRuns: [] as number[],
+    skipped: [] as (string | null)[],
+    baselineQueries: 0,
+    reviewsRun: 0,
+    proceeded: 0,
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
@@ -44,6 +53,12 @@ function makeLayer(over: {
       Effect.sync(() => void calls.checkRuns.push(checkRunId)),
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
+    skip: (_id: number, patch: string | null) => Effect.sync(() => void calls.skipped.push(patch)),
+    lastReviewedPatch: () =>
+      Effect.sync(() => {
+        calls.baselineQueries++;
+        return over.baseline ?? null;
+      }),
     status: () => Effect.succeed(over.status ?? "running"),
   } as unknown as DbService);
 
@@ -57,14 +72,20 @@ function makeLayer(over: {
       _repo: string,
       _checkRunId: unknown,
       conclusion: string,
+      body: string,
     ) =>
       Effect.suspend(() => {
         calls.conclusions.push(conclusion);
+        calls.checkBodies.push(body);
         return over.finishCheck ? over.finishCheck(conclusion) : Effect.succeed(true);
       }),
   } as unknown as GitHubService);
 
-  const git = Layer.succeed(GitService, { ...gitOk(), ...over.git } as unknown as GitService);
+  const git = Layer.succeed(GitService, {
+    ...gitOk(),
+    patchId: () => Effect.succeed(over.patchId),
+    ...over.git,
+  } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
     runReview: (
@@ -72,6 +93,7 @@ function makeLayer(over: {
       _s: unknown,
       signal: AbortSignal,
     ) => {
+      calls.reviewsRun++;
       calls.agent = o.agent;
       calls.env = o.env;
       return over.oc
@@ -97,7 +119,7 @@ const noAbort = () => new AbortController().signal;
 test("success path marks complete, never failed", async () => {
   const { layer, calls } = makeLayer({});
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.completed).toBe(1);
@@ -112,7 +134,7 @@ test("real git error propagates and marks failed with the git message", async ()
     git: { ensureBare: () => Effect.fail(new GitError({ op: "ensureBare", cause: "boom" })) },
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isFailure(exit)).toBe(true); // propagates to caller's .catch
   expect(calls.completed).toBe(0);
@@ -126,7 +148,7 @@ test("aborted run is swallowed (success) and recorded as Stopped by user", async
     oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "AbortError" })),
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, ctrl.signal, () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, ctrl.signal, () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isSuccess(exit)).toBe(true); // stop is not an error
   expect(calls.failed).toEqual(["Stopped by user"]);
@@ -139,7 +161,7 @@ test("supersede abort is recorded distinctly from a user stop", async () => {
     oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "AbortError" })),
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, "synchronize", ctrl.signal, () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, "synchronize", ctrl.signal, () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.failed).toEqual(["Superseded by a newer commit"]);
@@ -157,7 +179,7 @@ test("a defect still marks the review failed", async () => {
     },
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.completed).toBe(0);
@@ -173,7 +195,7 @@ test("a settled row is never overwritten with a failure", async () => {
     oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "late boom" })),
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.failed).toEqual([]);
@@ -193,7 +215,7 @@ test("a swallowed check-update failure is retried and closed as success", async 
       }),
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.completed).toBe(1);
@@ -210,7 +232,7 @@ test("a failure after complete closes the check as failure without touching the 
     oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "late boom" })),
   });
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.failed).toEqual([]);
@@ -225,7 +247,7 @@ test("tool GitHub context is passed per-review, not via global process.env (#23)
 
   const { layer, calls } = makeLayer({});
   const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}).pipe(Effect.provide(layer)),
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
   );
   expect(Exit.isSuccess(exit)).toBe(true);
 
@@ -243,4 +265,101 @@ test("tool GitHub context is passed per-review, not via global process.env (#23)
   // OpenCodeService under a mutex, right before the subprocess snapshots it.
   expect(process.env.FOUINE_GITHUB_TOKEN).toBeUndefined();
   expect(process.env.FOUINE_PR_NUMBER).toBeUndefined();
+});
+
+// ── Skip on an unchanged diff (#78) ──────────────────────────────────────────
+// The pipeline decides on the *content* of the diff, not on the commits: a
+// rebase-only force-push has the same patch-id and must cost nothing.
+
+const runPipeline = (
+  layer: ReturnType<typeof makeLayer>["layer"],
+  trigger: string | null,
+  onProceed: (id: number) => void = () => {},
+) =>
+  Effect.runPromiseExit(
+    reviewPipeline(pr, trigger, noAbort(), () => {}, onProceed).pipe(Effect.provide(layer)),
+  );
+
+test("a matching patch-id skips the review and completes the check", async () => {
+  const { layer, calls } = makeLayer({
+    patchId: "abc123",
+    baseline: { id: 41, patch_id: "abc123" },
+  });
+  const exit = await runPipeline(layer, "synchronize");
+
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.reviewsRun).toBe(0); // the model was never called — the point
+  expect(calls.completed).toBe(0);
+  expect(calls.skipped).toEqual(["abc123"]);
+  // Trap 1: a silent skip leaves `fouine` pending forever and, once required in
+  // branch protection, makes the PR unmergeable.
+  expect(calls.conclusions).toEqual(["success"]);
+  expect(calls.checkBodies[0]).toContain("review #41");
+  expect(calls.checkBodies[0]).toContain("abc123");
+});
+
+test("skip does not supersede the PR's in-flight review, a real review does", async () => {
+  const skipRun = makeLayer({ patchId: "abc123", baseline: { id: 41, patch_id: "abc123" } });
+  let skipProceeds = 0;
+  await runPipeline(skipRun.layer, "synchronize", () => skipProceeds++);
+  expect(skipProceeds).toBe(0);
+
+  const realRun = makeLayer({ patchId: "def456", baseline: { id: 41, patch_id: "abc123" } });
+  let realProceeds = 0;
+  await runPipeline(realRun.layer, "synchronize", () => realProceeds++);
+  expect(realProceeds).toBe(1);
+});
+
+test("a different patch-id runs the full review", async () => {
+  const { layer, calls } = makeLayer({
+    patchId: "def456",
+    baseline: { id: 41, patch_id: "abc123" },
+  });
+  const exit = await runPipeline(layer, "synchronize");
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.reviewsRun).toBe(1);
+  expect(calls.skipped).toEqual([]);
+  expect(calls.completed).toBe(1);
+});
+
+// Trap 5: no baseline means review — first review of a PR, or a legacy row from
+// before the column. Also covers "the last review failed", since the query then
+// returns null.
+test("no baseline runs the full review", async () => {
+  const { layer, calls } = makeLayer({ patchId: "abc123", baseline: null });
+  const exit = await runPipeline(layer, "synchronize");
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.reviewsRun).toBe(1);
+  expect(calls.skipped).toEqual([]);
+});
+
+// Trap 4: someone asking for a review after a rebase has a reason.
+for (const trigger of ["command", "retry"]) {
+  test(`trigger "${trigger}" reviews even when the patch-id matches`, async () => {
+    const { layer, calls } = makeLayer({
+      patchId: "abc123",
+      baseline: { id: 41, patch_id: "abc123" },
+    });
+    const exit = await runPipeline(layer, trigger);
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(calls.reviewsRun).toBe(1);
+    expect(calls.skipped).toEqual([]);
+    // The bypass is decided before the DB is touched at all.
+    expect(calls.baselineQueries).toBe(0);
+  });
+}
+
+// Trap 7 and friends: the helper returns undefined whenever it can't get a
+// trustworthy id (diff over the cap, fetch failure, empty diff). Absence must
+// mean review, and must not even look for a baseline to match against.
+test("an unavailable patch-id runs the full review", async () => {
+  const { layer, calls } = makeLayer({
+    patchId: undefined,
+    baseline: { id: 41, patch_id: "abc123" },
+  });
+  const exit = await runPipeline(layer, "synchronize");
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.reviewsRun).toBe(1);
+  expect(calls.skipped).toEqual([]);
+  expect(calls.baselineQueries).toBe(0);
 });

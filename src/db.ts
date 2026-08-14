@@ -99,6 +99,13 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // it's created so the boot orphan reaper can close that exact run instead of
 // guessing from the PR's current head. Null for improver runs, for rows that
 // died before the check was created, and for pre-column rows.
+// patch_id is `git patch-id --stable` over base...head — the identity of the
+// diff this review looked at, so a later rebase-only push can recognise it has
+// nothing new to review. Written on the SUCCESS path only: a failed, aborted or
+// watchdog-killed run must never set a baseline, or a rebase after a failure
+// would match it and the diff would sit permanently unreviewed while looking
+// clean. Also written on a `skipped` row, so the skip itself is auditable.
+// Null for failures, for improver runs, and for pre-column rows.
 for (const def of [
   "title TEXT",
   "error TEXT",
@@ -107,6 +114,7 @@ for (const def of [
   "tokens INTEGER",
   "model TEXT",
   "check_run_id INTEGER",
+  "patch_id TEXT",
 ])
   addColumn("reviews", def);
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
@@ -137,6 +145,7 @@ export interface ReviewRow {
   tokens: number | null;
   model: string | null;
   check_run_id: number | null;
+  patch_id: string | null;
   created_at: number;
   completed_at: number | null;
 }
@@ -315,15 +324,22 @@ export const reviews = {
        completed_at = CASE WHEN $done THEN unixepoch() ELSE completed_at END
      WHERE id = $id`,
   ),
-  // Atomic success-path write: status + completed_at + cost + tokens in one
-  // statement, so a crash mid-completion can't leave a "completed" row with
-  // null cost/tokens.
+  // Atomic success-path write: status + completed_at + cost + tokens + patch_id
+  // in one statement, so a crash mid-completion can't leave a "completed" row
+  // with null cost/tokens — nor a baseline patch_id without the success that
+  // earns it.
   complete: db.prepare<
     null,
-    { $id: number; $cost: number; $tokens: number; $model: string | null }
+    { $id: number; $cost: number; $tokens: number; $model: string | null; $patch: string | null }
   >(
     `UPDATE reviews SET status = 'completed', completed_at = unixepoch(),
-       cost = $cost, tokens = $tokens, model = $model WHERE id = $id`,
+       cost = $cost, tokens = $tokens, model = $model, patch_id = $patch WHERE id = $id`,
+  ),
+  // A push whose diff is byte-identical to an already-reviewed one. Terminal,
+  // and carries the patch_id so the skip is auditable against the row it matched.
+  skip: db.prepare<null, { $id: number; $patch: string | null }>(
+    `UPDATE reviews SET status = 'skipped', completed_at = unixepoch(), patch_id = $patch
+     WHERE id = $id`,
   ),
   fail: db.prepare<null, { $id: number; $error: string }>(
     `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
@@ -337,6 +353,10 @@ export const reviews = {
   setCheckRun: db.prepare<null, { $check: number | null; $id: number }>(
     "UPDATE reviews SET check_run_id = $check WHERE id = $id",
   ),
+  // List view, not an aggregate: `skipped` rows DO appear here, deliberately.
+  // The timeline is the history of what happened to a PR, and "we looked and
+  // there was nothing new" is part of that history. $status filters to one
+  // status on demand, `skipped` included.
   recent: db.prepare<ReviewRow, StatsFilter & { $status: string | null; $limit: number }>(
     `SELECT * FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
@@ -355,9 +375,20 @@ export const reviews = {
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
   // Rows still claiming to be in flight. At boot these are necessarily orphans:
   // the live-review map is in-memory, so nothing can still be running them.
+  // `skipped` is terminal and is excluded by this list — a skip must never look
+  // in-flight to the boot reaper, which would close a check that's already closed.
   unfinished: db.prepare<ReviewRow, []>(
     "SELECT * FROM reviews WHERE status IN ('pending', 'running') ORDER BY id",
   ),
+
+  // ── Aggregates ──────────────────────────────────────────────────────────
+  // `skipped` rows are bookkeeping, not outcomes — every aggregate that counts,
+  // sums, averages or groups reviews excludes them explicitly. Explicitly even
+  // where a stricter filter already excludes them: an accidental exclusion is a
+  // future bug waiting for someone to relax the filter.
+
+  // Excludes skips: COUNT(*) would otherwise inflate the review count for a repo
+  // that gets rebased a lot.
   byProject: db.prepare<ProjectStatsRow, StatsFilter>(
     `SELECT repo_full_name,
             COUNT(*) AS reviews,
@@ -366,20 +397,22 @@ export const reviews = {
             AVG(CASE WHEN status = 'completed' AND completed_at IS NOT NULL
                      THEN completed_at - created_at END) AS avg_duration
      FROM reviews
-     WHERE ($from IS NULL OR created_at >= $from)
-     AND ($to IS NULL OR created_at < $to)
+     WHERE status <> 'skipped'
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY repo_full_name
      ORDER BY cost DESC`,
   ),
+  // A skip has no model and no cost, so it must not appear as a model row.
   byModel: db.prepare<ModelStatsRow, StatsFilter>(
     `SELECT model,
             COUNT(*) AS reviews,
             COALESCE(SUM(cost), 0) AS cost,
             COALESCE(SUM(tokens), 0) AS tokens
      FROM reviews
-     WHERE model IS NOT NULL
+     WHERE model IS NOT NULL AND status <> 'skipped'
        AND ($from IS NULL OR created_at >= $from)
        AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
@@ -387,36 +420,47 @@ export const reviews = {
      GROUP BY model
      ORDER BY cost DESC`,
   ),
+  // The daily volume/cost trend counts reviews that ran.
   daily: db.prepare<DailyStatsRow, StatsFilter>(
     `SELECT date(created_at, 'unixepoch') AS day,
             COUNT(*) AS reviews,
             COALESCE(SUM(cost), 0) AS cost,
             COALESCE(SUM(tokens), 0) AS tokens
      FROM reviews
-     WHERE ($from IS NULL OR created_at >= $from)
-     AND ($to IS NULL OR created_at < $to)
+     WHERE status <> 'skipped'
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY day
      ORDER BY day`,
   ),
+  // The trigger mix answers "what makes fouine run", so a run that didn't happen
+  // is not part of it.
   triggers: db.prepare<TriggerStatsRow, StatsFilter>(
     `SELECT COALESCE(trigger, 'unknown') AS trigger, COUNT(*) AS count
      FROM reviews
-     WHERE ($from IS NULL OR created_at >= $from)
-     AND ($to IS NULL OR created_at < $to)
+     WHERE status <> 'skipped'
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
      GROUP BY COALESCE(trigger, 'unknown')
      ORDER BY count DESC`,
   ),
   // Distinct models ever used — populates the filter dropdown, so deliberately
-  // unfiltered: the list must not shrink when a filter is applied.
+  // unfiltered: the list must not shrink when a filter is applied. `skipped`
+  // rows carry no model, so they can never contribute one — said explicitly so
+  // it stays true if a skip ever starts recording the model it would have used.
   allModels: db.prepare<{ model: string }, []>(
-    "SELECT DISTINCT model FROM reviews WHERE model IS NOT NULL ORDER BY model",
+    `SELECT DISTINCT model FROM reviews
+     WHERE model IS NOT NULL AND status <> 'skipped'
+     ORDER BY model`,
   ),
   // Latency over completed reviews. avg in one pass; p95 needs the ordered
-  // offset trick since SQLite has no percentile function.
+  // offset trick since SQLite has no percentile function. `status = 'completed'`
+  // already excludes skips — a skip's near-zero duration would otherwise drag
+  // both numbers toward meaningless.
   latencyAgg: db.prepare<LatencyRow, StatsFilter>(
     `SELECT AVG(completed_at - created_at) AS avg,
             COUNT(*) AS count
@@ -449,6 +493,8 @@ export const reviews = {
   ),
   // PRs with a completed review since a timestamp — the improver's work list.
   // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0).
+  // `status = 'completed'` also excludes skips: a skip must never make the
+  // improver think a PR was reviewed in this window — there is no session to learn from.
   // LIMIT keeps one improver session's context bounded on a busy repo; the
   // oldest excess PRs are simply dropped from that pass.
   reviewedPRsSince: db.prepare<{ pr_number: number }, { $repo: string; $since: number }>(
@@ -460,10 +506,12 @@ export const reviews = {
      ORDER BY last DESC
      LIMIT 20`,
   ),
+  // The most expensive reviews. A skip costs nothing, but exclude it explicitly
+  // rather than leaning on `cost IS NOT NULL` staying that way.
   topCost: db.prepare<TopCostRow, StatsFilter>(
     `SELECT id, repo_full_name, pr_number, cost, tokens, model
      FROM reviews
-     WHERE cost IS NOT NULL
+     WHERE cost IS NOT NULL AND status <> 'skipped'
        AND ($from IS NULL OR created_at >= $from)
        AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
@@ -477,14 +525,19 @@ export const reviews = {
   // with an error message. pending/running are counted apart because they have
   // no outcome yet; folding them into either column would be a lie, and
   // dropping them would make this panel's bars disagree with the cost trend
-  // directly above it.
+  // directly above it. `skipped` is a fifth status now, and it is not an outcome:
+  // it matches none of the three FILTERs, so leaving it in would not move any bar
+  // — it would only conjure all-zero day rows on days when nothing but rebases
+  // happened. Excluded explicitly, and the moment anyone adds a bare COUNT(*)
+  // here for a total, the guard is already in place.
   reliabilityDaily: db.prepare<ReliabilityRow, StatsFilter>(
     `SELECT date(created_at, 'unixepoch') AS day,
             COUNT(*) FILTER (WHERE status = 'completed') AS completed,
             COUNT(*) FILTER (WHERE status = 'failed') AS failed,
             COUNT(*) FILTER (WHERE status IN ('pending', 'running')) AS in_flight
      FROM reviews
-     WHERE ($from IS NULL OR created_at >= $from)
+     WHERE status <> 'skipped'
+       AND ($from IS NULL OR created_at >= $from)
        AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
@@ -508,6 +561,21 @@ export const reviews = {
        AND ($model IS NULL OR model = $model)
      ORDER BY created_at
      LIMIT 5000`,
+  ),
+
+  // The baseline for the skip decision: the newest review that actually
+  // succeeded on this PR and recorded a diff identity. Only 'completed' rows
+  // qualify — a failed or killed run must never let a later push skip.
+  // pr_number > 0 excludes improver runs (stored with pr_number = 0), which
+  // would otherwise shadow a real PR's baseline.
+  lastReviewedPatch: db.prepare<
+    { id: number; patch_id: string },
+    { $repo: string; $pr: number }
+  >(
+    `SELECT id, patch_id FROM reviews
+     WHERE repo_full_name = $repo AND pr_number = $pr AND pr_number > 0
+       AND status = 'completed' AND patch_id IS NOT NULL
+     ORDER BY id DESC LIMIT 1`,
   ),
 };
 

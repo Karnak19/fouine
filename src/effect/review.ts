@@ -77,6 +77,13 @@ export function reviewPipeline(
   // AbortController in the live-reviews map (keyed by this id) before the long
   // git/opencode work starts.
   onStart: (id: number) => void,
+  // Called once we've decided this push really needs reviewing, just before the
+  // expensive work starts. The runner supersedes the PR's in-flight review here
+  // rather than up front (issue trap 3): if we superseded first and then skipped,
+  // we'd have killed a real review and put nothing in its place. The price is
+  // that the previous review keeps running for the few seconds the fetch and the
+  // patch-id take.
+  onProceed: (id: number) => void,
 ): Effect.Effect<
   void,
   ReviewError,
@@ -125,6 +132,43 @@ export function reviewPipeline(
 
         yield* git.ensureBare(pr.repoFullName, cloneUrl(token, pr.repoFullName));
         yield* git.fetchRef(pr.repoFullName, `refs/pull/${pr.number}/head`);
+
+        // The skip decision sits here on purpose: after the bare fetch (which we
+        // need anyway to see the commits) and before the worktree, the install
+        // and the model call — those are the cost. Everything above this point is
+        // cheap and local.
+        const patch = yield* git.patchId(pr.repoFullName, pr.baseRef, pr.headSha, id);
+        // Explicit human triggers always review — someone asking after a rebase
+        // has a reason, and we must not second-guess it.
+        const forced = trigger === "command" || trigger === "retry";
+        const baseline = !forced && patch ? yield* db.lastReviewedPatch(pr.repoFullName, pr.number) : null;
+        if (baseline && baseline.patch_id === patch) {
+          log.info("review skipped", {
+            repo: pr.repoFullName,
+            number: pr.number,
+            review: id,
+            matched: baseline.id,
+            patch,
+          });
+          yield* db.skip(id, patch);
+          // The check MUST be completed with a conclusion. A silent skip leaves
+          // `fouine` pending forever, and once the check is required in branch
+          // protection (#24) the PR becomes permanently unmergeable.
+          const closed = yield* gh.finishCheck(
+            octokit,
+            owner,
+            repoName,
+            checkRunId,
+            "success",
+            `No review needed — this push does not change the diff.\n\nThe diff is byte-identical (patch-id \`${patch}\`) to the one already reviewed in review #${baseline.id}. A rebase or a merge of the base branch moves the commits, not the content.`,
+          );
+          yield* Ref.set(checkDoneRef, closed);
+          // Clean return = success, so the outer onExit finaliser (failure-only
+          // for the row write) leaves the `skipped` row alone.
+          return;
+        }
+        yield* Effect.sync(() => onProceed(id));
+
         yield* git.addWorktree(pr.repoFullName, pr.headSha, worktree);
         log.info("worktree ready", { repo: pr.repoFullName, number: pr.number, path: worktree });
 
@@ -190,7 +234,9 @@ export function reviewPipeline(
           textChars: result.text.length,
           preview: result.text.slice(0, 500),
         });
-        yield* db.complete(id, result.cost, result.tokens, model);
+        // `patch` is the baseline a future rebase-only push will match against —
+        // null when the patch-id was unavailable, which just means no skipping.
+        yield* db.complete(id, result.cost, result.tokens, model, patch ?? null);
         // finishCheck swallows its own API errors, so its *return value* — not
         // the fact that it returned — is the only signal the run was closed.
         const closed = yield* gh.finishCheck(

@@ -40,9 +40,11 @@ function prKey(pr: PullRequestInfo): string {
 
 // A newer commit supersedes any review still running for the same PR. Signalled
 // via AbortSignal.reason so the pipeline can distinguish it from a user stop.
-function supersedeInFlight(key: string): void {
+// `exceptId` is the new run itself, already registered in the map by the time
+// the review pipeline decides to proceed — it must not abort itself.
+function supersedeInFlight(key: string, exceptId?: number): void {
   for (const [id, entry] of activeReviews) {
-    if (entry.key === key) {
+    if (id !== exceptId && entry.key === key) {
       log.info("superseding in-flight review", { review: id, pr: key });
       entry.ctrl.abort("superseded");
     }
@@ -57,16 +59,22 @@ export function runReviewForPR(
   trigger: string | null = null,
 ): Promise<void> {
   const key = prKey(pr);
-  // Cancel any review still running for this PR before starting the new one.
-  // Safe to run before registering below — the new review isn't in the map yet.
-  supersedeInFlight(key);
-
+  // No supersession up front any more (issue trap 3): the pipeline calls
+  // onProceed once it knows this push is worth reviewing, and only then do we
+  // cancel the PR's previous run. Superseding first would kill a live review and
+  // then possibly skip, leaving the PR with nothing.
   const ctrl = new AbortController();
   let id: number | undefined;
-  const program = reviewPipeline(pr, trigger, ctrl.signal, (rid) => {
-    id = rid;
-    activeReviews.set(rid, { ctrl, key });
-  }).pipe(Effect.provide(AppLayer));
+  const program = reviewPipeline(
+    pr,
+    trigger,
+    ctrl.signal,
+    (rid) => {
+      id = rid;
+      activeReviews.set(rid, { ctrl, key });
+    },
+    (rid) => supersedeInFlight(key, rid),
+  ).pipe(Effect.provide(AppLayer));
 
   return Effect.runPromise(program).finally(() => {
     if (id !== undefined) activeReviews.delete(id);
