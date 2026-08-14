@@ -14,17 +14,17 @@ import { CHAT_SYSTEM_PROMPT } from "~/chat/prompt";
 // Caveat worth knowing before changing the default model: the gateway is NOT
 // uniformly OpenAI-shaped. Individual models declare which SDK they need, and a
 // few want @ai-sdk/anthropic instead. A model that declares the Anthropic shape
-// will not work through this adapter. The repo default (opencode-go/glm-5.2)
-// declares openai-compatible.
+// will not work through this adapter, so check the SDK a model declares before
+// making it the repo default (currently opencode-go/deepseek-v4-flash).
 const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /**
  * The ONE place model specs are converted.
  *
- *  - This repo (and opencode's own config) stores `opencode-go/glm-5.2` —
- *    provider id, slash, model id.
+ *  - This repo (and opencode's own config) stores `opencode-go/deepseek-v4-flash`
+ *    — provider id, slash, model id.
  *  - The gateway is already provider-scoped by its base URL, so on the wire it
- *    wants the BARE model id: `glm-5.2`.
+ *    wants the BARE model id: `deepseek-v4-flash`.
  *
  * Leaving the prefix on fails at request time with an unhelpful upstream error
  * that no typecheck and no stubbed test would catch.
