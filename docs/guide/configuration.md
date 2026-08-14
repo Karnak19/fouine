@@ -20,7 +20,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_ID` | no† | — | The App's OAuth client ID (dashboard login) |
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
-| `OPENCODE_MODEL` | no | `opencode-go/glm-5.2` | Default model for reviews and Chat |
+| `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews and Chat |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
 | `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |
 | `REVIEW_INSTALL_TIMEOUT_MS` | no | `300000` (5 min) | Cap on the pre-review dependency install; on timeout the review continues without `node_modules` |

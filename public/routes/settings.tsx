@@ -77,7 +77,7 @@ export default function SettingsPage() {
               <Label htmlFor="model">Default model</Label>
               <Input
                 id="model"
-                placeholder="opencode-go/glm-5.2"
+                placeholder="opencode-go/deepseek-v4-flash"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
