@@ -10,6 +10,20 @@ function readKey(): string | undefined {
 const dataDir = resolve(process.env.DATA_DIR ?? "./data");
 mkdirSync(dataDir, { recursive: true });
 
+// Validated, not just coerced. A bare Number() on a duration fails silently and
+// in the worst possible direction: REVIEW_IDLE_TIMEOUT_MS=oops yields NaN, every
+// `elapsed > NaN` comparison is false, and the watchdog that is supposed to kill
+// wedged reviews simply never fires — while the config still looks configured.
+// The empty string is just as bad: `??` only catches null/undefined, so
+// REVIEW_IDLE_TIMEOUT_MS= becomes Number("") === 0 and every review is killed
+// instantly. Anything non-finite or non-positive falls back to the default.
+export function durationMs(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   dataDir,
@@ -42,7 +56,7 @@ export const config = {
     // does. Generous on purpose: a model can reason, or run one quiet command,
     // for minutes without emitting anything, and killing that is worse than
     // waiting.
-    idleTimeoutMs: Number(process.env.REVIEW_IDLE_TIMEOUT_MS ?? 5 * 60 * 1000),
+    idleTimeoutMs: durationMs(process.env.REVIEW_IDLE_TIMEOUT_MS, 5 * 60 * 1000),
     // Absolute backstop, now that idleTimeoutMs does the real work. Hitting it
     // means something is looping while still emitting events — which is exactly
     // the known failure mode: a command times out, opencode tells the model
@@ -52,7 +66,7 @@ export const config = {
     // "can't ever be legitimate" bound — until the bash-timeout clamp in
     // opencode-config lands, this number IS the escalation-loop cutoff. Raise it
     // only once that clamp is deployed and you've watched real durations.
-    timeoutMs: Number(process.env.REVIEW_TIMEOUT_MS ?? 45 * 60 * 1000),
+    timeoutMs: durationMs(process.env.REVIEW_TIMEOUT_MS, 45 * 60 * 1000),
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
