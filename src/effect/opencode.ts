@@ -90,16 +90,27 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
           const session: { id?: string } = {};
 
           // Fire-and-forget pump. Deliberately NOT part of the Effect: a broken
-          // event stream must degrade the watchdog, never fail a review. If the
-          // subscribe throws, or the stream dies mid-run, streaming goes false
-          // and we fall back to the plain absolute ceiling — the pre-#66
-          // behaviour. Teardown is free: the SSE fetch rides `ctrl.signal`, and
+          // event stream must degrade the watchdog, never fail a review. The idle
+          // rule stays disarmed until an event actually MATCHES this session, so a
+          // subscribe that throws, a stream that dies, and a stream carrying the
+          // wrong instance's events all fall back to the plain absolute ceiling —
+          // the pre-#67 behaviour. Teardown is free: the SSE fetch rides `ctrl.signal`, and
           // ctrl is aborted on every exit path (onExit below on failure, release
           // unconditionally), so the connection and this loop always end.
           void (async () => {
             try {
-              const sub = await client.event.subscribe({ signal: ctrl.signal });
-              state.streaming = true;
+              // `query.directory` is NOT optional in practice, whatever the type
+              // says. opencode resolves an instance per project directory and
+              // `/event` only streams the events of the instance the request
+              // routed to; with no directory it routes to `process.cwd()` —
+              // fouine's own /app — so we got a healthy socket carrying the
+              // WRONG instance's events, matched none of them, and killed every
+              // review at exactly idleTimeoutMs. The session is created with this
+              // same directory (see runReview), so both must agree.
+              const sub = await client.event.subscribe({
+                query: { directory: opts.directory },
+                signal: ctrl.signal,
+              });
               for await (const event of sub.stream) {
                 observeEvent(state, event, session.id, Date.now());
               }
@@ -110,7 +121,9 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                 });
               }
             } finally {
-              state.streaming = false;
+              // Disarm on stream death: a heartbeat that can no longer arrive
+              // must not read as a silent model.
+              state.armed = false;
             }
           })();
 
