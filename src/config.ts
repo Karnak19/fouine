@@ -67,6 +67,9 @@ export const config = {
     // opencode-config lands, this number IS the escalation-loop cutoff. Raise it
     // only once that clamp is deployed and you've watched real durations.
     timeoutMs: durationMs(process.env.REVIEW_TIMEOUT_MS, 45 * 60 * 1000),
+    // Bounded like everything else that spawns a subprocess: a stalled registry
+    // must not hang a review. Best-effort — a timeout here logs and continues.
+    installTimeoutMs: durationMs(process.env.REVIEW_INSTALL_TIMEOUT_MS, 5 * 60 * 1000),
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth

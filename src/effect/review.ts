@@ -11,6 +11,7 @@ import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
+import { installDeps } from "~/effect/install";
 import { OpenCodeService } from "~/effect/opencode";
 import { reviewToolEnv } from "~/review/opencode";
 import { type ReviewError } from "~/effect/errors";
@@ -128,6 +129,15 @@ export function reviewPipeline(
         log.info("worktree ready", { repo: pr.repoFullName, number: pr.number, path: worktree });
 
         const repoNotes = yield* readRepoNotes(worktree);
+
+        // Before the session, never during it: the agent has no node_modules to
+        // work with otherwise, and an agent-run `bun install` executes the PR's
+        // postinstall scripts with our tokens in env. Best-effort by
+        // construction — installDeps never fails, so a dead registry degrades
+        // the review instead of killing it. `signal` so /review stop and a
+        // superseding commit interrupt an install that's still going.
+        yield* installDeps(worktree, signal);
+
         // Anything but a brand-new "opened" run may have prior reviews to reconcile
         // with — tell the agent to pull them via get_prior_reviews.
         const reReview = trigger != null && trigger !== "opened";

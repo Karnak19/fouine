@@ -46,6 +46,18 @@ export function buildPrompt(
     `The repository is checked out at the PR head in the current directory. To see the diff, run:`,
     `\`git diff ${pr.baseSha}...${pr.headSha}\``,
     ``,
+    // Told up front because both failure modes are expensive: without it the
+    // agent greps the container's global package cache looking for library
+    // sources (which wedges the review), and it tries to install for itself
+    // (which would run the PR's postinstall scripts if it weren't blocked).
+    // Worded as a rule, not a fact: the install is best-effort and skipped for
+    // repos with no package.json, so "deps are installed" isn't always true —
+    // but "don't install, don't wander" always is.
+    `Dependencies have already been installed for you, with install scripts disabled. ` +
+      `Do NOT run any package install command — it is blocked. Read library sources from ` +
+      `\`node_modules\` inside this checkout; never go looking for package sources elsewhere ` +
+      `on the filesystem.`,
+    ``,
     `## PR description`,
     ``,
     pr.body?.trim() || "_(no description provided)_",
