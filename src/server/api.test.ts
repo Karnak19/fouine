@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { dayEpoch, statsFilter } from "~/server/api";
+import { dayEpoch, percentile, statsFilter } from "~/server/api";
 
 const DAY = 86400;
 // 2026-08-14T00:00:00Z
@@ -41,4 +41,20 @@ test("from/to win over range, and `to` covers its whole day", () => {
 
   // No params at all stays unfiltered, so the dashboard keeps its all-time view.
   expect(statsFilter({})).toEqual({ $from: null, $to: null, $repo: null, $model: null });
+});
+
+test("percentile is null on an empty window, never NaN", () => {
+  // The case that matters: an empty window is normal, and NaN would poison the
+  // chart's scale and render as "NaNs".
+  expect(percentile([], 0.5)).toBeNull();
+  expect(percentile([], 0.95)).toBeNull();
+
+  expect(percentile([42], 0.5)).toBe(42);
+  expect(percentile([42], 0.95)).toBe(42);
+
+  const ten = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  expect(percentile(ten, 0.5)).toBe(5);
+  expect(percentile(ten, 0.95)).toBe(10);
+  // p95 must never index past the end.
+  expect(percentile([1, 2], 0.99)).toBe(2);
 });

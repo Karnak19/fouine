@@ -56,6 +56,19 @@ export function dayEpoch(raw: string | null): number | null {
 
 const DAY_SECONDS = 86400;
 
+// Must match the LIMIT in reviews.latencySamples — it's how we detect that a
+// window was truncated and the trend is drawn from a partial population.
+const LATENCY_SAMPLE_LIMIT = 5000;
+
+// Nearest-rank percentile over an ALREADY SORTED ascending array. Returns null
+// for an empty array rather than NaN: an empty window is a normal outcome here,
+// and a null renders as a dash instead of poisoning the chart's scale.
+export function percentile(sorted: number[], q: number): number | null {
+  if (sorted.length === 0) return null;
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1));
+  return sorted[i]!;
+}
+
 // No range param at all means unfiltered, so the dashboard — which sends none —
 // keeps the all-time totals it has always shown. The stats page always sends an
 // explicit range (its 30d default included), even when the URL omits it for a
@@ -252,6 +265,40 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       severity: findings.bySeverity.all(f),
       // Unfiltered on purpose — the dropdown must keep every option.
       allModels: reviews.allModels.all().map((r) => r.model),
+    };
+  })
+
+  // The chart panels live on their own route rather than being folded into
+  // /stats: the latency trend ships one row per completed review, and the
+  // dashboard — which calls /stats on every load and renders none of this —
+  // would pay for thousands of samples it never reads.
+  .get("/stats/charts", ({ query }) => {
+    const f = statsFilter(query);
+    const samples = reviews.latencySamples.all(f);
+
+    // Bucket the raw durations by day, then take percentiles per bucket. An
+    // empty window yields an empty array, never a NaN or a divide-by-zero.
+    const byDay = new Map<string, number[]>();
+    for (const s of samples) {
+      const bucket = byDay.get(s.day);
+      if (bucket) bucket.push(s.seconds);
+      else byDay.set(s.day, [s.seconds]);
+    }
+    const latency = [...byDay.entries()]
+      .map(([day, seconds]) => {
+        const sorted = seconds.toSorted((a, b) => a - b);
+        return { day, count: sorted.length, p50: percentile(sorted, 0.5), p95: percentile(sorted, 0.95) };
+      })
+      .sort((a, b) => a.day.localeCompare(b.day));
+
+    return {
+      reliability: reviews.reliabilityDaily.all(f),
+      latency,
+      // Truncated windows would trend on a partial population; say so rather
+      // than drawing a quietly wrong line.
+      latencyTruncated: samples.length === LATENCY_SAMPLE_LIMIT,
+      findingsDaily: findings.dailyBySeverity.all(f),
+      topFiles: findings.topFiles.all(f),
     };
   })
 

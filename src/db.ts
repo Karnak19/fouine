@@ -221,6 +221,32 @@ export interface LatencyRow {
   count: number;
 }
 
+// Daily outcome mix. in_flight = pending + running, which have no outcome yet
+// and are therefore excluded from the success rate's denominator.
+export interface ReliabilityRow {
+  day: string;
+  completed: number;
+  failed: number;
+  in_flight: number;
+}
+
+// One completed review's duration; percentiles are computed from these in JS.
+export interface LatencySampleRow {
+  day: string;
+  seconds: number;
+}
+
+export interface FindingsDailyRow {
+  day: string;
+  severity: string;
+  count: number;
+}
+
+export interface TopFileRow {
+  path: string;
+  count: number;
+}
+
 export interface TopCostRow {
   id: number;
   repo_full_name: string;
@@ -445,6 +471,44 @@ export const reviews = {
      ORDER BY cost DESC
      LIMIT 5`,
   ),
+  // Outcomes per day. Only four statuses are ever written — pending, running,
+  // completed, failed — and there is no separate aborted/killed: a user stop
+  // and a watchdog kill both go through reviews.fail, so they land in `failed`
+  // with an error message. pending/running are counted apart because they have
+  // no outcome yet; folding them into either column would be a lie, and
+  // dropping them would make this panel's bars disagree with the cost trend
+  // directly above it.
+  reliabilityDaily: db.prepare<ReliabilityRow, StatsFilter>(
+    `SELECT date(created_at, 'unixepoch') AS day,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+            COUNT(*) FILTER (WHERE status IN ('pending', 'running')) AS in_flight
+     FROM reviews
+     WHERE ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
+     GROUP BY day
+     ORDER BY day`,
+  ),
+  // One row per completed review, for percentiles computed in JS. SQLite has no
+  // percentile function and the per-group OFFSET trick would need one correlated
+  // subquery per day, so the rows come out raw instead.
+  // ponytail: LIMIT 5000 is the ceiling — a window with more completed reviews
+  // than that silently trends on the oldest 5000. Push the percentile into SQL
+  // (window functions) if that limit is ever reached in anger.
+  latencySamples: db.prepare<LatencySampleRow, StatsFilter>(
+    `SELECT date(created_at, 'unixepoch') AS day,
+            (completed_at - created_at) AS seconds
+     FROM reviews
+     WHERE status = 'completed' AND completed_at IS NOT NULL
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
+     ORDER BY created_at
+     LIMIT 5000`,
+  ),
 };
 
 export const findings = {
@@ -490,6 +554,39 @@ export const findings = {
        AND ($model IS NULL OR reviews.model = $model)
      GROUP BY findings.severity
      ORDER BY count DESC`,
+  ),
+  // Findings per day by severity. Bucketed and scoped by the REVIEW's date and
+  // repo, not the finding's own — same rule as bySeverity above: findings are
+  // written after the review runs, so scoping by findings.created_at would drop
+  // findings whose review is inside the window.
+  dailyBySeverity: db.prepare<FindingsDailyRow, StatsFilter>(
+    `SELECT date(reviews.created_at, 'unixepoch') AS day,
+            findings.severity AS severity,
+            COUNT(*) AS count
+     FROM findings
+     JOIN reviews ON findings.review_id = reviews.id
+     WHERE findings.kind = 'inline' AND findings.severity IS NOT NULL
+       AND ($from IS NULL OR reviews.created_at >= $from)
+       AND ($to IS NULL OR reviews.created_at < $to)
+       AND ($repo IS NULL OR reviews.repo_full_name = $repo)
+       AND ($model IS NULL OR reviews.model = $model)
+     GROUP BY day, findings.severity
+     ORDER BY day`,
+  ),
+  // Files that attract the most review comments. path is null on summary and
+  // comment rows, which is what excludes them. Scoped by the review, as above.
+  topFiles: db.prepare<TopFileRow, StatsFilter>(
+    `SELECT findings.path AS path, COUNT(*) AS count
+     FROM findings
+     JOIN reviews ON findings.review_id = reviews.id
+     WHERE findings.path IS NOT NULL
+       AND ($from IS NULL OR reviews.created_at >= $from)
+       AND ($to IS NULL OR reviews.created_at < $to)
+       AND ($repo IS NULL OR reviews.repo_full_name = $repo)
+       AND ($model IS NULL OR reviews.model = $model)
+     GROUP BY findings.path
+     ORDER BY count DESC, findings.path
+     LIMIT 10`,
   ),
 };
 

@@ -184,6 +184,84 @@ test("$to is an exclusive bound, so the whole 'to' day counts", () => {
   expect(reviews.daily.all({ ...base, $from: day + 86400, $to: day })).toHaveLength(0);
 });
 
+// The four chart panels. Seeded on their own repo so other tests' rows can't
+// drift the counts.
+test("chart queries: outcomes, latency samples, findings per day, top files", () => {
+  repos.upsert.run({ $full_name: "chart/one", $installation_id: 1, $prompt: null, $model: null });
+  const day = Math.floor(NOW / 86400) * 86400;
+  const at = (offset: number) => day + offset;
+
+  // 2 completed (durations 60s and 300s), 1 failed, 1 still running — all on the
+  // same UTC day, so they land in one bucket.
+  const c1 = seedReview.get("chart/one", "chart-model", at(3600), at(3660))!;
+  const c2 = seedReview.get("chart/one", "chart-model", at(7200), at(7500))!;
+  db.prepare(
+    `INSERT INTO reviews (repo_full_name, pr_number, status, trigger, model, created_at, completed_at)
+     VALUES ('chart/one', 2, 'failed', 'opened', 'chart-model', ?1, ?2),
+            ('chart/one', 3, 'running', 'opened', 'chart-model', ?1, NULL)`,
+  ).run(at(10800), at(10900));
+
+  for (const [review, sev, path] of [
+    [c1.id, "blocking", "src/a.ts"],
+    [c1.id, "nit", "src/a.ts"],
+    [c2.id, "nit", "src/b.ts"],
+  ] as const)
+    db.prepare(
+      `INSERT INTO findings (review_id, repo_full_name, pr_number, kind, severity, path, body)
+       VALUES (?1, 'chart/one', 1, 'inline', ?2, ?3, 'x')`,
+    ).run(review, sev, path);
+  // A summary row has no path and no severity: it must not reach either panel.
+  db.prepare(
+    `INSERT INTO findings (review_id, repo_full_name, pr_number, kind, severity, path, body)
+     VALUES (?1, 'chart/one', 1, 'summary', NULL, NULL, 'summary')`,
+  ).run(c1.id);
+
+  const scope = { $from: day, $to: day + 86400, $repo: "chart/one", $model: null };
+
+  const rel = reviews.reliabilityDaily.all(scope);
+  expect(rel).toHaveLength(1);
+  expect(rel[0]).toMatchObject({ completed: 2, failed: 1, in_flight: 1 });
+
+  const samples = reviews.latencySamples.all(scope);
+  expect(samples.map((s) => s.seconds).toSorted((a, b) => a - b)).toEqual([60, 300]);
+
+  const daily = findings.dailyBySeverity.all(scope);
+  expect(daily.reduce((s, r) => s + r.count, 0)).toBe(3); // summary row excluded
+  expect(daily.find((r) => r.severity === "nit")?.count).toBe(2);
+
+  const files = findings.topFiles.all(scope);
+  expect(files).toEqual([
+    { path: "src/a.ts", count: 2 },
+    { path: "src/b.ts", count: 1 },
+  ]);
+
+  // The model guard reaches findings through the join, not their own columns.
+  expect(findings.topFiles.all({ ...scope, $model: "chart-model" })).toHaveLength(2);
+  expect(findings.topFiles.all({ ...scope, $model: "nope" })).toHaveLength(0);
+
+  // An empty window is normal: every panel returns nothing, nothing throws.
+  const empty = { $from: NOW + 86400, $to: NOW + 2 * 86400, $repo: null, $model: null };
+  expect(reviews.reliabilityDaily.all(empty)).toEqual([]);
+  expect(reviews.latencySamples.all(empty)).toEqual([]);
+  expect(findings.dailyBySeverity.all(empty)).toEqual([]);
+  expect(findings.topFiles.all(empty)).toEqual([]);
+});
+
+// Findings are written after their review, so both findings panels must scope by
+// the review's date — the same rule bySeverity needed.
+test("chart findings panels follow the review's date, not the finding's", () => {
+  repos.upsert.run({ $full_name: "chart/lag", $installation_id: 1, $prompt: null, $model: null });
+  const r = seedReview.get("chart/lag", "lag-model", NOW - 3600, NOW - 3000)!;
+  db.prepare(
+    `INSERT INTO findings (review_id, repo_full_name, pr_number, kind, severity, path, body, created_at)
+     VALUES (?1, 'chart/lag', 1, 'inline', 'blocking', 'src/lag.ts', 'x', ?2)`,
+  ).run(r.id, NOW + 40 * 86400); // recorded long after the review
+
+  const scope = { $from: NOW - 86400, $to: null, $repo: "chart/lag", $model: null };
+  expect(findings.topFiles.all(scope)).toEqual([{ path: "src/lag.ts", count: 1 }]);
+  expect(findings.dailyBySeverity.all(scope).reduce((s, x) => s + x.count, 0)).toBe(1);
+});
+
 test("stats filters narrow by repo, model and date", () => {
   for (const r of ["filt/alpha", "filt/beta"])
     repos.upsert.run({ $full_name: r, $installation_id: 1, $prompt: null, $model: null });
