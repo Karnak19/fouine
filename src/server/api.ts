@@ -27,6 +27,74 @@ const HEARTBEAT_MS = 25_000;
 // registers instead of onmessage — the client never sees keepalive traffic.
 const heartbeat = () => sse({ event: "heartbeat", data: "" });
 
+// Date ranges for the stats page. null = no cutoff ("all").
+const RANGE_SECONDS: Record<string, number | null> = {
+  "24h": 86400,
+  "7d": 7 * 86400,
+  "30d": 30 * 86400,
+  "90d": 90 * 86400,
+  all: null,
+};
+
+// Empty query strings are "no filter", not a filter on the empty string.
+const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+// A YYYY-MM-DD picker value as a UTC epoch, or null for anything that isn't one.
+// UTC on purpose: created_at is epoch and reviews.daily buckets with
+// date(created_at, 'unixepoch'), which is UTC, so interpreting the picked days
+// as UTC keeps the picker, the guards and the chart bars describing the same
+// days. A Europe/Paris user sees boundaries a couple of hours off local
+// midnight, which is consistent; mixing local days with UTC bars would not be.
+// Round-tripped through toISOString to reject real-looking nonsense like
+// 2026-13-45 and 2026-02-30, which Date.UTC would happily roll over.
+export function dayEpoch(raw: string | null): number | null {
+  if (raw === null || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const ms = Date.parse(`${raw}T00:00:00Z`);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10) === raw ? Math.floor(ms / 1000) : null;
+}
+
+const DAY_SECONDS = 86400;
+
+// No range param at all means unfiltered, so the dashboard — which sends none —
+// keeps the all-time totals it has always shown. The stats page always sends an
+// explicit range (its 30d default included), even when the URL omits it for a
+// clean link, so only an unrecognised *explicit* value falls back to 30d.
+//
+// from/to win over range when either is a valid date: one source of truth, so
+// the page can never show a custom window while claiming a preset. `to` is
+// inclusive of the day picked, so it becomes the START of the next day and the
+// SQL compares with a strict `<` — otherwise the whole final day, the one most
+// likely being looked at, silently disappears.
+export function statsFilter(query: Record<string, unknown>) {
+  const from = dayEpoch(str(query.from));
+  const toDay = dayEpoch(str(query.to));
+  const to = toDay === null ? null : toDay + DAY_SECONDS;
+  if (from !== null || to !== null) {
+    // An inverted window would just return nothing; drop the bound that makes
+    // it impossible rather than erroring, and let the UI's min/max prevent it.
+    const inverted = from !== null && to !== null && from >= to;
+    return {
+      $from: from,
+      $to: inverted ? null : to,
+      $repo: str(query.repo),
+      $model: str(query.model),
+    };
+  }
+  const key = str(query.range);
+  if (key === null)
+    return { $from: null, $to: null, $repo: str(query.repo), $model: str(query.model) };
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so ?range=toString
+  // would resolve to a function and poison $from with NaN.
+  const secs = Object.hasOwn(RANGE_SECONDS, key) ? RANGE_SECONDS[key]! : RANGE_SECONDS["30d"]!;
+  return {
+    $from: secs === null ? null : Math.floor(Date.now() / 1000) - secs,
+    $to: null,
+    $repo: str(query.repo),
+    $model: str(query.model),
+  };
+}
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
   // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
   // so a client can only subscribe to the repo it's viewing); no scope = all
@@ -158,22 +226,32 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     });
   })
 
-  .get("/reviews", () => reviews.recent.all({ $limit: 100 }))
+  .get("/reviews", ({ query }) => {
+    const limit = Number(str(query.limit));
+    return reviews.recent.all({
+      ...statsFilter(query),
+      $status: str(query.status),
+      $limit: Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 1000) : 100,
+    });
+  })
 
-  .get("/stats", () => {
-    const agg = reviews.latencyAgg.get();
+  .get("/stats", ({ query }) => {
+    const f = statsFilter(query);
+    const agg = reviews.latencyAgg.get(f);
     return {
-      projects: reviews.byProject.all(),
-      models: reviews.byModel.all(),
-      daily: reviews.daily.all(),
-      triggers: reviews.triggers.all(),
+      projects: reviews.byProject.all(f),
+      models: reviews.byModel.all(f),
+      daily: reviews.daily.all(f),
+      triggers: reviews.triggers.all(f),
       latency: {
         avg: agg?.avg ?? null,
         count: agg?.count ?? 0,
-        p95: reviews.latencyP95.get()?.d ?? null,
+        p95: reviews.latencyP95.get(f)?.d ?? null,
       },
-      topCost: reviews.topCost.all(),
-      severity: findings.bySeverity.all(),
+      topCost: reviews.topCost.all(f),
+      severity: findings.bySeverity.all(f),
+      // Unfiltered on purpose — the dropdown must keep every option.
+      allModels: reviews.allModels.all().map((r) => r.model),
     };
   })
 

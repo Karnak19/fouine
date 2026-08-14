@@ -230,6 +230,19 @@ export interface TopCostRow {
   model: string | null;
 }
 
+// Dashboard filter params, shared by every stats statement. Null = no filter;
+// the guards are baked into the SQL so the statements stay prepared and static.
+// A type alias, not an interface: bun:sqlite's binding constraint needs an
+// implicit index signature, which interfaces don't have.
+export type StatsFilter = {
+  $from: number | null;
+  // Exclusive upper bound, so an inclusive "to 2026-08-14" is passed as the
+  // epoch of 2026-08-15T00:00:00Z — see toEpoch in src/server/api.ts.
+  $to: number | null;
+  $repo: string | null;
+  $model: string | null;
+};
+
 export const repos = {
   get: db.prepare<RepoRow, { $full_name: string }>(
     "SELECT * FROM repos WHERE full_name = $full_name",
@@ -298,8 +311,14 @@ export const reviews = {
   setCheckRun: db.prepare<null, { $check: number | null; $id: number }>(
     "UPDATE reviews SET check_run_id = $check WHERE id = $id",
   ),
-  recent: db.prepare<ReviewRow, { $limit: number }>(
-    "SELECT * FROM reviews ORDER BY id DESC LIMIT $limit",
+  recent: db.prepare<ReviewRow, StatsFilter & { $status: string | null; $limit: number }>(
+    `SELECT * FROM reviews
+     WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
+       AND ($status IS NULL OR status = $status)
+     ORDER BY id DESC LIMIT $limit`,
   ),
   byRepo: db.prepare<ReviewRow, { $repo: string; $limit: number }>(
     "SELECT * FROM reviews WHERE repo_full_name = $repo ORDER BY id DESC LIMIT $limit",
@@ -313,7 +332,7 @@ export const reviews = {
   unfinished: db.prepare<ReviewRow, []>(
     "SELECT * FROM reviews WHERE status IN ('pending', 'running') ORDER BY id",
   ),
-  byProject: db.prepare<ProjectStatsRow, []>(
+  byProject: db.prepare<ProjectStatsRow, StatsFilter>(
     `SELECT repo_full_name,
             COUNT(*) AS reviews,
             COALESCE(SUM(cost), 0) AS cost,
@@ -321,51 +340,86 @@ export const reviews = {
             AVG(CASE WHEN status = 'completed' AND completed_at IS NOT NULL
                      THEN completed_at - created_at END) AS avg_duration
      FROM reviews
+     WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      GROUP BY repo_full_name
      ORDER BY cost DESC`,
   ),
-  byModel: db.prepare<ModelStatsRow, []>(
+  byModel: db.prepare<ModelStatsRow, StatsFilter>(
     `SELECT model,
             COUNT(*) AS reviews,
             COALESCE(SUM(cost), 0) AS cost,
             COALESCE(SUM(tokens), 0) AS tokens
      FROM reviews
      WHERE model IS NOT NULL
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      GROUP BY model
      ORDER BY cost DESC`,
   ),
-  daily: db.prepare<DailyStatsRow, []>(
+  daily: db.prepare<DailyStatsRow, StatsFilter>(
     `SELECT date(created_at, 'unixepoch') AS day,
             COUNT(*) AS reviews,
             COALESCE(SUM(cost), 0) AS cost,
             COALESCE(SUM(tokens), 0) AS tokens
      FROM reviews
-     WHERE created_at >= unixepoch() - 30 * 86400
+     WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      GROUP BY day
      ORDER BY day`,
   ),
-  triggers: db.prepare<TriggerStatsRow, []>(
+  triggers: db.prepare<TriggerStatsRow, StatsFilter>(
     `SELECT COALESCE(trigger, 'unknown') AS trigger, COUNT(*) AS count
      FROM reviews
+     WHERE ($from IS NULL OR created_at >= $from)
+     AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      GROUP BY COALESCE(trigger, 'unknown')
      ORDER BY count DESC`,
   ),
+  // Distinct models ever used — populates the filter dropdown, so deliberately
+  // unfiltered: the list must not shrink when a filter is applied.
+  allModels: db.prepare<{ model: string }, []>(
+    "SELECT DISTINCT model FROM reviews WHERE model IS NOT NULL ORDER BY model",
+  ),
   // Latency over completed reviews. avg in one pass; p95 needs the ordered
   // offset trick since SQLite has no percentile function.
-  latencyAgg: db.prepare<LatencyRow, []>(
+  latencyAgg: db.prepare<LatencyRow, StatsFilter>(
     `SELECT AVG(completed_at - created_at) AS avg,
             COUNT(*) AS count
      FROM reviews
-     WHERE status = 'completed' AND completed_at IS NOT NULL`,
+     WHERE status = 'completed' AND completed_at IS NOT NULL
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)`,
   ),
-  latencyP95: db.prepare<{ d: number }, []>(
+  // The inner subquery must carry the same guards as the outer one, or the
+  // offset is computed over a different population than it indexes into.
+  latencyP95: db.prepare<{ d: number }, StatsFilter>(
     `SELECT (completed_at - created_at) AS d
      FROM reviews
      WHERE status = 'completed' AND completed_at IS NOT NULL
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      ORDER BY d
      LIMIT 1
      OFFSET (SELECT CAST(0.95 * (COUNT(*) - 1) AS INTEGER)
-             FROM reviews WHERE status = 'completed' AND completed_at IS NOT NULL)`,
+             FROM reviews
+             WHERE status = 'completed' AND completed_at IS NOT NULL
+               AND ($from IS NULL OR created_at >= $from)
+               AND ($to IS NULL OR created_at < $to)
+               AND ($repo IS NULL OR repo_full_name = $repo)
+               AND ($model IS NULL OR model = $model))`,
   ),
   // PRs with a completed review since a timestamp — the improver's work list.
   // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0).
@@ -380,10 +434,14 @@ export const reviews = {
      ORDER BY last DESC
      LIMIT 20`,
   ),
-  topCost: db.prepare<TopCostRow, []>(
+  topCost: db.prepare<TopCostRow, StatsFilter>(
     `SELECT id, repo_full_name, pr_number, cost, tokens, model
      FROM reviews
      WHERE cost IS NOT NULL
+       AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
      ORDER BY cost DESC
      LIMIT 5`,
   ),
@@ -416,11 +474,21 @@ export const findings = {
     "SELECT * FROM findings WHERE review_id = $review ORDER BY id",
   ),
   // Severity mix across all inline findings, for the dashboard.
-  bySeverity: db.prepare<SeverityStatsRow, []>(
-    `SELECT severity, COUNT(*) AS count
+  // All three guards read from the joined review, not from the finding's own
+  // row: findings are written after the review runs, so a finding recorded just
+  // past a range boundary would drop out of this panel while its review still
+  // counts in every other one. Filtering the review population keeps the
+  // severity mix describing the same reviews the rest of the page describes.
+  bySeverity: db.prepare<SeverityStatsRow, StatsFilter>(
+    `SELECT findings.severity AS severity, COUNT(*) AS count
      FROM findings
-     WHERE kind = 'inline' AND severity IS NOT NULL
-     GROUP BY severity
+     JOIN reviews ON findings.review_id = reviews.id
+     WHERE findings.kind = 'inline' AND findings.severity IS NOT NULL
+       AND ($from IS NULL OR reviews.created_at >= $from)
+       AND ($to IS NULL OR reviews.created_at < $to)
+       AND ($repo IS NULL OR reviews.repo_full_name = $repo)
+       AND ($model IS NULL OR reviews.model = $model)
+     GROUP BY findings.severity
      ORDER BY count DESC`,
   ),
 };

@@ -114,7 +114,7 @@ export default function DashboardPage() {
           </div>
           {stats && <AggregateStats stats={stats} />}
         </div>
-        {stats && stats.daily.length > 0 && <CostTrend daily={stats.daily} />}
+        {stats && stats.daily.length > 0 && <CostTrend daily={last30Days(stats.daily)} />}
       </div>
 
       {/* Anything in flight takes the left column with the distribution bars
@@ -208,6 +208,18 @@ function AggregateStats({ stats }: { stats: Stats }) {
       />
     </div>
   );
+}
+
+// /api/stats is unfiltered by default (no param = no filter), so `daily` now
+// spans all of history. This chart is the one part of the dashboard that wants a
+// window — it says "last 30d" on the tin — so it clips its own, rather than the
+// endpoint imposing a window every other caller would silently inherit.
+// Clips on whole days, where the old SQL cut at an instant 30*86400s ago, so the
+// leftmost bar is now a full day instead of a partial one. Every other bar is
+// unchanged — and a full-day bar is the more honest one to draw.
+function last30Days(daily: DailyStatsRow[]): DailyStatsRow[] {
+  const cutoff = new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
+  return daily.filter((d) => d.day >= cutoff);
 }
 
 function CostTrend({ daily }: { daily: DailyStatsRow[] }) {

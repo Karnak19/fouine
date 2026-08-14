@@ -1,6 +1,15 @@
 import * as React from "react";
 import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
-import { GitPullRequest, Settings, LayoutDashboard, Search, FolderGit2, Download, LogOut } from "lucide-react";
+import {
+  GitPullRequest,
+  Settings,
+  LayoutDashboard,
+  Search,
+  FolderGit2,
+  Download,
+  LogOut,
+  ChartNoAxesColumn,
+} from "lucide-react";
 import { useAuth, signOut } from "../lib/auth";
 
 // Captured beforeinstallprompt event, so we can trigger the install from our own button.
@@ -37,6 +46,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
   { to: "/repos", label: "Repositories", icon: <FolderGit2 size={16} /> },
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest size={16} /> },
+  { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn size={16} /> },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
@@ -95,7 +105,7 @@ function RootLayout() {
         </div>
       </main>
       {/* Mobile: bottom tab bar with safe-area padding for the home indicator. */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-4 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         {NAV.map((n) => (
           <TabLink key={n.to} {...n} />
         ))}
@@ -138,6 +148,7 @@ import ReviewsPage from "./reviews";
 import ReviewDetailPage from "./review-detail";
 import SettingsPage from "./settings";
 import DashboardPage from "./dashboard";
+import StatsPage, { validateStatsSearch } from "./stats";
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -169,6 +180,12 @@ const reviewDetailRoute = createRoute({
   path: "/reviews/$id",
   component: ReviewDetailPage,
 });
+const statsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/stats",
+  component: StatsPage,
+  validateSearch: validateStatsSearch,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -182,5 +199,6 @@ export const routeTree = rootRoute.addChildren([
   prRoute,
   reviewsRoute,
   reviewDetailRoute,
+  statsRoute,
   settingsRoute,
 ]);
