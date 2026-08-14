@@ -122,6 +122,36 @@ const seedReview = db.prepare<{ id: number }, [string, string, number, number]>(
    RETURNING id`,
 );
 
+// A finding is written after its review runs, so its own created_at can fall
+// outside the window the review sits in. bySeverity must follow the review, or
+// a review counted by every other panel loses its findings from this one.
+test("bySeverity follows the review's date, not the finding's", () => {
+  repos.upsert.run({ $full_name: "sev/lag", $installation_id: 1, $prompt: null, $model: null });
+  const inWindow = seedReview.get("sev/lag", "sev-model", NOW - 3600, NOW - 3000)!;
+  // Finding recorded a long time after the review — well outside a 24h window.
+  db.prepare(
+    `INSERT INTO findings (review_id, repo_full_name, pr_number, kind, severity, body, created_at)
+     VALUES (?1, 'sev/lag', 1, 'inline', 'blocking', 'x', ?2)`,
+  ).run(inWindow.id, NOW + 40 * 86400);
+
+  const within = findings.bySeverity.all({
+    $from: NOW - 86400,
+    $repo: "sev/lag",
+    $model: null,
+  });
+  expect(within).toEqual([{ severity: "blocking", count: 1 }]);
+
+  // And the review being outside the window still excludes it.
+  const older = seedReview.get("sev/lag", "sev-model", OLD, OLD + 60)!;
+  db.prepare(
+    `INSERT INTO findings (review_id, repo_full_name, pr_number, kind, severity, body, created_at)
+     VALUES (?1, 'sev/lag', 1, 'inline', 'nit', 'x', ?2)`,
+  ).run(older.id, NOW);
+  expect(
+    findings.bySeverity.all({ $from: NOW - 86400, $repo: "sev/lag", $model: null }),
+  ).toEqual([{ severity: "blocking", count: 1 }]);
+});
+
 test("stats filters narrow by repo, model and date", () => {
   for (const r of ["filt/alpha", "filt/beta"])
     repos.upsert.run({ $full_name: r, $installation_id: 1, $prompt: null, $model: null });

@@ -462,15 +462,18 @@ export const findings = {
     "SELECT * FROM findings WHERE review_id = $review ORDER BY id",
   ),
   // Severity mix across all inline findings, for the dashboard.
-  // findings has no model column, so the model guard joins through the review.
-  // Date/repo still read from the finding's own row.
+  // All three guards read from the joined review, not from the finding's own
+  // row: findings are written after the review runs, so a finding recorded just
+  // past a range boundary would drop out of this panel while its review still
+  // counts in every other one. Filtering the review population keeps the
+  // severity mix describing the same reviews the rest of the page describes.
   bySeverity: db.prepare<SeverityStatsRow, StatsFilter>(
     `SELECT findings.severity AS severity, COUNT(*) AS count
      FROM findings
      JOIN reviews ON findings.review_id = reviews.id
      WHERE findings.kind = 'inline' AND findings.severity IS NOT NULL
-       AND ($from IS NULL OR findings.created_at >= $from)
-       AND ($repo IS NULL OR findings.repo_full_name = $repo)
+       AND ($from IS NULL OR reviews.created_at >= $from)
+       AND ($repo IS NULL OR reviews.repo_full_name = $repo)
        AND ($model IS NULL OR reviews.model = $model)
      GROUP BY findings.severity
      ORDER BY count DESC`,
