@@ -97,6 +97,7 @@ export { textOnly };
 // cost is paid upstream in tokens, on a key that is not free.
 export const MAX_TURNS = 40;
 export const MAX_QUESTION_CHARS = 4_000;
+export const MAX_PARTS_PER_MESSAGE = 64;
 
 export async function streamChat(
   rawMessages: UIMessage[],

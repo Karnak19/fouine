@@ -16,7 +16,7 @@ import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
-import { streamChat } from "~/chat";
+import { streamChat, MAX_TURNS, MAX_QUESTION_CHARS, MAX_PARTS_PER_MESSAGE } from "~/chat";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -178,7 +178,35 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         return { error: String((err as Error)?.message ?? err) };
       }
     },
-    { body: t.Object({ messages: t.Array(t.Any()) }) },
+    {
+      // Real validation at the trust boundary, not a cast. The browser posts the
+      // whole thread back every turn, and an oversized or endless payload is
+      // paid for upstream in provider tokens — the exact cost this app exists
+      // to measure. Elysia rejects anything outside these bounds with a 422
+      // before a single token is spent.
+      body: t.Object({
+        messages: t.Array(
+          t.Object({
+            id: t.Optional(t.String({ maxLength: 128 })),
+            role: t.Union([t.Literal("user"), t.Literal("assistant"), t.Literal("system")]),
+            parts: t.Array(
+              t.Object(
+                {
+                  type: t.String({ maxLength: 64 }),
+                  text: t.Optional(t.String({ maxLength: MAX_QUESTION_CHARS })),
+                },
+                // Tool parts carry extra keys; they are stripped server-side
+                // anyway (only user text survives), so tolerate them here
+                // rather than 422-ing a legitimate client.
+                { additionalProperties: true },
+              ),
+              { maxItems: MAX_PARTS_PER_MESSAGE },
+            ),
+          }),
+          { minItems: 1, maxItems: MAX_TURNS },
+        ),
+      }),
+    },
   )
 
   .get("/repos", () => repos.list.all())
