@@ -58,16 +58,43 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
         reviews.setCheckRun.run({ $check: checkRunId, $id: id });
       }),
 
+    // patchId is the diff identity this run reviewed — null when we couldn't get
+    // one. Written here and nowhere else on the success path, so only a review
+    // that actually finished can become a baseline for skipping.
     complete: (
       id: number,
       cost: number,
       tokens: number,
       model: string,
+      patchId: string | null,
     ): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.complete", () => {
-        reviews.complete.run({ $id: id, $cost: cost, $tokens: tokens, $model: model });
+        reviews.complete.run({
+          $id: id,
+          $cost: cost,
+          $tokens: tokens,
+          $model: model,
+          $patch: patchId,
+        });
         publishReviewEvent("updated", id);
       }),
+
+    // Terminal, like complete/fail — the push carried no diff change.
+    skip: (id: number, patchId: string | null): Effect.Effect<void, DatabaseError> =>
+      attempt("reviews.skip", () => {
+        reviews.skip.run({ $id: id, $patch: patchId });
+        publishReviewEvent("updated", id);
+      }),
+
+    // Newest successfully-reviewed diff identity for this PR, or null.
+    lastReviewedPatch: (
+      repo: string,
+      pr: number,
+    ): Effect.Effect<{ id: number; patch_id: string } | null, DatabaseError> =>
+      attempt(
+        "reviews.lastReviewedPatch",
+        () => reviews.lastReviewedPatch.get({ $repo: repo, $pr: pr }) ?? null,
+      ),
 
     fail: (id: number, error: string): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.fail", () => {

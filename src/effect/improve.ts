@@ -144,7 +144,9 @@ export function improvePipeline(
           session: result.sessionId,
           preview: result.text.slice(0, 500),
         });
-        yield* db.complete(id, result.cost, result.tokens, model);
+        // No patch-id: an improver run reviews no diff, so it can never be a
+        // skip baseline (lastReviewedPatch also filters it out by pr_number > 0).
+        yield* db.complete(id, result.cost, result.tokens, model, null);
       });
 
     // Same shape as reviewPipeline: the worktree path lives inside the guarded

@@ -184,8 +184,13 @@ function TimelineRow({ r }: { r: ReviewRow }) {
             title={new Date(r.created_at * 1000).toLocaleString()}
           >
             {timeAgo(r.created_at)}
-            {r.completed_at && (
-              <span className="text-zinc-600"> · {duration(r.created_at, r.completed_at)}</span>
+            {/* A skip has no meaningful duration — say why it exists instead. */}
+            {r.status === "skipped" ? (
+              <span className="text-zinc-600"> · unchanged diff — nothing new to review</span>
+            ) : (
+              r.completed_at && (
+                <span className="text-zinc-600"> · {duration(r.created_at, r.completed_at)}</span>
+              )
             )}
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { db, repos, reviews, settings, settingValue, findings } from "~/db";
+import { db, repos, reviews, settings, settingValue, findings, type StatsFilter } from "~/db";
 
 test("upsert then get a repo", () => {
   repos.upsert.run({
@@ -57,7 +57,13 @@ test("review lifecycle: pending -> running -> completed", () => {
   reviews.setCheckRun.run({ $check: 9911, $id: row.id });
   // Success path is a single atomic write (status + completed_at + cost + tokens),
   // so a crash mid-completion can't split a "completed" row from its cost.
-  reviews.complete.run({ $id: row.id, $cost: 0.0123, $tokens: 4096, $model: "anthropic/claude-opus-4" });
+  reviews.complete.run({
+    $id: row.id,
+    $cost: 0.0123,
+    $tokens: 4096,
+    $model: "anthropic/claude-opus-4",
+    $patch: "p-lifecycle",
+  });
 
   const recent = reviews.recent.all({
     $from: null, $to: null,
@@ -74,6 +80,8 @@ test("review lifecycle: pending -> running -> completed", () => {
   expect(target?.tokens).toBe(4096);
   expect(target?.model).toBe("anthropic/claude-opus-4");
   expect(target?.check_run_id).toBe(9911);
+  // The diff identity a later rebase-only push will match against.
+  expect(target?.patch_id).toBe("p-lifecycle");
 });
 
 test("byRepoPR returns only that PR's reviews, newest first", () => {
@@ -335,4 +343,189 @@ test("settings get/set and settingValue helper", () => {
   expect(settingValue(key)).toBe("v1");
   settings.set.run({ $key: key, $value: "v2" });
   expect(settingValue(key)).toBe("v2");
+});
+
+// ── #78: `skipped` rows are bookkeeping, not outcomes ────────────────────────
+// Every aggregate must report exactly what it reported before the skips existed.
+// The tests share one DB, so the global aggregates (daily, triggers, latency,
+// topCost, unfinished, reliability, latency samples) are snapshotted before the
+// skipped rows go in and asserted unchanged after — the only robust way to pin
+// them here.
+
+// Every stats statement takes the dashboard's filter params. "No filter at all"
+// is the widest possible population, which is exactly the case where a leaked
+// skipped row would show up.
+const NO_FILTER: StatsFilter = { $from: null, $to: null, $repo: null, $model: null };
+
+// Backdating matters more than it looks. Every row seeded "now" lands in the
+// same day bucket, so a leaked skip hides inside a day group that already
+// exists — reliabilityDaily's guard could be deleted and every assertion would
+// still pass. A skip on a day of its own is what actually exercises the guard.
+const backdate = db.prepare<null, { $shift: number; $id: number }>(
+  `UPDATE reviews SET created_at = created_at - $shift,
+     completed_at = completed_at - $shift
+   WHERE id = $id`,
+);
+
+const seed = (
+  full: string,
+  pr: number,
+  status: string,
+  extra: {
+    cost?: number;
+    tokens?: number;
+    model?: string;
+    patch?: string;
+    trigger?: string;
+    daysAgo?: number;
+  } = {},
+) => {
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  const row = reviews.insert.get({
+    $repo: full,
+    $pr: pr,
+    $title: "t",
+    $session: null,
+    $status: "pending",
+    $trigger: extra.trigger ?? "synchronize",
+  })!;
+  if (status === "completed")
+    reviews.complete.run({
+      $id: row.id,
+      $cost: extra.cost ?? 0,
+      $tokens: extra.tokens ?? 0,
+      $model: extra.model ?? null,
+      $patch: extra.patch ?? null,
+    });
+  if (status === "failed") reviews.fail.run({ $id: row.id, $error: "boom" });
+  if (status === "skipped") reviews.skip.run({ $id: row.id, $patch: extra.patch ?? null });
+  if (extra.daysAgo) backdate.run({ $shift: extra.daysAgo * 86400, $id: row.id });
+  return row.id;
+};
+
+test("skipped rows are excluded from every aggregate", () => {
+  const full = "acme/skipagg";
+  const model = "acme/skipmodel";
+
+  seed(full, 1, "completed", { cost: 1, tokens: 100, model });
+  seed(full, 2, "completed", { cost: 2, tokens: 200, model });
+  seed(full, 3, "failed");
+
+  const project = () => reviews.byProject.all(NO_FILTER).find((r) => r.repo_full_name === full);
+  const modelRow = () => reviews.byModel.all(NO_FILTER).find((r) => r.model === model);
+  const before = {
+    project: project(),
+    model: modelRow(),
+    daily: reviews.daily.all(NO_FILTER),
+    triggers: reviews.triggers.all(NO_FILTER),
+    latency: reviews.latencyAgg.get(NO_FILTER),
+    p95: reviews.latencyP95.get(NO_FILTER)?.d ?? null,
+    topCost: reviews.topCost.all(NO_FILTER),
+    unfinished: reviews.unfinished.all().length,
+    reviewedPRs: reviews.reviewedPRsSince.all({ $repo: full, $since: 0 }).map((r) => r.pr_number),
+    // #73's panels. reliabilityDaily is the one a skip would have quietly
+    // polluted: it would conjure all-zero day rows, and it is one bare COUNT(*)
+    // away from having its success-rate denominator inflated.
+    reliability: reviews.reliabilityDaily.all(NO_FILTER),
+    latencySamples: reviews.latencySamples.all(NO_FILTER).length,
+    allModels: reviews.allModels.all().map((r) => r.model),
+    // #73's findings panels join reviews for the filter guards. A skipped review
+    // posts nothing, so it can carry no findings — assert it rather than assume.
+    severity: findings.bySeverity.all(NO_FILTER),
+    dailySeverity: findings.dailyBySeverity.all(NO_FILTER),
+    topFiles: findings.topFiles.all(NO_FILTER),
+  };
+  // 3 rows exist, one of them failed — the failure still counts as an outcome.
+  expect(before.project).toMatchObject({ reviews: 3, cost: 3, tokens: 300 });
+  expect(before.model).toMatchObject({ reviews: 2, cost: 3, tokens: 300 });
+  expect(before.reviewedPRs.sort()).toEqual([1, 2]);
+
+  // Now the skips. A skip is terminal and cheap; it must move nothing.
+  seed(full, 1, "skipped", { patch: "p1" });
+  seed(full, 2, "skipped", { patch: "p2" });
+  seed(full, 4, "skipped", { patch: "p3", trigger: "opened" });
+  // On a day of its own, where no real review exists — the only shape that can
+  // catch a per-day aggregate leaking a skip into a bucket that should not exist.
+  seed(full, 5, "skipped", { patch: "p4", daysAgo: 9 });
+
+  expect(project()).toEqual(before.project!);
+  expect(modelRow()).toEqual(before.model!);
+  expect(reviews.daily.all(NO_FILTER)).toEqual(before.daily);
+  expect(reviews.triggers.all(NO_FILTER)).toEqual(before.triggers);
+  expect(reviews.latencyAgg.get(NO_FILTER)).toEqual(before.latency!);
+  expect(reviews.latencyP95.get(NO_FILTER)?.d ?? null).toEqual(before.p95);
+  expect(reviews.topCost.all(NO_FILTER)).toEqual(before.topCost);
+  expect(reviews.reliabilityDaily.all(NO_FILTER)).toEqual(before.reliability);
+  expect(reviews.latencySamples.all(NO_FILTER).length).toBe(before.latencySamples);
+  expect(reviews.allModels.all().map((r) => r.model)).toEqual(before.allModels);
+  // Terminal: the boot reaper must never see a skip as in-flight.
+  expect(reviews.unfinished.all().length).toBe(before.unfinished);
+  // A skip must never make the improver think a PR was reviewed.
+  expect(reviews.reviewedPRsSince.all({ $repo: full, $since: 0 }).map((r) => r.pr_number).sort()).toEqual(
+    before.reviewedPRs.sort(),
+  );
+
+  // The guards on byModel/topCost/allModels are redundant *today* — they lean on
+  // a skipped row having no model and no cost. That invariant is what actually
+  // keeps those three panels clean, so pin it here; the guards are what keep them
+  // clean if it ever stops holding.
+  for (const r of reviews.byRepo.all({ $repo: full, $limit: 50 }).filter((x) => x.status === "skipped")) {
+    expect(r.cost).toBeNull();
+    expect(r.tokens).toBeNull();
+    expect(r.model).toBeNull();
+    expect(r.completed_at).not.toBeNull(); // terminal, never in-flight
+  }
+
+  expect(findings.bySeverity.all(NO_FILTER)).toEqual(before.severity);
+  expect(findings.dailyBySeverity.all(NO_FILTER)).toEqual(before.dailySeverity);
+  expect(findings.topFiles.all(NO_FILTER)).toEqual(before.topFiles);
+
+  // But the skip is still visible in the list views — that's deliberate.
+  expect(reviews.byRepoPR.all({ $repo: full, $pr: 1, $limit: 50 }).map((r) => r.status)).toContain(
+    "skipped",
+  );
+  // And the stats page's status filter can select them, so the saving is
+  // inspectable rather than merely absent from every chart.
+  const skippedOnly = reviews.recent.all({
+    ...NO_FILTER,
+    $repo: full,
+    $status: "skipped",
+    $limit: 50,
+  });
+  expect(skippedOnly.length).toBe(4);
+  expect(skippedOnly.map((r) => r.patch_id).sort()).toEqual(["p1", "p2", "p3", "p4"]);
+});
+
+test("lastReviewedPatch: newest completed row with a patch_id, nothing else", () => {
+  const full = "acme/baseline";
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })).toBeNull();
+
+  const old = seed(full, 5, "completed", { patch: "old" });
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })).toMatchObject({
+    id: old,
+    patch_id: "old",
+  });
+
+  // Newest wins.
+  const fresh = seed(full, 5, "completed", { patch: "fresh" });
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })?.id).toBe(fresh);
+
+  // Trap 2: a failed run must never become a baseline, so the last *good* one
+  // stays the answer — a rebase after a failure is re-reviewed.
+  seed(full, 5, "failed", { patch: "never" });
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })?.id).toBe(fresh);
+
+  // A skip is not a review either.
+  seed(full, 5, "skipped", { patch: "skip" });
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })?.id).toBe(fresh);
+
+  // Completed but with no patch id (pre-column row, or the helper bailed).
+  seed(full, 5, "completed", {});
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 5 })?.id).toBe(fresh);
+
+  // Another PR's baseline never leaks across.
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 6 })).toBeNull();
+  // Trap 6: improver runs are stored with pr_number = 0 and must never shadow.
+  seed(full, 0, "completed", { patch: "improver" });
+  expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 0 })).toBeNull();
 });

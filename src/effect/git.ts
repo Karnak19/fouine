@@ -1,5 +1,5 @@
 import { Effect, Schedule } from "effect";
-import { addWorktree, ensureBare, fetchRef, removeWorktree } from "~/git/worktree";
+import { addWorktree, ensureBare, fetchRef, patchId, removeWorktree } from "~/git/worktree";
 import { log } from "~/server/log";
 import { GitError } from "~/effect/errors";
 
@@ -28,6 +28,14 @@ export class GitService extends Effect.Service<GitService>()("app/GitService", {
         try: () => addWorktree(fullName, sha, target),
         catch: (cause) => new GitError({ op: "addWorktree", cause }),
       }),
+
+    // Never fails: an unavailable patch-id degrades to "run the review", which is
+    // always the safe direction.
+    patchId: (
+      fullName: string,
+      baseRef: string,
+      headSha: string,
+    ): Effect.Effect<string | undefined> => Effect.promise(() => patchId(fullName, baseRef, headSha)),
 
     // Cleanup is best-effort — removeWorktree already falls back to rmSync and
     // prunes and never rejects; a failure there must never mask the review.
