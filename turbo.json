@@ -8,7 +8,10 @@
     "test": {},
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      // Turbo's env mode is strict: anything not listed here never reaches the
+      // server process, so `CHAT_MOCK=1 bun run dev` would silently do nothing.
+      "passThroughEnv": ["CHAT_MOCK"]
     }
   }
 }

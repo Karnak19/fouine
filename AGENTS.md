@@ -27,6 +27,8 @@ bun test apps/server/src/db.test.ts   # one file
 
 The root `package.json` scripts (`bun run dev` etc.) are thin wrappers over the same `turbo run` tasks.
 
+`CHAT_MOCK=1 bun run dev` swaps the chat model for a scripted one (`apps/server/src/chat/mock-model.ts`): reasoning, a real `query_stats` call against the real database, then a long markdown answer, all streamed. It's the only way to work on the chat UI without an opencode API key. Everything else in the pipeline is untouched, and the flag is ignored when `NODE_ENV=production`.
+
 ## Typecheck is the only gate (and it's strict)
 
 No ESLint/Prettier configured. `tsconfig.base.json` at the root is `strict` with `noUnusedLocals`, `noUnusedParameters`, `verbatimModuleSyntax`, `isolatedModules`; each app extends it with its own `include` and `paths` (there is no root `tsconfig.json`):

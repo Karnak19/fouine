@@ -120,7 +120,10 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        // "top" (the registry default) pins your question to the top and lets
+        // the answer grow past the fold, so a long answer reads as if nothing
+        // scrolled. "bottom" follows the stream instead.
+        turnAnchor="bottom"
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >
@@ -379,8 +382,11 @@ const AssistantMessage: FC = () => {
                   );
                 }
                 const running = part.status.type === "running";
+                // ghost, like the tool group above it — the default outline
+                // variant boxes every reasoning block in a border that shouts
+                // louder than the answer it precedes.
                 return (
-                  <ReasoningRoot streaming={running}>
+                  <ReasoningRoot variant="ghost" streaming={running}>
                     <ReasoningTrigger active={running} />
                     <ReasoningContent aria-busy={running}>
                       <ReasoningText>{children}</ReasoningText>

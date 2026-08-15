@@ -4,6 +4,7 @@ import { z } from "zod";
 import { resolveApiKey, resolveDefaultModel } from "~/settings";
 import { runStatsQuery } from "~/chat/query";
 import { CHAT_SYSTEM_PROMPT } from "~/chat/prompt";
+import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
 
 // The opencode-go (Zen) inference endpoint. Per
 // https://opencode.ai/docs/go/#endpoints the gateway serves
@@ -117,7 +118,15 @@ export async function streamChat(
       }
     }
   }
-  const apiKey = resolveApiKey();
+  // Dev escape hatch: with CHAT_MOCK=1 (never in production) the gateway is
+  // replaced by a scripted model so the chat UI can be built and looked at
+  // without an API key. Everything below this line is the real pipeline.
+  const mock = chatMockEnabled();
+  if (mock) {
+    console.warn("[chat] CHAT_MOCK=1 — answering with the scripted mock model, no upstream call");
+  }
+
+  const apiKey = mock ? "mock" : resolveApiKey();
   if (!apiKey) {
     // Surfaced as a normal assistant-side error rather than a 500, so the UI
     // renders it as a message in the thread.
@@ -131,7 +140,7 @@ export async function streamChat(
   });
 
   const result = streamText({
-    model: gateway(wireModelId(resolveDefaultModel())),
+    model: mock ? createChatMockModel() : gateway(wireModelId(resolveDefaultModel())),
     system: CHAT_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools: { query_stats: queryStats },
