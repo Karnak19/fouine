@@ -1,5 +1,4 @@
+# Only for a bare `bun test` from the repo root, which does not see
+# apps/server/bunfig.toml. Turbo runs the per-package one.
 [test]
-preload = ["./tests/setup.ts"]
-
-[serve.static]
-plugins = ["bun-plugin-tailwind"]
+preload = ["./apps/server/tests/setup.ts"]

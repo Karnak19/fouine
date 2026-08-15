@@ -35,6 +35,6 @@ active state is an ember fill + text, not a left border).
 
 ## Tokens
 
-All defined in `public/global.css` under `@theme`: warm `zinc-*` overrides,
+All defined in `apps/web/src/global.css` under `@theme`: warm `zinc-*` overrides,
 `ember-*` scale, and the shadcn semantic vars (`primary`/`ring`/`accent` point at
 ember). Components consume `zinc-*`/`ember-*` utilities directly.

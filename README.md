@@ -116,18 +116,33 @@ Two things worth knowing before you trust a dashboard built on this:
 opencode lets the model choose its own `bash` timeout and, on expiry, invites it
 to retry with a bigger one — so a single wedged command can escalate until it
 consumes the whole review budget. fouine ships a small opencode plugin
-(`opencode-config/plugin/cap-bash-timeout.ts`) that caps the model's value at
+(`apps/server/opencode-config/plugin/cap-bash-timeout.ts`) that caps the model's value at
 `OPENCODE_BASH_TIMEOUT_MAX_MS` (default `120000`). Raise it only if real reviews
 legitimately need longer single commands.
 
 ## Development
 
+The repo is a Bun-workspaces monorepo driven by Turborepo:
+
+```
+apps/server      # @fouine/server   — Bun + Elysia backend (webhooks, reviews, REST API)
+apps/web         # @fouine/web      — React dashboard, built with Vite
+apps/docs        # fouine-docs      — VitePress documentation site
+packages/shared  # @fouine/shared   — row/response types shared by server and web
+```
+
 ```bash
 bun install
-bun run dev          # start the server with --watch
-bun run typecheck    # tsc --noEmit
-bun test             # run the test suite
+bun run dev          # start the server with --watch (it serves the dashboard too)
+bun run typecheck    # tsc --noEmit across every workspace
+bun run test         # run the test suite
+bun run build        # build the dashboard into apps/web/dist
 ```
+
+Each of those is `turbo run <task>` under the hood. There is no separate dev
+server for the dashboard: in development Elysia serves `apps/web/src` directly
+and Bun transpiles the `.tsx` on the fly; in production (`NODE_ENV=production`)
+it serves the prebuilt `apps/web/dist`.
 
 ## Self-hosting
 

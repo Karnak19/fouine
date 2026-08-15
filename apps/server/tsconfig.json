@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "bun"
+    ],
+    "paths": {
+      "~/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  // opencode-config/ runs inside opencode's own runtime, against deps from a
+  // generated (gitignored) package.json. Those types exist locally but never on
+  // a clean checkout, so typechecking them here would fail CI only.
+  "exclude": [
+    "node_modules",
+    "opencode-config"
+  ]
+}
