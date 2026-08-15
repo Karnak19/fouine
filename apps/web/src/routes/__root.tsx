@@ -1,5 +1,11 @@
 import * as React from "react";
-import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  createRoute,
+  Link,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
 import {
   GitPullRequest,
   Settings,
@@ -80,7 +86,38 @@ function Logo() {
   );
 }
 
+// Routes that want to own the vertical space themselves instead of being a
+// block of content that grows and lets <main> scroll.
+const FULL_HEIGHT_ROUTES = ["/chat"];
+
+// Two layouts, deliberately kept apart rather than unified.
+//
+// Every page except chat is a plain content block: it grows with its content
+// and <main> does the scrolling. Its bottom padding has to clear the fixed
+// mobile tab bar, which only works because the padding sits at the end of the
+// scrolled content.
+//
+// Chat is the opposite: the thread viewport scrolls internally and the composer
+// sticks to its bottom, so this box must have a *bounded* height for `h-full`
+// inside it to mean anything (`flex-1 min-h-0`). The tab-bar clearance then has
+// to be exactly the bar's height — padding here shrinks the box rather than
+// trailing the content, so the roomy `pb-24` would leave a dead gap above the
+// bar instead of breathing room under the last message.
+//
+// Making every route `flex-1 min-h-0` would look tidier but quietly breaks the
+// long pages: their overflow escapes the box, so `pb-24` would end up floating
+// mid-page and content would run under the tab bar.
+function contentClass(fullHeight: boolean) {
+  const base = "mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8";
+  return fullHeight
+    ? `${base} flex min-h-0 flex-1 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-8`
+    : `${base} pb-24 md:pb-8`;
+}
+
 function RootLayout() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isFullHeight = FULL_HEIGHT_ROUTES.includes(pathname);
+
   return (
     <div className="flex h-screen">
       {/* Desktop: left sidebar. Hidden on mobile in favour of the bottom tab bar. */}
@@ -102,7 +139,7 @@ function RootLayout() {
           <Logo />
           <InstallButton />
         </header>
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8 pb-24 md:pb-8">
+        <div className={contentClass(isFullHeight)}>
           <Outlet />
         </div>
       </main>
