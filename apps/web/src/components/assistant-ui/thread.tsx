@@ -379,8 +379,11 @@ const AssistantMessage: FC = () => {
                   );
                 }
                 const running = part.status.type === "running";
+                // ghost, like the tool group above it — the default outline
+                // variant boxes every reasoning block in a border that shouts
+                // louder than the answer it precedes.
                 return (
-                  <ReasoningRoot streaming={running}>
+                  <ReasoningRoot variant="ghost" streaming={running}>
                     <ReasoningTrigger active={running} />
                     <ReasoningContent aria-busy={running}>
                       <ReasoningText>{children}</ReasoningText>
