@@ -16,5 +16,6 @@ export {
   type StackedBar,
   type StackedBarSegment,
 } from "./bar-chart";
+export { LineChart, type LinePoint } from "./line-chart";
 export { SEVERITY_COLORS, TRIGGER_COLORS } from "./colors";
 export { scaleMax } from "./scale";
