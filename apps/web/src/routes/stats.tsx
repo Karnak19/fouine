@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
@@ -22,10 +22,22 @@ import { Badge } from "@/components/ui/badge";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
-import { Calendar as CalendarIcon, Inbox, ListFilter, SlidersHorizontal, X } from "lucide-react";
+import { Calendar as CalendarIcon, ListFilter, SlidersHorizontal, X } from "lucide-react";
 import { type DateRange } from "react-day-picker";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  BarChart,
+  LegendDot,
+  MixBar,
+  Panel,
+  PanelEmpty,
+  PanelSkeleton,
+  SEVERITY_COLORS,
+  StackedBarChart,
+  TRIGGER_COLORS,
+  scaleMax,
+} from "@/components/charts";
 
 const RANGES = ["24h", "7d", "30d", "90d", "all"] as const;
 const DEFAULT_RANGE: StatsRange = "30d";
@@ -403,54 +415,6 @@ function Select({
   );
 }
 
-function Panel({
-  title,
-  children,
-  className,
-}: {
-  title: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  // min-w-0: grid/flex children default to min-width:auto, which makes a panel
-  // expand to its widest table instead of letting that table scroll inside its
-  // own overflow-x box — which on a phone pushes the whole page sideways. Every
-  // grid wrapper in this file carries min-w-0 for the same reason.
-  return (
-    <section className={`flex min-w-0 flex-col space-y-2.5 ${className ?? ""}`}>
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</h2>
-      {/* Deliberately a block, not a flex column: as a flex parent its children
-          become flex items with min-width:auto, which lets a wide table grow
-          past the panel instead of scrolling inside its own overflow-x box —
-          the table then gets clipped by overflow-hidden and is unreachable on
-          a phone. The chart gets its height from h-40, not from this. */}
-      <div className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function Skeleton({ rows = 4 }: { rows?: number }) {
-  return (
-    <div className="space-y-2.5 px-4 py-3.5">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-4 rounded bg-zinc-800/70 animate-pulse" />
-      ))}
-    </div>
-  );
-}
-
-function Empty({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-      <Inbox size={18} className="text-zinc-700" />
-      <p className="text-sm text-zinc-400">{label}</p>
-      <p className="text-xs text-zinc-600">Try a wider range or fewer filters.</p>
-    </div>
-  );
-}
-
 // Small affordance next to a row that already links somewhere — clicking it
 // applies the row as a filter instead of navigating away.
 function FilterButton({
@@ -494,29 +458,28 @@ function CostTrend({
   range: StatsRange;
   windowLabel?: string;
 }) {
-  const max = Math.max(...(daily ?? []).map((d) => d.cost), 0.0001);
+  const max = scaleMax((daily ?? []).map((d) => d.cost));
   return (
     <Panel title={`Cost · ${windowLabel ?? RANGE_LABELS[range]}`}>
       {!daily ? (
-        <Skeleton rows={6} />
+        <PanelSkeleton rows={6} />
       ) : daily.length === 0 ? (
-        <Empty label="No spend in this window." />
+        <PanelEmpty label="No spend in this window." />
       ) : (
         <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
           {/* h-40, not flex-1 + min-h-40: the bars are sized with percentage
               heights, and a percentage only resolves against a definite parent
               height. This row sits in an items-start grid, so the panel is not
               stretched and a min-height alone left every bar at 0px. */}
-          <div className="flex items-end gap-1 h-40">
-            {daily.map((d) => (
-              <div
-                key={d.day}
-                className="flex-1 min-w-0 rounded-t bg-ember-500/70 hover:bg-ember-400 transition-colors"
-                style={{ height: `${Math.max(2, (d.cost / max) * 100)}%` }}
-                title={`${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`}
-              />
-            ))}
-          </div>
+          <BarChart
+            height="h-40"
+            bars={daily.map((d) => ({
+              key: d.day,
+              value: d.cost,
+              title: `${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`,
+            }))}
+          />
+          {/* No axes: this caption row carries the endpoints and the peak. */}
           <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-600 tabular-nums">
             <span>{daily[0].day}</span>
             <span>{formatCost(max)} peak</span>
@@ -540,9 +503,9 @@ function ProjectStats({
   return (
     <Panel title="Cost by project">
       {!projects ? (
-        <Skeleton />
+        <PanelSkeleton />
       ) : projects.length === 0 ? (
-        <Empty label="No reviews for these filters." />
+        <PanelEmpty label="No reviews for these filters." />
       ) : (
         <div className="overflow-x-auto">
           <Table>
@@ -620,9 +583,9 @@ function ModelStats({
   return (
     <Panel title="Cost by model">
       {!models ? (
-        <Skeleton />
+        <PanelSkeleton />
       ) : models.length === 0 ? (
-        <Empty label="No models for these filters." />
+        <PanelEmpty label="No models for these filters." />
       ) : (
         <div className="overflow-x-auto">
           <Table>
@@ -676,9 +639,9 @@ function TopCost({ rows }: { rows?: Stats["topCost"] }) {
   return (
     <Panel title="Most expensive reviews">
       {!rows ? (
-        <Skeleton />
+        <PanelSkeleton />
       ) : rows.length === 0 ? (
-        <Empty label="Nothing costed yet." />
+        <PanelEmpty label="Nothing costed yet." />
       ) : (
         <ul className="divide-y divide-zinc-800/70">
           {rows.map((r) => (
@@ -712,39 +675,6 @@ function TopCost({ rows }: { rows?: Stats["topCost"] }) {
   );
 }
 
-const TRIGGER_COLORS = ["bg-ember-400", "bg-sky-400", "bg-violet-400", "bg-amber-400", "bg-zinc-500"];
-
-function MixBar({
-  items,
-}: {
-  items: { key: string; label: string; count: number; color: string }[];
-}) {
-  const total = items.reduce((s, i) => s + i.count, 0);
-  return (
-    <div className="px-4 py-3.5 space-y-3">
-      <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
-        {items.map((i) => (
-          <div
-            key={i.key}
-            className={i.color}
-            style={{ width: `${(i.count / total) * 100}%` }}
-            title={`${i.label}: ${i.count}`}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
-        {items.map((i) => (
-          <span key={i.key} className="flex items-center gap-1.5 tabular-nums">
-            <span className={`h-2 w-2 rounded-full ${i.color}`} />
-            {i.label}
-            <span className="text-zinc-600">{i.count}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function TriggerMix({ triggers }: { triggers?: TriggerStatsRow[] }) {
   const items = (triggers ?? []).map((t, i) => ({
     key: t.trigger,
@@ -755,22 +685,15 @@ function TriggerMix({ triggers }: { triggers?: TriggerStatsRow[] }) {
   return (
     <Panel title="How reviews start">
       {!triggers ? (
-        <Skeleton rows={2} />
+        <PanelSkeleton rows={2} />
       ) : items.length === 0 ? (
-        <Empty label="No triggers recorded." />
+        <PanelEmpty label="No triggers recorded." />
       ) : (
         <MixBar items={items} />
       )}
     </Panel>
   );
 }
-
-// Same palette as the review view: blocking = alarm, question = ask, nit = muted.
-const SEVERITY_COLORS: Record<string, string> = {
-  blocking: "bg-red-400",
-  question: "bg-amber-400",
-  nit: "bg-zinc-500",
-};
 
 function SeverityMix({ severity }: { severity?: SeverityStatsRow[] }) {
   const items = (severity ?? []).map((s) => ({
@@ -782,9 +705,9 @@ function SeverityMix({ severity }: { severity?: SeverityStatsRow[] }) {
   return (
     <Panel title="Findings by severity">
       {!severity ? (
-        <Skeleton rows={2} />
+        <PanelSkeleton rows={2} />
       ) : items.length === 0 ? (
-        <Empty label="No findings yet." />
+        <PanelEmpty label="No findings yet." />
       ) : (
         <MixBar items={items} />
       )}
@@ -796,9 +719,9 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
   return (
     <Panel title="Reviews">
       {pending || !rows ? (
-        <Skeleton rows={6} />
+        <PanelSkeleton rows={6} />
       ) : rows.length === 0 ? (
-        <Empty label="No reviews match these filters." />
+        <PanelEmpty label="No reviews match these filters." />
       ) : (
         <div className="overflow-x-auto">
           <Table>
@@ -865,9 +788,6 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
 // state rather than a NaN.
 // ---------------------------------------------------------------------------
 
-// Shared with CostTrend: never divide by zero when every value is 0.
-const scaleMax = (values: number[]) => Math.max(...values, 0.0001);
-
 function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
   const totals = (rows ?? []).reduce(
     (a, r) => {
@@ -882,14 +802,13 @@ function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
   // a dash, not 0%.
   const settled = totals.completed + totals.failed;
   const rate = settled === 0 ? null : (totals.completed / settled) * 100;
-  const max = scaleMax((rows ?? []).map((r) => r.completed + r.failed + r.in_flight));
 
   return (
     <Panel title="Reliability">
       {!rows ? (
-        <Skeleton rows={6} />
+        <PanelSkeleton rows={6} />
       ) : rows.length === 0 ? (
-        <Empty label="No reviews in this window." />
+        <PanelEmpty label="No reviews in this window." />
       ) : (
         <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
           <div className="flex items-baseline gap-2">
@@ -902,33 +821,23 @@ function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
                 : `${totals.completed} of ${settled} succeeded`}
             </span>
           </div>
-          <div className="mt-3 flex items-end gap-1 h-32">
-            {rows.map((r) => {
-              const total = r.completed + r.failed + r.in_flight;
-              return (
-                <div
-                  key={r.day}
-                  className="flex flex-1 min-w-0 flex-col justify-end"
-                  style={{ height: `${Math.max(2, (total / max) * 100)}%` }}
-                  title={`${r.day} · ${r.completed} completed · ${r.failed} failed${
-                    r.in_flight ? ` · ${r.in_flight} in flight` : ""
-                  }`}
-                >
-                  {/* Stack order matches the legend: failed on top, so a bad
-                      day reads as a red cap rather than a hidden slice. */}
-                  {r.in_flight > 0 && (
-                    <div className="w-full bg-zinc-600" style={{ flex: r.in_flight }} />
-                  )}
-                  {r.failed > 0 && <div className="w-full bg-red-400" style={{ flex: r.failed }} />}
-                  {r.completed > 0 && (
-                    <div
-                      className="w-full rounded-b bg-emerald-500/80"
-                      style={{ flex: r.completed }}
-                    />
-                  )}
-                </div>
-              );
-            })}
+          <div className="mt-3">
+            {/* Stack order matches the legend: failed on top, so a bad day
+                reads as a red cap rather than a hidden slice. */}
+            <StackedBarChart
+              height="h-32"
+              bars={rows.map((r) => ({
+                key: r.day,
+                title: `${r.day} · ${r.completed} completed · ${r.failed} failed${
+                  r.in_flight ? ` · ${r.in_flight} in flight` : ""
+                }`,
+                segments: [
+                  { key: "in_flight", value: r.in_flight, className: "bg-zinc-600" },
+                  { key: "failed", value: r.failed, className: "bg-red-400" },
+                  { key: "completed", value: r.completed, className: "rounded-b bg-emerald-500/80" },
+                ],
+              }))}
+            />
           </div>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
             <LegendDot className="bg-emerald-500/80" label={`completed ${totals.completed}`} />
@@ -943,24 +852,15 @@ function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
   );
 }
 
-function LegendDot({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={`h-2 w-2 rounded-full ${className}`} />
-      {label}
-    </span>
-  );
-}
-
 function LatencyTrend({ rows, truncated }: { rows?: LatencyDayRow[]; truncated?: boolean }) {
   // Scale on p95 — the taller of the two series — so p50 never overflows.
   const max = scaleMax((rows ?? []).map((r) => r.p95 ?? 0));
   return (
     <Panel title="Latency trend">
       {!rows ? (
-        <Skeleton rows={6} />
+        <PanelSkeleton rows={6} />
       ) : rows.length === 0 ? (
-        <Empty label="No completed reviews in this window." />
+        <PanelEmpty label="No completed reviews in this window." />
       ) : (
         <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
           <div className="flex items-end gap-1 h-32">
@@ -1015,37 +915,32 @@ function FindingsTrend({ rows }: { rows?: FindingsDailyRow[] }) {
   }
   const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const totalOf = (m: Record<string, number>) => Object.values(m).reduce((s, n) => s + n, 0);
-  const max = scaleMax(days.map(([, m]) => totalOf(m)));
   const grand = days.reduce((s, [, m]) => s + totalOf(m), 0);
 
   return (
     <Panel title="Findings per day">
       {!rows ? (
-        <Skeleton rows={6} />
+        <PanelSkeleton rows={6} />
       ) : days.length === 0 ? (
-        <Empty label="No findings in this window." />
+        <PanelEmpty label="No findings in this window." />
       ) : (
         <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-          <div className="flex items-end gap-1 h-32">
-            {days.map(([day, mix]) => (
-              <div
-                key={day}
-                className="flex flex-1 min-w-0 flex-col justify-end"
-                style={{ height: `${Math.max(2, (totalOf(mix) / max) * 100)}%` }}
-                title={`${day} · ${SEVERITY_ORDER.filter((s) => mix[s])
-                  .map((s) => `${mix[s]} ${s}`)
-                  .join(" · ")}`}
-              >
-                {SEVERITY_ORDER.filter((s) => mix[s]).map((s, i) => (
-                  <div
-                    key={s}
-                    className={`w-full ${SEVERITY_COLORS[s]} ${i === SEVERITY_ORDER.length - 1 ? "rounded-b" : ""}`}
-                    style={{ flex: mix[s] }}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
+          <StackedBarChart
+            height="h-32"
+            bars={days.map(([day, mix]) => ({
+              key: day,
+              title: `${day} · ${SEVERITY_ORDER.filter((s) => mix[s])
+                .map((s) => `${mix[s]} ${s}`)
+                .join(" · ")}`,
+              // Filtered before the map so `i` indexes the slices that actually
+              // render — only the last one gets the rounded bottom.
+              segments: SEVERITY_ORDER.filter((s) => mix[s]).map((s, i) => ({
+                key: s,
+                value: mix[s]!,
+                className: `${SEVERITY_COLORS[s]} ${i === SEVERITY_ORDER.length - 1 ? "rounded-b" : ""}`,
+              })),
+            }))}
+          />
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
             {SEVERITY_ORDER.map((s) => (
               <LegendDot key={s} className={SEVERITY_COLORS[s]!} label={s} />
@@ -1063,9 +958,9 @@ function TopFiles({ rows }: { rows?: TopFileRow[] }) {
   return (
     <Panel title="Files with the most findings">
       {!rows ? (
-        <Skeleton rows={5} />
+        <PanelSkeleton rows={5} />
       ) : rows.length === 0 ? (
-        <Empty label="No findings with a file in this window." />
+        <PanelEmpty label="No findings with a file in this window." />
       ) : (
         <ul className="divide-y divide-zinc-800/80">
           {rows.map((r) => (
