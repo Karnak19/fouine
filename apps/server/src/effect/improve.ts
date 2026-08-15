@@ -124,6 +124,9 @@ export function improvePipeline(
             prompt,
             model,
             agent: "fouine-improver",
+            // The improver has no PR, but it does have a review row, and its
+            // detail page is transcript-only — so it streams the same way.
+            transcript: { reviewId: id, repo: target.repoFullName },
             env: improveToolEnv({
               githubToken: token,
               owner,

@@ -212,6 +212,10 @@ export function reviewPipeline(
             // prompt, so they survive any per-repo prompt override.
             agent: "fouine",
             env: toolEnv,
+            // Live transcript: deltas go out on the SSE hub scoped to this
+            // repo, so the detail page streams instead of re-exporting the
+            // whole session (which spawns an opencode server per request).
+            transcript: { reviewId: id, repo: pr.repoFullName },
             // Sync SQLite read, same runSync bridge as setSession below. On a DB
             // error assume posted — better to miss a nudge than nudge a review
             // that's already on GitHub.
