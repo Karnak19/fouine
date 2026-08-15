@@ -159,8 +159,39 @@ export async function buildChart(input: ChartInput, signal?: AbortSignal): Promi
     notes.push(
       `showing the first ${cap} of ${categories.length} categories — the chart is partial; aggregate further in SQL for a complete picture`,
     );
+    // No upstream-cap worry on this branch: `runStatsQuery`'s LIMIT can only cut
+    // the LAST category short, and that one is beyond `cap`, so it is dropped
+    // here anyway. Every category we keep came back whole.
   } else if (rows.length === MAX_ROWS) {
-    notes.push(`the query itself was capped at ${MAX_ROWS} rows`);
+    // The upstream LIMIT counts ROWS, not categories, so as soon as one
+    // category is several rows it can land mid-category: the last bar would be
+    // missing slices and quietly understate itself. The test is the data, not
+    // the `series` field — a `bar` whose SQL happens to return several rows per
+    // x has exactly the same hole, and a `stacked_bar` that returned one row
+    // per category has none.
+    if (rows.length > categories.length) {
+      // We cannot tell "cut short" from "happened to end exactly on a category
+      // boundary", so we drop the last category either way. Losing one complete
+      // bar now and then is the cheap mistake; drawing a short one is the
+      // expensive one, and the generic "capped at 500 rows" note is not
+      // something a reader of the chart would connect to one specific bar being
+      // wrong.
+      const last = categories[categories.length - 1];
+      if (categories.length === 1) {
+        return {
+          ok: false,
+          error: `the query hit the ${MAX_ROWS}-row cap inside a single "${x}" category, so no complete bar came back. Aggregate further (coarser "${x}" buckets, fewer${series ? ` "${series}"` : ""} groups) or narrow the window.`,
+        };
+      }
+      rows = rows.filter((r) => r[x] !== last);
+      notes.push(
+        `the query was capped at ${MAX_ROWS} rows, which may have cut the last category short, so it was dropped — aggregate further in SQL for a complete picture`,
+      );
+    } else {
+      // One row per x, so the cap just means fewer complete points; every point
+      // drawn is still whole and the plain note says all there is to say.
+      notes.push(`the query itself was capped at ${MAX_ROWS} rows`);
+    }
   }
 
   return {
