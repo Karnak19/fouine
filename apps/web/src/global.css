@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@import "tw-shimmer";
+
+/* Tailwind v4 never scans node_modules, and streamdown writes its copy/download
+   /fullscreen controls as utility classes. Without these the chat's code blocks
+   render with unstyled buttons. */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
 
 @theme {
   /* fouine — "marten warm": neutrals are warm-tinted charcoal/taupe (hue ~70),
@@ -63,4 +70,27 @@ h1, h2, h3 {
 @keyframes fouine-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+@theme inline {
+  @keyframes collapsible-down {
+  from {
+    height: 0;
+    }
+  to {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  }
+  @keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  to {
+    height: 0;
+    }
+  }
 }
