@@ -7,12 +7,28 @@ import type { RepoRow, ReviewRow } from "./api";
 // they only trigger react-query invalidations, so the REST queries stay the
 // source of truth (initial snapshot + fallback when the stream is down).
 
+// Mirrors TranscriptDelta / TranscriptPart in apps/server/src/review/transcript.ts.
+// Already truncated and coalesced server-side; the client just merges by id.
+export interface TranscriptPart {
+  id: string;
+  type: string;
+  text?: string;
+  tool?: string;
+  state?: { status?: string; title?: string; output?: string; error?: string };
+}
+export interface TranscriptDelta {
+  messageId: string;
+  role?: string;
+  part?: TranscriptPart;
+}
+
 export type LiveStatus = "connecting" | "live" | "reconnecting" | "offline" | "error";
 
 export type ServerEvent =
   | { type: "review:created"; repo: string; review: ReviewRow }
   | { type: "review:updated"; repo: string; review: ReviewRow }
   | { type: "review:findings"; repo: string; reviewId: number }
+  | { type: "review:transcript"; repo: string; reviewId: number; delta: TranscriptDelta }
   | { type: "repo:updated"; repo: string; row: RepoRow }
   | { type: "repo:removed"; repo: string }
   | { type: "webhook:received"; repo: string | null; name: string; delivery: string };

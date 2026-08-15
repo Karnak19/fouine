@@ -1,4 +1,5 @@
 import { repos, reviews, type RepoRow, type ReviewRow } from "~/db";
+import type { TranscriptDelta } from "~/review/transcript";
 
 // Typed live-event hub. The /api/events SSE endpoint streams from here; every
 // real state change (review row writes, findings write-back, repo edits,
@@ -18,6 +19,11 @@ export type ServerEvent =
   // Payload deliberately carries only the review id — the client refetches
   // the findings list, so we never serialize findings twice or go stale.
   | { type: "review:findings"; repo: string; reviewId: number }
+  // Incremental transcript. Unlike review:findings this DOES carry a payload:
+  // the whole point is to avoid the refetch, since /reviews/:id/session spawns
+  // an opencode server per call. The payload is truncated and coalesced
+  // upstream (see review/transcript.ts) so it stays small on the wire.
+  | { type: "review:transcript"; repo: string; reviewId: number; delta: TranscriptDelta }
   | { type: "repo:updated"; repo: string; row: RepoRow }
   | { type: "repo:removed"; repo: string }
   | { type: "webhook:received"; repo: string | null; name: string; delivery: string };
@@ -97,6 +103,10 @@ export function publishRepoRemoved(fullName: string): void {
 
 export function publishFindings(reviewId: number, repo: string): void {
   publishEvent({ type: "review:findings", repo, reviewId });
+}
+
+export function publishTranscript(reviewId: number, repo: string, delta: TranscriptDelta): void {
+  publishEvent({ type: "review:transcript", repo, reviewId, delta });
 }
 
 export function publishWebhook(name: string, delivery: string, payload: string): void {

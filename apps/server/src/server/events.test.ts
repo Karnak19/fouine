@@ -3,6 +3,7 @@ import {
   subscribeEvents,
   publishEvent,
   publishReviewEvent,
+  publishTranscript,
   publishWebhook,
   upsertRepoAndPublish,
   subscriberCount,
@@ -109,6 +110,25 @@ test("upsertRepoAndPublish keeps settings an operator already set", () => {
   repos.update.run({ $full_name: "keep/settings", $prompt: "custom", $model: "m", $enabled: 1 });
   const row = upsertRepoAndPublish("keep/settings", 1);
   expect(row).toMatchObject({ prompt: "custom", model: "m", enabled: 1 });
+});
+
+test("publishTranscript is repo-scoped like every other event", () => {
+  const mine: ServerEvent[] = [];
+  const other: ServerEvent[] = [];
+  const unsubMine = subscribeEvents("a/b", (e) => mine.push(e));
+  const unsubOther = subscribeEvents("c/d", (e) => other.push(e));
+  publishTranscript(7, "a/b", { messageId: "msg_1", role: "assistant" });
+  publishTranscript(7, "a/b", {
+    messageId: "msg_1",
+    part: { id: "prt_1", type: "text", text: "hello" },
+  });
+  unsubMine();
+  unsubOther();
+  expect(other).toHaveLength(0);
+  expect(mine).toHaveLength(2);
+  expect(mine[0]).toMatchObject({ type: "review:transcript", repo: "a/b", reviewId: 7 });
+  const withPart = mine[1] as Extract<ServerEvent, { type: "review:transcript" }>;
+  expect(withPart.delta.part).toMatchObject({ id: "prt_1", type: "text", text: "hello" });
 });
 
 test("publishWebhook extracts the repo from the payload", () => {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { api, type FindingRow } from "@/lib/api";
-import { useLiveEvents } from "@/lib/live";
+import { useLiveEvents, type TranscriptDelta } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,40 @@ interface Session {
     time?: { created?: number; updated?: number };
   };
   messages?: Message[];
+}
+
+// Merge one delta into the cached session, immutably (react-query compares by
+// reference). Returns null when the delta names a message the snapshot doesn't
+// have and can't create — the caller then refetches rather than render a hole.
+//
+// A message-level delta (no `part`) legitimately introduces a new message, so
+// it appends a shell. A part-level delta for an unknown message is the "we
+// missed frames" case.
+function mergeDelta(session: Session, delta: TranscriptDelta): Session | null {
+  const messages = session.messages ?? [];
+  const idx = messages.findIndex((m) => m.info?.id === delta.messageId);
+
+  if (!delta.part) {
+    if (idx >= 0) return session;
+    return {
+      ...session,
+      messages: [...messages, { info: { id: delta.messageId, role: delta.role }, parts: [] }],
+    };
+  }
+  if (idx < 0) return null;
+
+  const target = messages[idx];
+  const parts = target.parts ?? [];
+  const pIdx = parts.findIndex((p) => p.id === delta.part!.id);
+  // Parts are replaced wholesale, not deep-merged: opencode republishes the
+  // full accumulated part on each update, so the newest frame is complete.
+  const nextParts =
+    pIdx >= 0
+      ? parts.map((p, i) => (i === pIdx ? delta.part! : p))
+      : [...parts, delta.part];
+  const nextMessages = [...messages];
+  nextMessages[idx] = { ...target, parts: nextParts };
+  return { ...session, messages: nextMessages };
 }
 
 export default function ReviewDetailPage() {
@@ -82,24 +116,60 @@ export default function ReviewDetailPage() {
   const inProgress = review?.status === "running" || review?.status === "pending";
   const [tab, setTab] = useState<"review" | "transcript">("review");
 
+  // SSE: the instant the row, its findings, or its transcript change, react.
+  // The polls above/below remain as the fallback when the stream is down.
+  //
+  // The hub has no replay, so anything published before this subscription
+  // existed is simply gone. Reconciliation is therefore mandatory, and it has
+  // three legs: the REST snapshot on mount, a refetch on `resync` (reconnect),
+  // and a refetch whenever a part delta arrives for a message the snapshot has
+  // never seen — that "unknown message" is exactly the shape a missed window
+  // takes, and rendering a hole instead would be worse than one extra fetch.
+  const refetchGuard = useRef(0);
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "review:updated" && e.review.id === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
+    }
+    if (e.type === "review:findings" && e.reviewId === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
+    }
+    if (e.type === "review:transcript" && e.reviewId === numId) {
+      const key = ["reviews", numId, "session"];
+      const current = queryClient.getQueryData<Session>(key);
+      // No snapshot yet — the mount fetch is still in flight and will land
+      // ahead of us. Dropping the delta is safe; the snapshot supersedes it.
+      if (!current) return;
+      const merged = mergeDelta(current, e.delta);
+      if (merged) {
+        queryClient.setQueryData(key, merged);
+        return;
+      }
+      // Unknown message id: we missed frames. Refetch the snapshot, at most
+      // once every 5s so a burst of orphan deltas can't become a fetch storm
+      // (each fetch spawns an opencode server — the very cost this removes).
+      const now = Date.now();
+      if (now - refetchGuard.current < 5000) return;
+      refetchGuard.current = now;
+      queryClient.invalidateQueries({ queryKey: key });
+    }
+  });
+  const streaming = status === "live";
+
   const { data: session } = useQuery({
     queryKey: ["reviews", numId, "session"],
-    queryFn: async () => {
-      const s = (await api.reviews.session(numId)) as Session & { error?: string };
-      // The server 200s with {error} when `opencode export` transiently fails;
-      // throw so react-query keeps the last good transcript instead of
-      // flashing an empty one.
-      if (s?.error) throw new Error(s.error);
-      return s;
-    },
+    // The server returns 503 when the session can't be read; the api helper
+    // throws on non-2xx, and retry:false keeps react-query showing the last
+    // good transcript instead of flashing an empty one.
+    queryFn: () => api.reviews.session(numId) as Promise<Session>,
     retry: false,
     // No session_id yet (pending) → nothing to export, don't poll a 404.
     enabled: !!review?.session_id,
     refetchOnWindowFocus: false,
-    // The transcript is the heavy payload (opencode export per request) —
-    // only poll it while it's actually on screen. The meta bar above the
-    // tabs keeps the last cached value.
-    refetchInterval: inProgress && tab === "transcript" ? 2000 : false,
+    // The transcript is the heavy payload — the server spawns a whole opencode
+    // instance per call — so this is the snapshot only: fetched on mount, then
+    // kept current by review:transcript deltas below. What's left here is the
+    // fallback for a dead stream, at 20s rather than the old 2s.
+    refetchInterval: inProgress && tab === "transcript" && !streaming ? 20000 : false,
   });
   const { data: findings } = useQuery({
     queryKey: ["reviews", numId, "findings"],
@@ -108,16 +178,6 @@ export default function ReviewDetailPage() {
     refetchInterval: inProgress ? 2000 : false,
   });
 
-  // SSE: the instant the row or its findings change, refetch. The 2s polls
-  // above remain as the fallback when the stream is down.
-  const { status, resync } = useLiveEvents(null, (e) => {
-    if (e.type === "review:updated" && e.review.id === numId) {
-      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
-    }
-    if (e.type === "review:findings" && e.reviewId === numId) {
-      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
-    }
-  });
   useEffect(() => {
     if (resync > 0) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
@@ -296,7 +356,7 @@ export default function ReviewDetailPage() {
                 <Radio size={12} />
                 <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
               </span>
-              live · polling every 2s
+              {streaming ? "live · streaming" : "live · polling"}
             </span>
           )}
         </div>

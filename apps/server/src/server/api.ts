@@ -1,5 +1,4 @@
 import { Elysia, t, sse } from "elysia";
-import { $ } from "bun";
 import { repos, reviews, settings, findings } from "~/db";
 import {
   publishRepoRemoved,
@@ -40,6 +39,13 @@ const RANGE_SECONDS: Record<string, number | null> = {
 
 // Empty query strings are "no filter", not a filter on the empty string.
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+
+// The SDK returns { data?, error? }; turn a missing payload into a throw so the
+// route's catch maps it to a 503 instead of serving `undefined`.
+function unwrapSession<T, E>(res: { data?: T; error?: E }, op: string): T {
+  if (!res.data) throw new Error(`opencode ${op} failed: ${JSON.stringify(res.error)}`);
+  return res.data;
+}
 
 // A YYYY-MM-DD picker value as a UTC epoch, or null for anything that isn't one.
 // UTC on purpose: created_at is epoch and reviews.daily buckets with
@@ -358,18 +364,36 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     return r;
   })
 
-  .get("/reviews/:id/session", async ({ params }) => {
+  .get("/reviews/:id/session", async ({ params, set }) => {
     const r = reviews.byId.get({ $id: Number(params.id) });
     if (!r?.session_id) return new Response("Not found", { status: 404 });
-    const res = await $`opencode export ${r.session_id}`.nothrow().quiet();
-    const out = res.stdout.toString().trim();
-    if (res.exitCode !== 0 || !out) {
-      return { error: "session-unavailable", detail: res.stderr.toString().trim() };
-    }
+    const sessionId = r.session_id;
     try {
-      return JSON.parse(out);
-    } catch {
-      return { error: "session-unparseable", raw: out.slice(0, 1000) };
+      // Session lookup is global by id: a fresh server resolves a session a
+      // previous (now closed) one created, no `directory` needed. Spawning a
+      // server per request costs latency; accepted, no shared client.
+      return await withOpencode(async (client) => {
+        const info = await client.session
+          .get({ path: { id: sessionId } })
+          .then((res) => unwrapSession(res, "session.get"));
+        const messages = await client.session
+          .messages({ path: { id: sessionId } })
+          .then((res) => unwrapSession(res, "session.messages"));
+        // session.get() carries no model, but the UI renders a model badge —
+        // derive it from the last assistant message.
+        const last = [...messages]
+          .reverse()
+          .map((m) => m.info as { role?: string; modelID?: string; providerID?: string })
+          .find((i) => i.role === "assistant");
+        const model =
+          last?.modelID && last.providerID
+            ? { id: last.modelID, providerID: last.providerID }
+            : undefined;
+        return { info: model ? { ...info, model } : info, messages };
+      });
+    } catch (err) {
+      set.status = 503;
+      return { error: "session-unavailable", detail: String(err) };
     }
   })
 
