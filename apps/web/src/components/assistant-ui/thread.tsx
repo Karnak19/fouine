@@ -120,7 +120,10 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        // "top" (the registry default) pins your question to the top and lets
+        // the answer grow past the fold, so a long answer reads as if nothing
+        // scrolled. "bottom" follows the stream instead.
+        turnAnchor="bottom"
         data-slot="aui_thread-viewport"
         className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
       >
