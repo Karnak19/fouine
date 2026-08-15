@@ -19,10 +19,11 @@ type StreamPart =
  * scroll-to-bottom button, the sticky composer once the thread is non-empty,
  * reasoning blocks, the tool card — impossible to look at, let alone verify.
  *
- * So: same `streamText` call, same system prompt, same `query_stats` tool, same
- * multi-step loop — only the model is swapped. The tool call it emits is real
- * and runs against the real SQLite database, so what you see on screen is the
- * actual pipeline with a scripted brain rather than a mocked-out pipeline.
+ * So: same `streamText` call, same system prompt, same `query_stats` and
+ * `render_chart` tools, same multi-step loop — only the model is swapped. The
+ * tool calls it emits are real and run against the real SQLite database, so
+ * what you see on screen is the actual pipeline with a scripted brain rather
+ * than a mocked-out pipeline.
  *
  * Off unless `CHAT_MOCK=1`, and refused outright in production (see
  * `chatMockEnabled`).
@@ -49,6 +50,24 @@ const FIRST_REASONING =
   "number of distinct repositories and the completed/failed split in one pass. " +
   "No GROUP BY: I want one row back, not one per status.";
 
+// The chart the mock draws, and the one constraint that shaped it: a local dev
+// database is usually EMPTY, and a `GROUP BY status` over an empty table
+// returns zero rows — which `render_chart` correctly refuses to plot, leaving
+// the chart card unverifiable exactly when you most need to look at it. So the
+// status breakdown is built as one row per status with `COUNT(CASE ...)`, which
+// is 0 rather than NULL on an empty table (`SUM` would give NULL and be
+// refused). Three bars at zero on a fresh DB, real counts once reviews exist.
+const MOCK_CHART_SQL =
+  "SELECT 'completed' AS status, COUNT(CASE WHEN status = 'completed' THEN 1 END) AS reviews FROM reviews " +
+  "UNION ALL SELECT 'failed', COUNT(CASE WHEN status = 'failed' THEN 1 END) FROM reviews " +
+  "UNION ALL SELECT 'running', COUNT(CASE WHEN status = 'running' THEN 1 END) FROM reviews";
+
+const CHART_REASONING =
+  "The totals are back, but a completed/failed split is a shape rather than a " +
+  "single number, so it reads better as a chart than as a sentence. A bar per " +
+  "status, counted in the same pass — and the numbers I quote afterwards come " +
+  "from the chart's own rows, so the prose and the picture cannot disagree.";
+
 const SECOND_REASONING =
   "The rows are back. Now I read them off rather than restating what I expected " +
   "to find, and I say plainly where the numbers came from so the answer can be " +
@@ -57,7 +76,7 @@ const SECOND_REASONING =
 // Long on purpose: the answer has to be taller than a phone screen for
 // auto-scroll and the sticky composer to actually be exercised, and it carries
 // a fenced code block so the markdown/Shiki path runs too.
-const ANSWER = `Here is what the database actually says, straight from the aggregate above.
+const ANSWER = `Here is what the database actually says, straight from the aggregate above — and the chart shows the same split, drawn from its own query so the two cannot drift apart.
 
 ### Review volume
 
@@ -155,7 +174,34 @@ function toolCallStep(): StreamPart[] {
   ];
 }
 
-/** Step two: think again, then the long answer. Ends the run. */
+/** Step two: think, then draw the chart from its own query. */
+function chartStep(): StreamPart[] {
+  const input = JSON.stringify({
+    sql: MOCK_CHART_SQL,
+    type: "bar",
+    title: "Reviews by status",
+    x: "status",
+    y: "reviews",
+  });
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "response-metadata", id: "mock-2", modelId: "chat-mock", timestamp: new Date() },
+    { type: "reasoning-start", id: "rc" },
+    ...deltas(CHART_REASONING, 24).map(
+      (delta): StreamPart => ({ type: "reasoning-delta", id: "rc", delta }),
+    ),
+    { type: "reasoning-end", id: "rc" },
+    { type: "tool-input-start", id: "call-2", toolName: "render_chart" },
+    ...deltas(input, 32).map(
+      (delta): StreamPart => ({ type: "tool-input-delta", id: "call-2", delta }),
+    ),
+    { type: "tool-input-end", id: "call-2" },
+    { type: "tool-call", toolCallId: "call-2", toolName: "render_chart", input },
+    { type: "finish", finishReason: { unified: "tool-calls" as const, raw: "tool_calls" }, usage: USAGE },
+  ];
+}
+
+/** Step three: think again, then the long answer. Ends the run. */
 function answerStep(): StreamPart[] {
   return [
     { type: "stream-start", warnings: [] },
@@ -177,10 +223,10 @@ function answerStep(): StreamPart[] {
 /**
  * Build the mock model for ONE request.
  *
- * `stopWhen: stepCountIs(6)` means the model is called again after the tool
- * result comes back, so the script is per-call: the first call asks for the
- * query, every later call answers and finishes. Without that the run would ask
- * for the same query over and over until the step budget ran out.
+ * `stopWhen: stepCountIs(6)` means the model is called again after each tool
+ * result comes back, so the script is per-call: query, then chart, then the
+ * answer — and every later call answers and finishes. Without that the run
+ * would ask for the same query over and over until the step budget ran out.
  */
 export function createChatMockModel(): MockLanguageModelV4 {
   let call = 0;
@@ -188,7 +234,8 @@ export function createChatMockModel(): MockLanguageModelV4 {
     provider: "chat-mock",
     modelId: "chat-mock",
     doStream: async () => {
-      const step = call++ === 0 ? toolCallStep() : answerStep();
+      const n = call++;
+      const step = n === 0 ? toolCallStep() : n === 1 ? chartStep() : answerStep();
       return {
         stream: simulateReadableStream({
           chunks: step,
