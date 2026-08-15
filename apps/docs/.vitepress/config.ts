@@ -17,7 +17,7 @@ export default defineConfig({
       {
         text: "Links",
         items: [
-          { text: "GitHub", link: "https://github.com/basilevernouillet/fouine" },
+          { text: "GitHub", link: "https://github.com/Karnak19/fouine" },
           { text: "Contributing", link: "/contributing/" },
         ],
       },
@@ -61,14 +61,14 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [{ icon: "github", link: "https://github.com/basilevernouillet/fouine" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/Karnak19/fouine" }],
 
     search: {
       provider: "local",
     },
 
     editLink: {
-      pattern: "https://github.com/basilevernouillet/fouine/edit/main/docs/:path",
+      pattern: "https://github.com/Karnak19/fouine/edit/main/apps/docs/:path",
     },
 
     footer: {

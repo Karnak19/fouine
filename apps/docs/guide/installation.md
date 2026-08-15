@@ -3,7 +3,7 @@
 ## Docker Compose (recommended)
 
 ```bash
-git clone https://github.com/basilevernouillet/fouine.git
+git clone https://github.com/Karnak19/fouine.git
 cd fouine
 cp .env.example .env
 # edit .env with your GitHub App credentials and OpenCode key
@@ -29,7 +29,7 @@ Configure environment variables in the Coolify UI instead of `.env`.
 Requires [Bun](https://bun.sh) installed.
 
 ```bash
-git clone https://github.com/basilevernouillet/fouine.git
+git clone https://github.com/Karnak19/fouine.git
 cd fouine
 bun install
 

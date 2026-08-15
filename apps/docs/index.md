@@ -11,7 +11,7 @@ hero:
       link: /guide/quickstart
     - theme: alt
       text: View on GitHub
-      link: https://github.com/basilevernouillet/fouine
+      link: https://github.com/Karnak19/fouine
 
 features:
   - icon: "\U0001F50D"

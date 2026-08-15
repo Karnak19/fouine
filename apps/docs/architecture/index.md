@@ -96,9 +96,9 @@ The Elysia server handles:
 - **`/webhook/github`** — webhook receiver (HMAC verification + event dispatch)
 - **`/api/*`** — REST API for the dashboard
 - **`/api/events`** — SSE live-event stream (see below)
-- **Static assets** — the React SPA (built with Vite, served as static files)
+- **Static assets** — the React SPA. In development it is served straight from `apps/web/src` with Bun transpiling on the fly; in production (`NODE_ENV=production`) from the Vite build in `apps/web/dist`. Either way there is no second dev server
 - **`/health`** — health check endpoint
-- **Basic Auth** — optional, protects dashboard and API (webhook and health exempt)
+- **GitHub OAuth** — optional, protects `/api/*` (webhook, `/health` and the SPA shell exempt). Uses better-auth with the GitHub App's own OAuth credentials; enabled when `BETTER_AUTH_SECRET`, `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are all set, and gated by `ALLOWED_GITHUB_USERS`
 
 ## Real-time events (SSE)
 
@@ -167,15 +167,15 @@ ignores — there is no replay buffer). Events are idempotent *by construction*:
 they only invalidate react-query keys, and invalidation always refetches the
 current state, so a reconnect can never produce duplicate events or miss a
 final state. When the connection drops and comes back, the client refetches
-its queries once (`resync` in `public/lib/live.ts`) to cover anything that
+its queries once (`resync` in `apps/web/src/lib/live.ts`) to cover anything that
 happened while disconnected.
 
 ### Client
 
-`public/lib/live.ts` keeps one `EventSource` per scope, refcounted across
+`apps/web/src/lib/live.ts` keeps one `EventSource` per scope, refcounted across
 pages, and exposes `useLiveEvents(scope, onEvent)` returning the connection
 status (`connecting | live | reconnecting | offline | error`) and a `resync`
 counter. Pages pass an event handler that invalidates their react-query keys;
-`components/live-badge.tsx` renders the status so loading/offline/reconnecting
+`apps/web/src/components/live-badge.tsx` renders the status so loading/offline/reconnecting
 states are always visible. Existing query `refetchInterval`s remain as the
 fallback when the stream is down.
