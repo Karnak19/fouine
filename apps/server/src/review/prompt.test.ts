@@ -67,7 +67,9 @@ test("first review has no re-review directive", () => {
 // fouine agent's system prompt, so they survive per-repo prompt overrides. Guard
 // that they didn't silently vanish from their new home.
 test("the fouine agent prompt owns the review mechanics", async () => {
-  const agent = await Bun.file("opencode-config/agent/fouine.md").text();
+  const agent = await Bun.file(
+    new URL("../../opencode-config/agent/fouine.md", import.meta.url),
+  ).text();
   expect(agent).toContain("`blocking`");
   expect(agent).toContain("`nit`");
   expect(agent).toContain("`question`");

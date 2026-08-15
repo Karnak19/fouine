@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["bun"],
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "target": "ESNext",
@@ -19,12 +22,6 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "resolveJsonModule": true,
-    "isolatedModules": true,
-    "paths": {
-      "~/*": ["./src/*"],
-      "@/*": ["./public/*"]
-    }
-  },
-  "include": ["src/**/*.ts", "public/**/*.tsx", "public/**/*.ts", "**/*.test.ts"],
-  "exclude": ["node_modules"]
+    "isolatedModules": true
+  }
 }

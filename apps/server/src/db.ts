@@ -1,5 +1,38 @@
 import { Database } from "bun:sqlite";
 import { config } from "~/config";
+import type {
+  DailyStatsRow,
+  FindingRow,
+  FindingsDailyRow,
+  ModelStatsRow,
+  ProjectStatsRow,
+  ReliabilityRow,
+  RepoRow,
+  ReviewRow,
+  SeverityStatsRow,
+  SkillMetaRow,
+  TopCostRow,
+  TopFileRow,
+  TriggerStatsRow,
+} from "@fouine/shared";
+
+// The row shapes the dashboard also sees live in @fouine/shared — re-exported
+// here so `~/db` stays the server's single import point for them.
+export type {
+  DailyStatsRow,
+  FindingRow,
+  FindingsDailyRow,
+  ModelStatsRow,
+  ProjectStatsRow,
+  ReliabilityRow,
+  RepoRow,
+  ReviewRow,
+  SeverityStatsRow,
+  SkillMetaRow,
+  TopCostRow,
+  TopFileRow,
+  TriggerStatsRow,
+} from "@fouine/shared";
 
 export const db = new Database(config.dbPath, { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
@@ -123,106 +156,15 @@ for (const def of [
 // to — ON CONFLICT never touches enabled.
 for (const def of ["enabled INTEGER NOT NULL DEFAULT 0"]) addColumn("repos", def);
 
-export interface RepoRow {
-  full_name: string;
-  installation_id: number;
-  prompt: string | null;
-  model: string | null;
-  enabled: number;
-  created_at: number;
-}
-
-export interface ReviewRow {
-  id: number;
-  repo_full_name: string;
-  pr_number: number;
-  title: string | null;
-  session_id: string | null;
-  status: string;
-  error: string | null;
-  trigger: string | null;
-  cost: number | null;
-  tokens: number | null;
-  model: string | null;
-  check_run_id: number | null;
-  patch_id: string | null;
-  created_at: number;
-  completed_at: number | null;
-}
-
-export interface FindingRow {
-  id: number;
-  review_id: number;
-  repo_full_name: string;
-  pr_number: number;
-  kind: string; // 'inline' | 'summary' | 'comment'
-  severity: string | null; // 'blocking' | 'nit' | 'question' (inline only)
-  event: string | null; // COMMENT | APPROVE | REQUEST_CHANGES (summary only)
-  path: string | null;
-  line: number | null;
-  body: string;
-  github_review_id: number | null;
-  github_comment_id: number | null;
-  created_at: number;
-}
-
-// Findings grouped by severity for the dashboard. Only inline findings carry a
-// severity, so summary/comment rows are excluded by the WHERE clause.
-export interface SeverityStatsRow {
-  severity: string;
-  count: number;
-}
-
 export interface SettingRow {
   key: string;
   value: string;
 }
 
-export interface SkillRow {
-  name: string;
-  source_url: string;
-  owner: string;
-  repo: string;
-  path: string;
-  ref: string;
-  description: string | null;
+// The full skill row, files blob included — server-only: nothing over the wire
+// carries it. SkillMetaRow (shared) is what /api/skills returns.
+export interface SkillRow extends SkillMetaRow {
   files: string; // JSON [{ path, contentBase64 }]
-  enabled: number;
-  created_at: number;
-}
-
-// Skill row without the (potentially large) files blob — for list/detail views
-// that only need metadata. Kept in sync with SkillRow's non-files columns.
-export type SkillMetaRow = Omit<SkillRow, "files">;
-
-// Aggregate rows for the dashboard stats. SUM ignores null cost/tokens
-// (failures, pre-column rows); COALESCE keeps them 0 not null. avg_duration is
-// null for a project with no completed reviews yet.
-export interface ProjectStatsRow {
-  repo_full_name: string;
-  reviews: number;
-  cost: number;
-  tokens: number;
-  avg_duration: number | null;
-}
-
-export interface ModelStatsRow {
-  model: string;
-  reviews: number;
-  cost: number;
-  tokens: number;
-}
-
-export interface DailyStatsRow {
-  day: string; // "YYYY-MM-DD" (UTC)
-  reviews: number;
-  cost: number;
-  tokens: number;
-}
-
-export interface TriggerStatsRow {
-  trigger: string;
-  count: number;
 }
 
 export interface LatencyRow {
@@ -230,39 +172,10 @@ export interface LatencyRow {
   count: number;
 }
 
-// Daily outcome mix. in_flight = pending + running, which have no outcome yet
-// and are therefore excluded from the success rate's denominator.
-export interface ReliabilityRow {
-  day: string;
-  completed: number;
-  failed: number;
-  in_flight: number;
-}
-
 // One completed review's duration; percentiles are computed from these in JS.
 export interface LatencySampleRow {
   day: string;
   seconds: number;
-}
-
-export interface FindingsDailyRow {
-  day: string;
-  severity: string;
-  count: number;
-}
-
-export interface TopFileRow {
-  path: string;
-  count: number;
-}
-
-export interface TopCostRow {
-  id: number;
-  repo_full_name: string;
-  pr_number: number;
-  cost: number;
-  tokens: number | null;
-  model: string | null;
 }
 
 // Dashboard filter params, shared by every stats statement. Null = no filter;

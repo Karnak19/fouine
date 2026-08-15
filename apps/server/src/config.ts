@@ -39,7 +39,10 @@ export const config = {
     // The config dir shipped with the app (agent + custom tools). Points at the
     // in-image opencode-config in prod (Dockerfile sets OPENCODE_CONFIG_DIR), or
     // the checked-in dir in dev. fouine reads this as a *source* only — see below.
-    shippedConfigDir: resolve(process.env.OPENCODE_CONFIG_DIR ?? "./opencode-config"),
+    // Resolved from import.meta.dir, not cwd — see the note in src/server/app.ts.
+    shippedConfigDir: resolve(
+      process.env.OPENCODE_CONFIG_DIR ?? resolve(import.meta.dir, "../opencode-config"),
+    ),
     // A fouine-owned config dir on the data volume that opencode is actually
     // pointed at (boot re-exports OPENCODE_CONFIG_DIR to here). It symlinks the
     // shipped agent/tools across and adds a persistent skills/ dir fouine

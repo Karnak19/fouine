@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { staticPlugin } from "@elysia/static";
+import { resolve } from "node:path";
 import { config } from "~/config";
 import { reviews, findings } from "~/db";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
@@ -11,8 +12,12 @@ import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills } from "~/skills";
 import { reapOrphanReviews, runImproverSweep } from "~/review";
 
+// Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
+// package dir and Docker runs from /app, so a cwd-relative path points somewhere
+// different depending on how the server was started. Dev serves the web app's
+// sources directly (Bun transpiles .tsx on the fly); prod serves the vite build.
 const isProd = process.env.NODE_ENV === "production";
-const assetsDir = isProd ? "dist" : "public";
+const assetsDir = resolve(import.meta.dir, "../../../web", isProd ? "dist" : "src");
 
 function pathname(url: string): string {
   try {

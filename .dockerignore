@@ -1,5 +1,12 @@
 node_modules
 data
+dist
+apps/*/dist
+apps/docs
+# but the manifest must reach the build context: workspaces is apps/*, so
+# `bun install --frozen-lockfile` fails on a missing workspace package.json.
+!apps/docs/package.json
+.turbo
 .git
 .gitignore
 .env

@@ -1,3 +1,38 @@
+import type {
+  DailyStatsRow,
+  FindingRow,
+  FindingsDailyRow,
+  ModelStatsRow,
+  ProjectStatsRow,
+  ReliabilityRow,
+  RepoRow,
+  ReviewRow,
+  SeverityStatsRow,
+  SkillMetaRow,
+  TopCostRow,
+  TopFileRow,
+  TriggerStatsRow,
+} from "@fouine/shared";
+
+// The API row shapes are declared once in @fouine/shared and re-exported here,
+// so components keep importing them from "@/lib/api".
+export type {
+  DailyStatsRow,
+  FindingRow,
+  FindingsDailyRow,
+  ModelStatsRow,
+  ProjectStatsRow,
+  ReliabilityRow,
+  RepoRow,
+  ReviewRow,
+  SeverityStatsRow,
+  TopCostRow,
+  TopFileRow,
+  TriggerStatsRow,
+  // What /api/skills returns: the skill row minus the files blob.
+  SkillMetaRow as SkillRow,
+} from "@fouine/shared";
+
 const BASE = "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -12,94 +47,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export interface RepoRow {
-  full_name: string;
-  installation_id: number;
-  prompt: string | null;
-  model: string | null;
-  enabled: number;
-  created_at: number;
-}
-
-export interface ReviewRow {
-  id: number;
-  repo_full_name: string;
-  pr_number: number;
-  title: string | null;
-  session_id: string | null;
-  status: string;
-  error: string | null;
-  trigger: string | null;
-  cost: number | null;
-  tokens: number | null;
-  model: string | null;
-  patch_id: string | null;
-  created_at: number;
-  completed_at: number | null;
-}
-
-export interface ProjectStatsRow {
-  repo_full_name: string;
-  reviews: number;
-  cost: number;
-  tokens: number;
-  avg_duration: number | null;
-}
-
-export interface ModelStatsRow {
-  model: string;
-  reviews: number;
-  cost: number;
-  tokens: number;
-}
-
-export interface DailyStatsRow {
-  day: string;
-  reviews: number;
-  cost: number;
-  tokens: number;
-}
-
-export interface TriggerStatsRow {
-  trigger: string;
-  count: number;
-}
-
-export interface SeverityStatsRow {
-  severity: string;
-  count: number;
-}
-
-export interface FindingRow {
-  id: number;
-  review_id: number;
-  repo_full_name: string;
-  pr_number: number;
-  kind: "inline" | "summary" | "comment";
-  severity: "blocking" | "nit" | "question" | null;
-  event: string | null;
-  path: string | null;
-  line: number | null;
-  body: string;
-  github_review_id: number | null;
-  github_comment_id: number | null;
-  created_at: number;
-}
-
 export interface Stats {
   projects: ProjectStatsRow[];
   models: ModelStatsRow[];
   daily: DailyStatsRow[];
   triggers: TriggerStatsRow[];
   latency: { avg: number | null; count: number; p95: number | null };
-  topCost: {
-    id: number;
-    repo_full_name: string;
-    pr_number: number;
-    cost: number;
-    tokens: number | null;
-    model: string | null;
-  }[];
+  topCost: TopCostRow[];
   severity: SeverityStatsRow[];
   // Every model ever seen, unfiltered and alphabetical — it populates the
   // model dropdown, so it must not shrink when a filter is applied.
@@ -134,31 +88,12 @@ function qs(q: ReviewsQuery): string {
   return s ? `?${s}` : "";
 }
 
-export interface ReliabilityRow {
-  day: string;
-  completed: number;
-  failed: number;
-  // pending + running: no outcome yet, so excluded from the success rate.
-  in_flight: number;
-}
-
 // p50/p95 are null for a day with no completed reviews — render a dash, not a 0.
 export interface LatencyDayRow {
   day: string;
   count: number;
   p50: number | null;
   p95: number | null;
-}
-
-export interface FindingsDailyRow {
-  day: string;
-  severity: string;
-  count: number;
-}
-
-export interface TopFileRow {
-  path: string;
-  count: number;
 }
 
 export interface StatsCharts {
@@ -174,18 +109,6 @@ export interface Settings {
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
-}
-
-export interface SkillRow {
-  name: string;
-  source_url: string;
-  owner: string;
-  repo: string;
-  path: string;
-  ref: string;
-  description: string | null;
-  enabled: number;
-  created_at: number;
 }
 
 export const api = {
@@ -240,11 +163,11 @@ export const api = {
     test: () => request<{ ok: boolean; text?: string; error?: string }>("/settings/test"),
   },
   skills: {
-    list: () => request<SkillRow[]>("/skills"),
+    list: () => request<SkillMetaRow[]>("/skills"),
     install: (url: string) =>
-      request<SkillRow>("/skills", { method: "POST", body: JSON.stringify({ url }) }),
+      request<SkillMetaRow>("/skills", { method: "POST", body: JSON.stringify({ url }) }),
     setEnabled: (name: string, enabled: boolean) =>
-      request<SkillRow>(`/skills/${name}`, {
+      request<SkillMetaRow>(`/skills/${name}`, {
         method: "PUT",
         body: JSON.stringify({ enabled }),
       }),

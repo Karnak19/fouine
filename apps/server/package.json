@@ -1,0 +1,27 @@
+{
+  "name": "@fouine/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fouine/shared": "workspace:*",
+    "@ai-sdk/openai-compatible": "^3.0.30",
+    "@elysia/static": "^1.4.11",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@octokit/webhooks": "^14.2.0",
+    "@opencode-ai/sdk": "^1.18.11",
+    "ai": "^7.0.65",
+    "better-auth": "^1.6.23",
+    "bun-plugin-tailwind": "^0.1.2",
+    "effect": "^3.21.4",
+    "elysia": "^1.4.29",
+    "octokit": "^5.0.5",
+    "zod": "^4.4.3"
+  }
+}
