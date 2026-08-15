@@ -9,11 +9,19 @@
 // categories look like the same one. Prefer keeping the first
 // TRIGGER_COLORS.length - 1 categories and folding the rest into a single
 // "Other" bucket painted with the last (zinc) entry.
+// The order is load-bearing, not cosmetic. Adjacent entries land next to each
+// other in a stacked bar, and violet-400 against sky-400 is ΔE 5.7 under
+// deuteranopia — indistinguishable for a red-green colourblind reader, below
+// even the 6–8 band that secondary encoding can rescue. Moving amber between
+// them takes the worst adjacent pair to 19.7. Re-run the check before
+// reordering again:
+//   node <dataviz skill>/scripts/validate_palette.js \
+//     "#f59740,#00bcff,#ffb900,#a684ff,#7d7a76" --mode dark --surface "#100d0a"
 export const TRIGGER_COLORS = [
   "bg-ember-400",
   "bg-sky-400",
-  "bg-violet-400",
   "bg-amber-400",
+  "bg-violet-400",
   "bg-zinc-500",
 ];
 
