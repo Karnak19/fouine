@@ -140,9 +140,11 @@ bun run build        # build the dashboard into apps/web/dist
 ```
 
 Each of those is `turbo run <task>` under the hood. There is no separate dev
-server for the dashboard: in development Elysia serves `apps/web/src` directly
-and Bun transpiles the `.tsx` on the fly; in production (`NODE_ENV=production`)
-it serves the prebuilt `apps/web/dist`.
+server for the dashboard — everything is on **http://localhost:3000**. In
+development Elysia serves `apps/web/src` through Bun's fullstack dev server,
+which bundles the `.tsx` and the Tailwind CSS on the fly and gives you HMR; in
+production (`NODE_ENV=production`) it serves the prebuilt `apps/web/dist` that
+Vite produced.
 
 ## Self-hosting
 

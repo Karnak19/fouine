@@ -36,11 +36,12 @@ Run `turbo run typecheck` before considering any change done.
 
 ## Dashboard = served by the backend, no separate dev server
 
-The React SPA lives in `apps/web/src` (TanStack Router/Query + Tailwind v4). `turbo run dev` starts **only** the backend — there is no Vite dev server and no HMR, deliberately. Elysia's static plugin serves the dashboard:
-- dev → serves `apps/web/src` directly (Bun transpiles `.tsx` on the fly).
-- prod → serves the prebuilt `apps/web/dist`, enabled when `NODE_ENV=production`. Build with `turbo run build` (Vite root is `apps/web/src`, output → `apps/web/dist`).
+The React SPA lives in `apps/web/src` (TanStack Router/Query + Tailwind v4). `turbo run dev` starts **only** the backend — there is no Vite dev server, deliberately. Everything is on `:3000`. Elysia's static plugin serves the dashboard:
+- dev → serves `apps/web/src` through **Bun's fullstack dev server**: `staticPlugin({ bunFullstack: true })` hands `index.html` to Bun's bundler, which transpiles the whole `.tsx` module graph, resolves the `@/*` tsconfig paths and runs `bun-plugin-tailwind` over `global.css` (registered in `apps/server/bunfig.toml` under `[serve.static]`). HMR included. The `await` on `staticPlugin(...)` is what installs the HMR hooks — don't drop it.
+- Asset hrefs in `apps/web/src/index.html` must stay **relative** (`./index.tsx`, `./global.css`, …). Bun's HTML bundler can't resolve root-absolute `/…` hrefs and fails the build; it rewrites the relative ones to hashed `/_bun/asset/*` URLs anyway, so deep links are unaffected.
+- prod → serves the prebuilt `apps/web/dist`, enabled when `NODE_ENV=production` (which also turns `bunFullstack` off). Build with `turbo run build` (Vite root is `apps/web/src`, output → `apps/web/dist`). Vite is still the production bundler; only dev goes through Bun.
 - Both paths are resolved **absolutely from `import.meta.dir`** in `apps/server/src/server/app.ts`, not relative to the cwd — turbo and Docker both run with a cwd the old relative paths didn't survive. Don't "simplify" them back.
-- SPA fallback: non-asset GET paths return `index.html` (see `isAssetPath` in `apps/server/src/server/app.ts`).
+- SPA fallback: non-asset GET paths return `index.html` (see `isAssetPath`/`spaShell` in `apps/server/src/server/app.ts`). In dev `spaShell` re-requests our own `/` rather than reading the file — the bundled HTML only exists as the static plugin's `/` route, so `Bun.file(index.html)` there would serve raw source and blank every deep link.
 
 ## Path aliases
 
