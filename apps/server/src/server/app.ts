@@ -15,7 +15,8 @@ import { reapOrphanReviews, runImproverSweep } from "~/review";
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
 // package dir and Docker runs from /app, so a cwd-relative path points somewhere
 // different depending on how the server was started. Dev serves the web app's
-// sources directly (Bun transpiles .tsx on the fly); prod serves the vite build.
+// sources through Bun's fullstack dev server (see `bunFullstack` below); prod
+// serves the vite build from apps/web/dist.
 const isProd = process.env.NODE_ENV === "production";
 const assetsDir = resolve(import.meta.dir, "../../../web", isProd ? "dist" : "src");
 
@@ -32,6 +33,26 @@ function pathname(url: string): string {
 function isAssetPath(p: string): boolean {
   const seg = p.slice(p.lastIndexOf("/") + 1);
   return seg.includes(".");
+}
+
+// The SPA shell for a deep link (/chat, /reviews/12, …). In prod that's just the
+// prebuilt file. In dev it must NOT be `Bun.file(index.html)`: the bundled HTML
+// only exists as the "/" route the static plugin registered from Bun's HTML
+// bundle, so reading the file off disk hands the browser the un-transpiled
+// source and the page renders blank — the exact bug this replaced. Ask our own
+// "/" for it instead; onRequest lets "/" through to the static plugin, so this
+// costs one loopback request per deep link in dev and never recurses.
+async function spaShell(request: Request): Promise<Response> {
+  if (isProd) {
+    return new Response(Bun.file(`${assetsDir}/index.html`), {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
+  const res = await fetch(new URL("/", request.url), { headers: request.headers });
+  return new Response(res.body, {
+    status: res.status,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }
 
 const startedAt = new WeakMap<Request, number>();
@@ -61,9 +82,7 @@ export async function createServer() {
           p !== "/health" &&
           !isAssetPath(p)
         ) {
-          return new Response(Bun.file(`${assetsDir}/index.html`), {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          });
+          return spaShell(request);
         }
       }
     })
@@ -98,6 +117,14 @@ export async function createServer() {
         assets: assetsDir,
         prefix: "/",
         indexHTML: true,
+        // Dev only: hands index.html to Bun's bundler, which transpiles the
+        // .tsx module graph, resolves the "@/" tsconfig paths and runs
+        // bun-plugin-tailwind over global.css (see apps/server/bunfig.toml).
+        // Without it the plugin serves apps/web/src verbatim and the browser
+        // gets raw JSX — a blank page. The `await` on staticPlugin is what
+        // installs the HMR hooks, so it has to stay.
+        // In prod apps/web/dist is already built, so leave it off.
+        bunFullstack: !isProd,
       }),
     )
     .get("/health", () => ({ ok: true }))
@@ -195,9 +222,7 @@ export async function createServer() {
         !p.startsWith("/webhook") &&
         !isAssetPath(p)
       ) {
-        return new Response(Bun.file(`${assetsDir}/index.html`), {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
+        return spaShell(request);
       }
       const ms = Date.now() - (startedAt.get(request) ?? Date.now());
       set.status = status;
