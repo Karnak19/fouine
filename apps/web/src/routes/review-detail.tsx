@@ -70,11 +70,30 @@ export default function ReviewDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] }),
   });
 
+  // SSE: the instant the row or its findings change, refetch. Subscribed before
+  // the queries so they can read `status` and only fall back to polling when
+  // the stream isn't carrying the updates for them.
+  const { status, resync } = useLiveEvents(null, (e) => {
+    if (e.type === "review:updated" && e.review.id === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
+    }
+    if (e.type === "review:findings" && e.reviewId === numId) {
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
+    }
+  });
+  const streamHealthy = status === "live";
+
   const { data: review } = useQuery({
     queryKey: ["reviews", numId],
     queryFn: () => api.reviews.get(numId),
     refetchOnWindowFocus: false,
+    // Every write to this row publishes review:updated (setRunning, setSession,
+    // complete, skip, fail, the stop route, the boot reaper), so a healthy
+    // stream already pushes us every transition — polling on top of it is pure
+    // noise on a page that's just sitting open. Poll only while the stream is
+    // down, and only while there's still something to wait for.
     refetchInterval: (q) => {
+      if (streamHealthy) return false;
       const s = q.state.data?.status;
       return s === "running" || s === "pending" ? 2000 : false;
     },
@@ -105,19 +124,13 @@ export default function ReviewDetailPage() {
     queryKey: ["reviews", numId, "findings"],
     queryFn: () => api.reviews.findings(numId),
     refetchOnWindowFocus: false,
-    refetchInterval: inProgress ? 2000 : false,
+    // Same rule as the transcript: findings only render on the review tab, so
+    // don't poll them from behind the transcript. The write-back route publishes
+    // review:findings, and the running→done effect below refetches once, so
+    // switching tabs never lands on a stale list.
+    refetchInterval: inProgress && tab === "review" ? 2000 : false,
   });
 
-  // SSE: the instant the row or its findings change, refetch. The 2s polls
-  // above remain as the fallback when the stream is down.
-  const { status, resync } = useLiveEvents(null, (e) => {
-    if (e.type === "review:updated" && e.review.id === numId) {
-      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
-    }
-    if (e.type === "review:findings" && e.reviewId === numId) {
-      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
-    }
-  });
   useEffect(() => {
     if (resync > 0) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
@@ -296,7 +309,14 @@ export default function ReviewDetailPage() {
                 <Radio size={12} />
                 <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
               </span>
-              live · polling every 2s
+              {/* Say what's actually happening: the transcript is the one thing
+                  still on a 2s poll, everything else rides the event stream —
+                  unless the stream is down, and then we're back to polling. */}
+              {!streamHealthy
+                ? "polling every 2s"
+                : tab === "transcript"
+                  ? "live · transcript every 2s"
+                  : "live · pushed"}
             </span>
           )}
         </div>
