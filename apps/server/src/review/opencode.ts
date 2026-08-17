@@ -44,6 +44,10 @@ export interface RunOptions {
   // without calling post_review, the same session is continued with one nudge
   // message instead of silently completing with nothing on the PR.
   hasPosted?: () => boolean;
+  // Where to publish live transcript deltas. Optional: without it the event
+  // pump still feeds the watchdog and simply broadcasts nothing, which is what
+  // any caller that has no review row to attach the transcript to should do.
+  transcript?: { reviewId: number; repo: string };
 }
 
 // GitHub + write-back context the custom tools read from FOUINE_* env vars.

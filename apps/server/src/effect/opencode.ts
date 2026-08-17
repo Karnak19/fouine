@@ -11,7 +11,9 @@ import {
   type RunOptions,
   type RunResult,
 } from "~/review/opencode";
+import { createTranscriptStream } from "~/review/transcript";
 import { OpenCodeError } from "~/effect/errors";
+import { publishTranscript } from "~/server/events";
 import { log } from "~/server/log";
 
 // How often the watchdog re-evaluates. Cheap (one Date.now() compare), and the
@@ -89,6 +91,24 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
           // exists anyway, and create-to-prompt is milliseconds.
           const session: { id?: string } = {};
 
+          // Live transcript fan-out. Deliberately a SECOND fold beside
+          // observeEvent rather than a hook inside it: observeEvent is the
+          // watchdog's pure fold and stays that way. Every call below is
+          // wrapped so a publish can never throw into the pump loop — see the
+          // fire-and-forget comment: a broken event stream must degrade the
+          // transcript, never fail a review.
+          const transcript = createTranscriptStream();
+          const publishDelta = (event: unknown, now: number) => {
+            const target = opts.transcript;
+            if (!target) return;
+            try {
+              const delta = transcript.observe(event, session.id, now);
+              if (delta) publishTranscript(target.reviewId, target.repo, delta);
+            } catch {
+              // a malformed event or a dead subscriber is not the review's problem
+            }
+          };
+
           // Fire-and-forget pump. Deliberately NOT part of the Effect: a broken
           // event stream must degrade the watchdog, never fail a review. The idle
           // rule stays disarmed until an event actually MATCHES this session, so a
@@ -112,7 +132,9 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                 signal: ctrl.signal,
               });
               for await (const event of sub.stream) {
-                observeEvent(state, event, session.id, Date.now());
+                const now = Date.now();
+                observeEvent(state, event, session.id, now);
+                publishDelta(event, now);
               }
             } catch (cause) {
               if (!ctrl.signal.aborted) {
