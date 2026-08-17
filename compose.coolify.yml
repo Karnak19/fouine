@@ -29,6 +29,8 @@ services:
       GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/deepseek-v4-flash}
+      # Z.ai GLM Coding Plan key — only needed for zai-coding-plan/* models.
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
 
 volumes:
   fouine-data:

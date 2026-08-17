@@ -3,11 +3,11 @@ import { useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ModelInput } from "@/components/model-input";
 import {
   Table,
   TableBody,
@@ -230,11 +230,11 @@ export default function RepoDetailPage() {
           >
             <div className="space-y-1.5">
               <Label htmlFor="model">Model override</Label>
-              <Input
+              <ModelInput
                 id="model"
                 placeholder="provider/model (leave empty for default)"
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onChange={setModel}
               />
             </div>
             <div className="space-y-1.5">

@@ -108,7 +108,7 @@ function unwrap<T, E>(res: { data?: T; error?: E }, op: string): T {
 }
 
 async function setProviderApiKey(client: OpencodeClient, providerID: string): Promise<void> {
-  const key = resolveApiKey();
+  const key = resolveApiKey(providerID);
   if (!key) return;
   unwrap(
     await client.auth.set({

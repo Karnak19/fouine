@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ModelInput } from "@/components/model-input";
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -15,6 +16,7 @@ export default function SettingsPage() {
   });
 
   const [apiKey, setApiKey] = useState("");
+  const [zaiApiKey, setZaiApiKey] = useState("");
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [improverModel, setImproverModel] = useState("");
@@ -31,6 +33,7 @@ export default function SettingsPage() {
     mutationFn: () => {
       const data: Settings = {};
       if (apiKey.trim()) data.opencode_api_key = apiKey.trim();
+      if (zaiApiKey.trim()) data.zai_api_key = zaiApiKey.trim();
       if (model.trim()) data.opencode_model = model.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
       if (improverModel.trim()) data.improver_model = improverModel.trim();
@@ -39,6 +42,7 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
+      setZaiApiKey("");
     },
   });
 
@@ -74,12 +78,26 @@ export default function SettingsPage() {
               <p className="text-xs text-zinc-500">Leave blank to keep current value.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="model">Default model</Label>
+              <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
               <Input
+                id="zai_api_key"
+                type="password"
+                placeholder="Z.ai key — used for zai-coding-plan/* models"
+                value={zaiApiKey}
+                onChange={(e) => setZaiApiKey(e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                Only used when a model spec starts with <code>zai-coding-plan/</code>. When unset,
+                opencode uses whatever credential it already has for that provider.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="model">Default model</Label>
+              <ModelInput
                 id="model"
                 placeholder="opencode-go/deepseek-v4-flash"
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onChange={setModel}
               />
               {/* The opencode-go gateway is not uniformly OpenAI-shaped, and
                   the two consumers differ: reviews go through the opencode
@@ -96,11 +114,11 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="improver_model">Improver model</Label>
-              <Input
+              <ModelInput
                 id="improver_model"
                 placeholder="e.g. opencode-go/kimi-k3 — defaults to the review model"
                 value={improverModel}
-                onChange={(e) => setImproverModel(e.target.value)}
+                onChange={setImproverModel}
               />
               <p className="text-xs text-zinc-500">
                 Used by the daily REVIEW.md improver. It runs rarely but its output shapes every

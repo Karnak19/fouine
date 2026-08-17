@@ -20,6 +20,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_ID` | no† | — | The App's OAuth client ID (dashboard login) |
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
+| `ZAI_API_KEY` | no | — | Z.ai GLM Coding Plan key, used for `zai-coding-plan/*` models |
 | `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews and Chat |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
 | `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |
@@ -39,6 +40,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 The dashboard (accessible at your server URL) allows setting:
 
 - **OpenCode API key** — overrides `OPENCODE_API_KEY`
+- **GLM Coding Plan API key** — overrides `ZAI_API_KEY`
 - **Default model** — overrides `OPENCODE_MODEL`
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 
@@ -49,6 +51,26 @@ Reviews are unaffected — they run through the opencode server, which selects t
 
 If Chat breaks after a model change, that is the first thing to check.
 :::
+
+## Using the GLM Coding Plan
+
+Reviews run through whichever provider the model spec names, so pointing fouine at
+Z.ai's [GLM Coding Plan](https://z.ai/subscribe) is two settings:
+
+1. Set the **GLM Coding Plan API key** (or `ZAI_API_KEY`) to your Z.ai key.
+2. Set the model to `zai-coding-plan/glm-5.2` — as the default model, the improver
+   model, or a per-repo override. The model fields autocomplete, and once the key
+   is saved the plan's models appear in the list.
+
+The autocomplete only suggests models from providers you have a key for. Use the
+**Show all providers** toggle under the field to browse the full models.dev
+catalog — handy for pre-filling a model before adding its key.
+
+The GLM key is only sent to `zai-coding-plan/*` models; everything else keeps using
+`OPENCODE_API_KEY`, so you can run the reviewer on one provider and the improver on
+the other. **Test connection** on the settings page only exercises the *default*
+review model, so it won't verify the GLM key if you use it only for the improver
+model or a per-repo override.
 
 ## Per-repo settings
 

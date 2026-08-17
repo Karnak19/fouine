@@ -577,6 +577,7 @@ export const settings = {
     `INSERT INTO settings (key, value) VALUES ($key, $value)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ),
+  del: db.prepare<null, { $key: string }>("DELETE FROM settings WHERE key = $key"),
   all: db.prepare<SettingRow, []>("SELECT * FROM settings ORDER BY key"),
 };
 
