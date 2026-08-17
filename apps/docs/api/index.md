@@ -357,7 +357,7 @@ Content-Type: application/json
 }
 ```
 
-All five fields are optional. A field is only written when present **and non-empty** — sending `""` is a no-op, so there is no way to clear a setting through this endpoint.
+All five fields are optional; an absent field keeps its stored value. The two key fields accept an explicit `""` to **delete** the stored value, letting the env var take over again. For the non-key fields `""` is still a no-op.
 
 `200 →` the full settings object, as `GET /api/settings`.
 

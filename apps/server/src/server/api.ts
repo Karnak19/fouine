@@ -476,12 +476,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .put(
     "/settings",
     ({ body }) => {
-      if (body.opencode_api_key) {
-        settings.set.run({ $key: SETTINGS.API_KEY, $value: body.opencode_api_key });
-      }
-      if (body.zai_api_key) {
-        settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: body.zai_api_key });
-      }
+      // Keys: an absent field keeps the stored value, an explicit "" deletes the
+      // row. Without the delete the row would shadow the env var forever, so a
+      // rotated OPENCODE_API_KEY/ZAI_API_KEY could never take effect.
+      const setKey = (key: string, value?: string) => {
+        if (value) settings.set.run({ $key: key, $value: value });
+        else if (value === "") settings.del.run({ $key: key });
+      };
+      setKey(SETTINGS.API_KEY, body.opencode_api_key);
+      setKey(SETTINGS.ZAI_API_KEY, body.zai_api_key);
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }

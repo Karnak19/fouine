@@ -16,7 +16,7 @@ export const ZAI_PROVIDER = "zai-coding-plan";
 
 // The key opencode should authenticate the model's provider with. GLM Coding
 // Plan is billed by Z.ai, not by the OpenCode provider, so it carries its own
-// key; every other provider falls back to the single OpenCode key.
+// key; every other provider uses the single OpenCode key.
 export function hasOpencodeKey(): boolean {
   return !!(settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey);
 }
@@ -26,9 +26,11 @@ export function hasZaiKey(): boolean {
 }
 
 export function resolveApiKey(providerID?: string): string | undefined {
+  // No fallback to the OpenCode key here: it would authenticate as the wrong
+  // account and, worse, overwrite any credential the user set up with
+  // `opencode auth login`. Undefined leaves opencode's own auth alone.
   if (providerID === ZAI_PROVIDER) {
-    const zai = settingValue(SETTINGS.ZAI_API_KEY) ?? config.opencode.zaiApiKey;
-    if (zai) return zai;
+    return settingValue(SETTINGS.ZAI_API_KEY) || config.opencode.zaiApiKey || undefined;
   }
   return settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey;
 }

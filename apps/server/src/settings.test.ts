@@ -16,9 +16,11 @@ test("GLM Coding Plan models use the Z.ai key, other providers use the OpenCode 
   expect(resolveApiKey()).toBe("oc-key");
 });
 
-test("a GLM model falls back to the OpenCode key when no Z.ai key is set", () => {
+test("a GLM model never borrows the OpenCode key", () => {
+  // Undefined, not the OpenCode key: setProviderApiKey then skips auth.set and
+  // leaves whatever `opencode auth login` established for the provider intact.
   settings.set.run({ $key: SETTINGS.API_KEY, $value: "oc-key" });
-  expect(resolveApiKey(ZAI_PROVIDER)).toBe("oc-key");
+  expect(resolveApiKey(ZAI_PROVIDER)).toBeUndefined();
 });
 
 test("the Z.ai key never leaks to a non-GLM provider", () => {

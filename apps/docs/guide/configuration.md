@@ -68,7 +68,9 @@ catalog — handy for pre-filling a model before adding its key.
 
 The GLM key is only sent to `zai-coding-plan/*` models; everything else keeps using
 `OPENCODE_API_KEY`, so you can run the reviewer on one provider and the improver on
-the other. Hit **Test connection** on the settings page to verify the key.
+the other. **Test connection** on the settings page only exercises the *default*
+review model, so it won't verify the GLM key if you use it only for the improver
+model or a per-repo override.
 
 ## Per-repo settings
 

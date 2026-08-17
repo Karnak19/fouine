@@ -118,14 +118,17 @@ export async function listModels(force = false, all = false): Promise<ModelOptio
   if (!force && cache && Date.now() - cache.at < TTL_MS) return flatten(cache.providers, all);
   // Collapse concurrent callers onto a single fetch.
   if (!force && inflight) return flatten(await inflight, all);
-  inflight = fetchProviders()
+  const p: Promise<ProviderMap> = fetchProviders()
     .then((providers) => {
       cache = { at: Date.now(), providers };
       log.info("model catalog loaded", { providers: Object.keys(providers).length });
       return providers;
     })
+    // Only clear if we're still the current one — a concurrent ?refresh=1 may
+    // have replaced it, and clearing then would drop a live fetch.
     .finally(() => {
-      inflight = undefined;
+      if (inflight === p) inflight = undefined;
     });
-  return flatten(await inflight, all);
+  inflight = p;
+  return flatten(await p, all);
 }

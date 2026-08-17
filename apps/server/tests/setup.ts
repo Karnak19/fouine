@@ -13,4 +13,10 @@ process.env.GITHUB_APP_PRIVATE_KEY =
 process.env.GITHUB_WEBHOOK_SECRET =
   process.env.GITHUB_WEBHOOK_SECRET ?? "whsec-test";
 
+// Provider keys are the exception to "preserve real values": with no DB row,
+// settings.ts falls back to these, so a key in the developer's shell would flip
+// assertions about which providers are configured.
+delete process.env.OPENCODE_API_KEY;
+delete process.env.ZAI_API_KEY;
+
 process.on("exit", () => rmSync(tmp, { recursive: true, force: true }));
