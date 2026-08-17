@@ -1,7 +1,8 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { streamText, tool, stepCountIs, convertToModelMessages, type UIMessage } from "ai";
 import { z } from "zod";
-import { resolveApiKey, resolveDefaultModel } from "~/settings";
+import { config } from "~/config";
+import { resolveApiKey } from "~/settings";
 import { runStatsQuery } from "~/chat/query";
 import { buildChart } from "~/chat/chart";
 import { CHAT_SYSTEM_PROMPT } from "~/chat/prompt";
@@ -17,16 +18,17 @@ import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
 // uniformly OpenAI-shaped. Individual models declare which SDK they need, and a
 // few want @ai-sdk/anthropic instead. A model that declares the Anthropic shape
 // will not work through this adapter, so check the SDK a model declares before
-// making it the repo default (currently opencode-go/deepseek-v4-flash).
+// making it the repo default (currently opencode-go/mimo-v2.5 for chat,
+// opencode-go/gpt-5.6-luna for reviews).
 const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /**
  * The ONE place model specs are converted.
  *
- *  - This repo (and opencode's own config) stores `opencode-go/deepseek-v4-flash`
+ *  - This repo (and opencode's own config) stores `opencode-go/mimo-v2.5`
  *    — provider id, slash, model id.
  *  - The gateway is already provider-scoped by its base URL, so on the wire it
- *    wants the BARE model id: `deepseek-v4-flash`.
+ *    wants the BARE model id: `mimo-v2.5`.
  *
  * Leaving the prefix on fails at request time with an unhelpful upstream error
  * that no typecheck and no stubbed test would catch.
@@ -177,7 +179,9 @@ export async function streamChat(
   });
 
   const result = streamText({
-    model: mock ? createChatMockModel() : gateway(wireModelId(resolveDefaultModel())),
+    // Chat deliberately does NOT follow the dashboard's `opencode_model` setting —
+    // it's a cheap high-volume workload on its own env-only knob.
+    model: mock ? createChatMockModel() : gateway(wireModelId(config.chat.model)),
     system: CHAT_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools: { query_stats: queryStats, render_chart: renderChart },

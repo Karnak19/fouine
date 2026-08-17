@@ -84,7 +84,7 @@ Content-Type: application/json
 
 {
   "prompt": "Review this code for...",
-  "model": "opencode-go/deepseek-v4-flash",
+  "model": "opencode-go/gpt-5.6-luna",
   "enabled": 1
 }
 ```
@@ -286,7 +286,7 @@ GET /api/settings
 ```json
 {
   "opencode_api_key": "sk-...",
-  "opencode_model": "opencode-go/deepseek-v4-flash",
+  "opencode_model": "opencode-go/gpt-5.6-luna",
   "default_prompt": "Review this PR..."
 }
 ```
@@ -301,9 +301,9 @@ Content-Type: application/json
 
 {
   "opencode_api_key": "your-key",
-  "opencode_model": "opencode-go/deepseek-v4-flash",
+  "opencode_model": "opencode-go/gpt-5.6-luna",
   "default_prompt": "Review this PR...",
-  "improver_model": "opencode-go/deepseek-v4-flash"
+  "improver_model": "opencode-go/gpt-5.6-luna"
 }
 ```
 

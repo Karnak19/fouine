@@ -20,7 +20,8 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_ID` | no† | — | The App's OAuth client ID (dashboard login) |
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
-| `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews and Chat |
+| `OPENCODE_MODEL` | no | `opencode-go/gpt-5.6-luna` | Default model for reviews |
+| `OPENCODE_CHAT_MODEL` | no | `opencode-go/mimo-v2.5` | Model for Chat. Env-only — the dashboard's default-model setting does not apply, since Chat is a cheap high-volume workload |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
 | `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |
 | `REVIEW_INSTALL_TIMEOUT_MS` | no | `300000` (5 min) | Cap on the pre-review dependency install; on timeout the review continues without `node_modules` |
@@ -39,7 +40,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 The dashboard (accessible at your server URL) allows setting:
 
 - **OpenCode API key** — overrides `OPENCODE_API_KEY`
-- **Default model** — overrides `OPENCODE_MODEL`
+- **Default model** — overrides `OPENCODE_MODEL` (reviews only; Chat uses `OPENCODE_CHAT_MODEL`)
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 
 ::: warning Chat needs an OpenAI-compatible model

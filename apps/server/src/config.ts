@@ -52,7 +52,7 @@ export const config = {
     skillsDir: resolve(`${dataDir}/opencode/skills`),
   },
   review: {
-    defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/deepseek-v4-flash",
+    defaultModel: process.env.OPENCODE_MODEL ?? "opencode-go/gpt-5.6-luna",
     // The real "wedged, kill it" rule: no opencode event for the review's
     // session in this long. Elapsed time never told us whether a review was
     // slow or stuck (see the long comment in src/review/opencode.ts) — silence
@@ -73,6 +73,11 @@ export const config = {
     // Bounded like everything else that spawns a subprocess: a stalled registry
     // must not hang a review. Best-effort — a timeout here logs and continues.
     installTimeoutMs: durationMs(process.env.REVIEW_INSTALL_TIMEOUT_MS, 5 * 60 * 1000),
+  },
+  chat: {
+    // Deliberately NOT the dashboard's `opencode_model` setting: chat is a cheap,
+    // high-volume workload with its own env-only knob.
+    model: process.env.OPENCODE_CHAT_MODEL ?? "opencode-go/mimo-v2.5",
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
