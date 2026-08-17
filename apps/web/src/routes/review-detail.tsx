@@ -185,7 +185,7 @@ export default function ReviewDetailPage() {
     // the transcript. The write-back route publishes review:findings, and the
     // running→done effect below refetches once, so switching tabs never lands
     // on a stale list.
-    refetchInterval: inProgress && tab === "review" && !streaming ? 2000 : false,
+    refetchInterval: inProgress && tab === "review" ? 2000 : false,
   });
 
   useEffect(() => {
