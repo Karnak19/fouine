@@ -104,18 +104,6 @@ export default function ReviewDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] }),
   });
 
-  const { data: review } = useQuery({
-    queryKey: ["reviews", numId],
-    queryFn: () => api.reviews.get(numId),
-    refetchOnWindowFocus: false,
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s === "running" || s === "pending" ? 2000 : false;
-    },
-  });
-  const inProgress = review?.status === "running" || review?.status === "pending";
-  const [tab, setTab] = useState<"review" | "transcript">("review");
-
   // SSE: the instant the row, its findings, or its transcript change, react.
   // The polls above/below remain as the fallback when the stream is down.
   //
@@ -155,6 +143,24 @@ export default function ReviewDetailPage() {
   });
   const streaming = status === "live";
 
+  const { data: review } = useQuery({
+    queryKey: ["reviews", numId],
+    queryFn: () => api.reviews.get(numId),
+    refetchOnWindowFocus: false,
+    // Every write to this row publishes review:updated (setRunning, setSession,
+    // complete, skip, fail, the stop route, the boot reaper), so a healthy
+    // stream already pushes us every transition — polling on top of it is pure
+    // noise on a page that's just sitting open. Poll only while the stream is
+    // down, and only while there's still something to wait for.
+    refetchInterval: (q) => {
+      if (streaming) return false;
+      const s = q.state.data?.status;
+      return s === "running" || s === "pending" ? 2000 : false;
+    },
+  });
+  const inProgress = review?.status === "running" || review?.status === "pending";
+  const [tab, setTab] = useState<"review" | "transcript">("review");
+
   const { data: session } = useQuery({
     queryKey: ["reviews", numId, "session"],
     // The server returns 503 when the session can't be read; the api helper
@@ -175,7 +181,11 @@ export default function ReviewDetailPage() {
     queryKey: ["reviews", numId, "findings"],
     queryFn: () => api.reviews.findings(numId),
     refetchOnWindowFocus: false,
-    refetchInterval: inProgress ? 2000 : false,
+    // Findings only render on the review tab, so don't poll them from behind
+    // the transcript. The write-back route publishes review:findings, and the
+    // running→done effect below refetches once, so switching tabs never lands
+    // on a stale list.
+    refetchInterval: inProgress && tab === "review" ? 2000 : false,
   });
 
   useEffect(() => {
