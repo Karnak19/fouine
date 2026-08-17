@@ -87,8 +87,8 @@ export default function SettingsPage() {
                 onChange={(e) => setZaiApiKey(e.target.value)}
               />
               <p className="text-xs text-zinc-500">
-                Only used when a model spec starts with <code>zai-coding-plan/</code>. Falls back to
-                the OpenCode key above when unset.
+                Only used when a model spec starts with <code>zai-coding-plan/</code>. When unset,
+                opencode uses whatever credential it already has for that provider.
               </p>
             </div>
             <div className="space-y-1.5">
