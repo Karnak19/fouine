@@ -15,6 +15,7 @@
     "@elysia/static": "^1.4.11",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/webhooks": "^14.2.0",
+    "@opencode-ai/models": "^0.0.24",
     "@opencode-ai/sdk": "^1.18.11",
     "ai": "^7.0.65",
     "better-auth": "^1.6.23",

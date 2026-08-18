@@ -273,6 +273,54 @@ Same filter params. Split out from `/api/stats` because the latency trend reads 
 
 `latency` percentiles are nearest-rank, computed per UTC day. The underlying sample query is capped at 5000 rows; `latencyTruncated` is `true` when that cap was hit, meaning the trend was drawn from a partial population.
 
+## Models
+
+### Search models
+
+```
+GET /api/models?q=glm
+```
+
+Backs the model autocompletes in the dashboard. `q` filters on the
+`provider/model` spec (case-insensitive); results are capped at 100.
+
+Only models from **configured providers** are returned — see `configured` below.
+Add `all=1` to search the whole models.dev catalog instead, for picking a model
+on a provider whose key you haven't added yet.
+
+```json
+{
+  "total": 112,
+  "providers": ["opencode", "opencode-go", "zai-coding-plan"],
+  "models": [
+    {
+      "id": "zai-coding-plan/glm-5.2",
+      "provider": "zai-coding-plan",
+      "providerName": "Z.AI Coding Plan",
+      "model": "glm-5.2",
+      "modelName": "GLM-5.2",
+      "configured": true
+    }
+  ]
+}
+```
+
+A provider is **configured** when fouine holds a key that reaches it:
+
+- `zai-coding-plan` when the GLM Coding Plan key is set
+- `opencode` and `opencode-go` when the OpenCode key is set
+- any provider already named by the default model, the improver model, or a
+  per-repo override — a live config never disappears from its own picker, even
+  if its key is missing
+
+`providers` lists that set. Without `all=1` the response contains only these,
+which is ~112 models rather than the 5,755 models.dev knows about.
+
+The catalog comes from [models.dev](https://models.dev) via
+`@opencode-ai/models` and is cached in-process for 30 minutes; add `?refresh=1`
+to rebuild it. If models.dev is unreachable, the snapshot bundled in that package
+(at most ~24h stale) is used instead, so the picker still works with no egress.
+
 ## Settings
 
 ### Get settings
@@ -281,11 +329,12 @@ Same filter params. Split out from `/api/stats` because the latency trend reads 
 GET /api/settings
 ```
 
-`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `opencode_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
+`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `opencode_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
 
 ```json
 {
   "opencode_api_key": "sk-...",
+  "zai_api_key": "sk-...",
   "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR..."
 }
@@ -301,13 +350,14 @@ Content-Type: application/json
 
 {
   "opencode_api_key": "your-key",
+  "zai_api_key": "your-z-ai-key",
   "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR...",
   "improver_model": "opencode-go/deepseek-v4-flash"
 }
 ```
 
-All four fields are optional. A field is only written when present **and non-empty** — sending `""` is a no-op, so there is no way to clear a setting through this endpoint.
+All five fields are optional; an absent field keeps its stored value. The two key fields accept an explicit `""` to **delete** the stored value, letting the env var take over again. For the non-key fields `""` is still a no-op.
 
 `200 →` the full settings object, as `GET /api/settings`.
 

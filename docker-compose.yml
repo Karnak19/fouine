@@ -17,3 +17,5 @@ services:
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/deepseek-v4-flash}
       OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-opencode-go/mimo-v2.5}
+      # Z.ai GLM Coding Plan key — only needed for zai-coding-plan/* models.
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
