@@ -107,7 +107,8 @@ export default function SettingsPage() {
                   an unhelpful upstream error, so say so here rather than
                   letting it be discovered at request time. */}
               <p className="text-xs text-zinc-500">
-                Used for reviews and for Chat. Chat needs an OpenAI-compatible model — a few
+                Used for reviews. Chat has its own model, set only via{" "}
+                <code>OPENCODE_CHAT_MODEL</code> — it needs an OpenAI-compatible model, and a few
                 opencode-go models use the Anthropic API shape and will work for reviews but fail
                 in Chat.
               </p>
@@ -116,7 +117,7 @@ export default function SettingsPage() {
               <Label htmlFor="improver_model">Improver model</Label>
               <ModelInput
                 id="improver_model"
-                placeholder="e.g. opencode-go/kimi-k3 — defaults to the review model"
+                placeholder="e.g. opencode-go/deepseek-v4-flash — defaults to the review model"
                 value={improverModel}
                 onChange={setImproverModel}
               />

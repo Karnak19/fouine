@@ -67,7 +67,7 @@ A review spawns an in-process OpenCode server (via `@opencode-ai/sdk`) on an **e
 
 ## Config precedence
 
-Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-repo prompt/model override global. Always resolve via helpers in `apps/server/src/settings.ts` (`resolveApiKey`, `resolveDefaultModel`, `resolvePrompt`) rather than reading `process.env` directly. `apps/server/src/config.ts` un-escapes literal `\n` in `GITHUB_APP_PRIVATE_KEY`.
+Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-repo prompt/model override global. Always resolve via helpers in `apps/server/src/settings.ts` (`resolveApiKey`, `resolveDefaultModel`, `resolvePrompt`) rather than reading `process.env` directly. The one exception is Chat: it deliberately ignores the dashboard's `opencode_model` and uses `config.chat.model` (`OPENCODE_CHAT_MODEL`), a cheaper env-only knob for a high-volume workload. `apps/server/src/config.ts` un-escapes literal `\n` in `GITHUB_APP_PRIVATE_KEY`.
 
 ## Conventions
 

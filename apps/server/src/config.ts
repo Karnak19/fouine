@@ -76,6 +76,11 @@ export const config = {
     // must not hang a review. Best-effort — a timeout here logs and continues.
     installTimeoutMs: durationMs(process.env.REVIEW_INSTALL_TIMEOUT_MS, 5 * 60 * 1000),
   },
+  chat: {
+    // Deliberately NOT the dashboard's `opencode_model` setting: chat is a cheap,
+    // high-volume workload with its own env-only knob.
+    model: process.env.OPENCODE_CHAT_MODEL ?? "opencode-go/mimo-v2.5",
+  },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
   // "leave empty to disable" behaviour for local dev. allowedUsers gates which
