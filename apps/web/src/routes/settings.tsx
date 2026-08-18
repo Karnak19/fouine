@@ -77,7 +77,7 @@ export default function SettingsPage() {
               <Label htmlFor="model">Default model</Label>
               <Input
                 id="model"
-                placeholder="opencode-go/gpt-5.6-luna"
+                placeholder="opencode-go/deepseek-v4-flash"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
@@ -99,7 +99,7 @@ export default function SettingsPage() {
               <Label htmlFor="improver_model">Improver model</Label>
               <Input
                 id="improver_model"
-                placeholder="e.g. opencode-go/gpt-5.6-luna — defaults to the review model"
+                placeholder="e.g. opencode-go/deepseek-v4-flash — defaults to the review model"
                 value={improverModel}
                 onChange={(e) => setImproverModel(e.target.value)}
               />

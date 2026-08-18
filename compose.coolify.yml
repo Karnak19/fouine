@@ -28,7 +28,7 @@ services:
       GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
       GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/gpt-5.6-luna}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/deepseek-v4-flash}
       OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-opencode-go/mimo-v2.5}
 
 volumes:

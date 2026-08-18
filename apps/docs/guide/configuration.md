@@ -20,7 +20,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_ID` | no† | — | The App's OAuth client ID (dashboard login) |
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
-| `OPENCODE_MODEL` | no | `opencode-go/gpt-5.6-luna` | Default model for reviews |
+| `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews |
 | `OPENCODE_CHAT_MODEL` | no | `opencode-go/mimo-v2.5` | Model for Chat. Env-only — the dashboard's default-model setting does not apply, since Chat is a cheap high-volume workload |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
 | `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |

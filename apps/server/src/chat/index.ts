@@ -19,7 +19,7 @@ import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
 // few want @ai-sdk/anthropic instead. A model that declares the Anthropic shape
 // will not work through this adapter, so check the SDK a model declares before
 // making it the repo default (currently opencode-go/mimo-v2.5 for chat,
-// opencode-go/gpt-5.6-luna for reviews).
+// opencode-go/deepseek-v4-flash for reviews).
 const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /**
