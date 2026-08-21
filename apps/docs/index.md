@@ -31,4 +31,4 @@ features:
     details: Web UI to manage repos, configure prompts, review history, and retry failed reviews.
   - icon: "\u26A1"
     title: Trigger on demand
-    details: Automatic reviews on PR open/sync/reopen. Comment /review on any PR to trigger a manual review.
+    details: Automatic reviews on PR open/sync/reopen. Comment /fouine on any PR to trigger a manual review.

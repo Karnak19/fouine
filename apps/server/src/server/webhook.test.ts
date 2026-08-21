@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
-import { verifyAndDispatch, VerificationError, isStopCommand } from "~/server/webhook";
+import { verifyAndDispatch, VerificationError, isStopCommand, matchTrigger } from "~/server/webhook";
 
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 
@@ -59,11 +59,35 @@ test("accepts a valid GitHub-style signature", async () => {
   ).resolves.toBeUndefined();
 });
 
-test("recognises /review stop, and only stop", () => {
+test("recognises /fouine stop, and only stop", () => {
+  expect(isStopCommand("/fouine stop")).toBe(true);
+  expect(isStopCommand("  /fouine   stop  ")).toBe(true);
+  expect(isStopCommand("/fouine")).toBe(false);
+  // Must not swallow a plain review request that merely starts with "stop".
+  expect(isStopCommand("/fouine stopwatch")).toBe(false);
+  expect(isStopCommand("/fouine stop please")).toBe(false);
+});
+
+test("recognises /review stop through the deprecated alias", () => {
   expect(isStopCommand("/review stop")).toBe(true);
   expect(isStopCommand("  /review   stop  ")).toBe(true);
   expect(isStopCommand("/review")).toBe(false);
-  // Must not swallow a plain review request that merely starts with "stop".
   expect(isStopCommand("/review stopwatch")).toBe(false);
   expect(isStopCommand("/review stop please")).toBe(false);
+});
+
+test("isStopCommand slices by the matched trigger, not a fixed length", () => {
+  // A hardcoded slice would leave "e stop" here and miss the command.
+  expect(isStopCommand("/fouine stop", "/fouine")).toBe(true);
+  expect(isStopCommand("/review stop", "/review")).toBe(true);
+  expect(isStopCommand("stop")).toBe(false);
+});
+
+test("matchTrigger returns the trigger a comment starts with", () => {
+  expect(matchTrigger("/fouine")).toBe("/fouine");
+  expect(matchTrigger("/fouine stop")).toBe("/fouine");
+  expect(matchTrigger("  /fouine focus on the tests")).toBe("/fouine");
+  expect(matchTrigger("/review please")).toBe("/review");
+  expect(matchTrigger("looks good to me")).toBeUndefined();
+  expect(matchTrigger("nice, /fouine later maybe")).toBeUndefined();
 });

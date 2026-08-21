@@ -16,7 +16,7 @@ fouine is a self-hosted AI code reviewer for GitHub. It connects as a GitHub App
                                                 (per-PR checkout)
 ```
 
-1. **GitHub sends a webhook** — `pull_request` (opened, synchronize, reopened) or an `issue_comment` containing `/review`
+1. **GitHub sends a webhook** — `pull_request` (opened, synchronize, reopened) or an `issue_comment` starting with `/fouine` (the old `/review` still works, but is deprecated)
 2. **Elysia server** verifies the HMAC signature, extracts PR info
 3. **Bare repo + worktree** — first PR from a repo triggers `git clone --bare`, cached on disk. Each review gets a lightweight `git worktree add` at the PR head SHA
 4. **OpenCode agent** runs programmatically on the worktree with a configurable review prompt. It reads the diff, explores context, and posts results

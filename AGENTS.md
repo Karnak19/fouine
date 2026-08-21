@@ -79,6 +79,6 @@ Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-r
 ## Flow pointers
 
 - Entry: `apps/server/src/index.ts` → `apps/server/src/server/app.ts` (`boot`).
-- Webhook: `apps/server/src/server/webhook.ts` (HMAC verify → dispatch; handles `pull_request` opened/synchronize/reopened + `issue_comment` `/review`).
+- Webhook: `apps/server/src/server/webhook.ts` (HMAC verify → dispatch; handles `pull_request` opened/synchronize/reopened + `issue_comment` `/fouine`, with `/review` as a deprecated alias).
 - Review orchestration: `apps/server/src/review/runner.ts`. Abort-aware (`activeReviews` map backs the dashboard Stop button).
 - REST API (dashboard backend): `apps/server/src/server/api.ts`, prefix `/api`.
