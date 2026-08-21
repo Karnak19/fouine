@@ -33,7 +33,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 
 ## Review behaviour
 
-- **Auto-review gating** — reviews are opt-in. A repo the App can see is added disabled and won't be reviewed until you flip **Auto-review** on for it (the toggle in the dashboard repos list, or **Auto-review new PRs** on the repo's detail page). The `/review` comment and the dashboard Retry button still work on demand regardless
+- **Auto-review gating** — reviews are opt-in. A repo the App can see is added disabled and won't be reviewed until you flip **Auto-review** on for it (the toggle in the dashboard repos list, or **Auto-review new PRs** on the repo's detail page). The `/fouine` comment (`/review` still works but is deprecated) and the dashboard Retry button still work on demand regardless
 - **Draft PRs are skipped** — a review fires once the PR is marked ready for review
 - **`REVIEW.md`** — drop a `REVIEW.md` at the repo root to give the reviewer repo-specific guidance (focus areas, conventions, files to care about). It's appended to whatever prompt is active (default or per-repo override)
 - **Severity** — the reviewer uses `REQUEST_CHANGES` only for correctness/security/data-loss risks it's confident about; everything else is a non-blocking `COMMENT`. A re-review that clears its own earlier blockers posts `APPROVE`, since a `COMMENT` would leave the PR stuck in changes-requested

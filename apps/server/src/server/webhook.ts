@@ -8,13 +8,25 @@ import { log } from "~/server/log";
 // `ready_for_review` matters: draft PRs are skipped below, so without it a PR
 // opened as a draft (what `gh stack submit` does) is never reviewed at all.
 const HANDLED_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
-const TRIGGER = "/review";
+// `/fouine` is the command; `/review` is a deprecated alias, kept silently
+// working because a hard switch would make every `/review` comment on an
+// already-open PR do nothing — no reaction, no log its author ever sees, the
+// worst failure mode for a chat-triggered tool. Drop it once nobody types it.
+const TRIGGERS = ["/fouine", "/review"] as const;
 
-// `/review stop` and nothing else — an exact match on the argument, so
-// `/review stopwatch` (or any future subcommand starting with "stop") still
-// falls through to a normal review instead of silently cancelling one.
-export function isStopCommand(body: string): boolean {
-  return body.trim().slice(TRIGGER.length).trim() === "stop";
+// The trigger a comment starts with, or undefined if it isn't one of ours.
+export function matchTrigger(body: string): string | undefined {
+  return TRIGGERS.find((trigger) => body.trim().startsWith(trigger));
+}
+
+// `<trigger> stop` and nothing else — an exact match on the argument, so
+// `/fouine stopwatch` (or any future subcommand starting with "stop") still
+// falls through to a normal review instead of silently cancelling one. Slicing
+// by the matched trigger's own length matters: a hardcoded one would parse
+// `/fouine stop` as `e stop`.
+export function isStopCommand(body: string, trigger = matchTrigger(body)): boolean {
+  if (!trigger) return false;
+  return body.trim().slice(trigger.length).trim() === "stop";
 }
 
 // Best-effort ack on the triggering comment. Never throws: a failed reaction
@@ -149,22 +161,23 @@ export function registerHandlers(): void {
       return;
     }
     const body = payload.comment.body.trim();
-    if (!body.startsWith(TRIGGER)) {
+    const trigger = matchTrigger(body);
+    if (!trigger) {
       log.debug("issue_comment skipped", {
         repo: fullName,
         number: prNumber,
-        reason: "no /review trigger",
+        reason: "not a fouine command",
         body: body.slice(0, 80),
       });
       return;
     }
 
-    // `/review stop` aborts whatever is running for this PR. The abort happens
+    // `/fouine stop` aborts whatever is running for this PR. The abort happens
     // before any GitHub round-trip — stopping must stay instant — and only then
     // do we tell the commenter what happened.
-    if (isStopCommand(body)) {
+    if (isStopCommand(body, trigger)) {
       const stopped = abortReviewsForPR(fullName, prNumber);
-      log.info("/review stop", { repo: fullName, number: prNumber, stopped });
+      log.info(`${trigger} stop`, { repo: fullName, number: prNumber, stopped });
       await react(
         payload.installation?.id,
         fullName,
@@ -176,12 +189,12 @@ export function registerHandlers(): void {
       return;
     }
 
-    log.info("/review triggered", { repo: fullName, number: prNumber });
+    log.info(`${trigger} triggered`, { repo: fullName, number: prNumber });
 
     try {
       const installationId = payload.installation?.id;
       if (!installationId) {
-        log.warn("/review skipped", {
+        log.warn(`${trigger} skipped`, {
           repo: fullName,
           number: prNumber,
           reason: "no installation id",
@@ -190,7 +203,7 @@ export function registerHandlers(): void {
       }
       const repoRow = upsertRepoAndPublish(fullName, installationId);
       if (!repoRow.enabled) {
-        log.debug("/review skipped", { repo: fullName, number: prNumber, reason: "repo disabled" });
+        log.debug(`${trigger} skipped`, { repo: fullName, number: prNumber, reason: "repo disabled" });
         return;
       }
 
@@ -198,13 +211,13 @@ export function registerHandlers(): void {
       const octokit = await getInstallationOctokit(installationId);
       const pr = await fetchPRInfo(octokit, installationId, fullName, prNumber);
 
-      log.info("/review review queued", { repo: fullName, number: prNumber });
+      log.info(`${trigger} review queued`, { repo: fullName, number: prNumber });
 
       runReviewForPR(pr, "command").catch((err) =>
         log.error("review failed", { repo: fullName, number: prNumber, error: String(err) }),
       );
     } catch (err) {
-      log.error("failed to fetch PR for /review", {
+      log.error(`failed to fetch PR for ${trigger}`, {
         repo: fullName,
         number: prNumber,
         error: String(err),

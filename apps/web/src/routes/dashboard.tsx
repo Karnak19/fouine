@@ -538,7 +538,7 @@ function Empty() {
       <Inbox size={20} className="text-zinc-700" />
       <p className="text-sm text-zinc-400">No reviews yet.</p>
       <p className="text-xs text-zinc-600 max-w-xs">
-        Enable a repo, then open a PR or comment <span className="font-mono text-zinc-500">/review</span> to
+        Enable a repo, then open a PR or comment <span className="font-mono text-zinc-500">/fouine</span> to
         kick off the first one.
       </p>
     </div>

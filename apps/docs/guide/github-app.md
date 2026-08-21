@@ -17,7 +17,7 @@ fouine connects to GitHub as a GitHub App. This gives it per-repo access, webhoo
 
 4. Set **Subscribe to events**:
    - **Pull request**
-   - **Issue comment** (for `/review` triggers)
+   - **Issue comment** (for `/fouine` triggers)
 
 5. Under **Where can this GitHub App be installed?**, choose:
    - **Only on this account** — for personal/org use

@@ -132,7 +132,7 @@ function EmptyState() {
       <GitPullRequest size={28} className="text-zinc-700" />
       <p className="mt-3 text-sm text-zinc-400">No reviews yet</p>
       <p className="text-xs text-zinc-600 mt-1">
-        Comment <code className="text-zinc-500">/review</code> on a PR to kick one off.
+        Comment <code className="text-zinc-500">/fouine</code> on a PR to kick one off.
       </p>
     </div>
   );
