@@ -12,6 +12,9 @@ export interface RepoRow {
   model: string | null;
   // SQLite boolean: 0 | 1, not a JS boolean.
   enabled: number;
+  // Per-repo override for the deny-test-commands toggle. NULL = inherit the
+  // global default, 1 = deny, 0 = explicitly allow.
+  deny_test_commands: number | null;
   created_at: number;
 }
 

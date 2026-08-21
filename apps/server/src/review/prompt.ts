@@ -32,6 +32,7 @@ export function buildPrompt(
   userPrompt: string | null,
   repoNotes?: string,
   reReview = false,
+  denyTestCommands = false,
 ): string {
   const focus = userPrompt?.trim() || DEFAULT_PROMPT;
   const lines = [
@@ -57,6 +58,17 @@ export function buildPrompt(
       `Do NOT run any package install command — it is blocked. Read library sources from ` +
       `\`node_modules\` inside this checkout; never go looking for package sources elsewhere ` +
       `on the filesystem.`,
+    // Same reasoning as the install line: cheaper to tell the agent up front
+    // than to let it discover the denial through a permission error mid-review.
+    ...(denyTestCommands
+      ? [
+          `Do NOT run the test suite, the linter, the typechecker or a build — those commands ` +
+            `are blocked. CI already ran them on this commit, and this checkout has no env ` +
+            `vars, so a local run mostly fails for reasons that have nothing to do with the ` +
+            `diff. Review the code by reading it. Never report a local run's failure as a ` +
+            `finding.`,
+        ]
+      : []),
     ``,
     `## PR description`,
     ``,

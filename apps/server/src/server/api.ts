@@ -244,6 +244,12 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $prompt: body.prompt ?? null,
         $model: body.model ?? null,
         $enabled: body.enabled ?? existing.enabled,
+        // Absent keeps the stored override, explicit null clears it back to
+        // inheriting the global default. `??` would collapse the two.
+        $deny_test_commands:
+          body.deny_test_commands === undefined
+            ? existing.deny_test_commands
+            : body.deny_test_commands,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -254,6 +260,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         prompt: t.Optional(t.String()),
         model: t.Optional(t.String()),
         enabled: t.Optional(t.Number()),
+        deny_test_commands: t.Optional(t.Union([t.Number(), t.Null()])),
       }),
     },
   )
@@ -485,6 +492,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       };
       setKey(SETTINGS.API_KEY, body.opencode_api_key);
       setKey(SETTINGS.ZAI_API_KEY, body.zai_api_key);
+      // "1" turns it on, "" deletes the row -> back to off (the default).
+      setKey(SETTINGS.DENY_TEST_COMMANDS, body.deny_test_commands);
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }
@@ -504,6 +513,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),
+        deny_test_commands: t.Optional(t.String()),
       }),
     },
   )

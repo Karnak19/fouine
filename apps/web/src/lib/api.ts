@@ -119,6 +119,8 @@ export interface Settings {
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
+  // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
+  deny_test_commands?: string;
 }
 
 export const api = {
@@ -130,7 +132,15 @@ export const api = {
     update: (
       owner: string,
       name: string,
-      data: { prompt?: string; model?: string; enabled?: number },
+      // deny_test_commands: 1 = deny, 0 = allow, null = inherit the global
+      // default. Absent leaves the stored value alone, so clearing an override
+      // means sending an explicit null.
+      data: {
+        prompt?: string;
+        model?: string;
+        enabled?: number;
+        deny_test_commands?: number | null;
+      },
     ) =>
       request<RepoRow>(`/repos/${owner}/${name}`, {
         method: "PUT",

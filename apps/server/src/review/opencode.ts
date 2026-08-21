@@ -48,6 +48,10 @@ export interface RunOptions {
   // pump still feeds the watchdog and simply broadcasts nothing, which is what
   // any caller that has no review row to attach the transcript to should do.
   transcript?: { reviewId: number; repo: string };
+  // Deny the agent test/lint/build/typecheck commands for this run (global
+  // setting, overridable per repo). Enforced as a per-spawn opencode config
+  // layered over the config dir's — see reviewOpencodeConfig in skills/materialize.
+  denyTestCommands?: boolean;
 }
 
 // GitHub + write-back context the custom tools read from FOUINE_* env vars.
