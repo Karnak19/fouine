@@ -42,3 +42,11 @@ export function ghHeaders(token: string, opts: { json?: boolean } = {}): Record<
   if (opts.json) headers["content-type"] = "application/json";
   return headers;
 }
+
+// Shared GET+parse. Every caller casts the result to its own response shape —
+// there is no runtime validation here, same as before it was hoisted.
+export async function ghGet(url: string, headers: Record<string, string>): Promise<unknown> {
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  return await res.json();
+}
