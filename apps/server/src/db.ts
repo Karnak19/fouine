@@ -154,7 +154,12 @@ for (const def of [
 // disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
 // once it's enabled in the dashboard. Existing rows keep whatever they were set
 // to — ON CONFLICT never touches enabled.
-for (const def of ["enabled INTEGER NOT NULL DEFAULT 0"]) addColumn("repos", def);
+// repos.deny_test_commands is the per-repo override for the deny-test-commands
+// toggle: NULL = inherit the global setting, 1 = deny, 0 = explicitly allow.
+// Like enabled, repos.upsert never touches it — re-sighting a repo must not
+// clobber the override.
+for (const def of ["enabled INTEGER NOT NULL DEFAULT 0", "deny_test_commands INTEGER"])
+  addColumn("repos", def);
 
 export interface SettingRow {
   key: string;
@@ -206,9 +211,16 @@ export const repos = {
   ),
   update: db.prepare<
     null,
-    { $full_name: string; $prompt: string | null; $model: string | null; $enabled: number }
+    {
+      $full_name: string;
+      $prompt: string | null;
+      $model: string | null;
+      $enabled: number;
+      $deny_test_commands: number | null;
+    }
   >(
-    `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled WHERE full_name = $full_name`,
+    `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
+       deny_test_commands = $deny_test_commands WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",

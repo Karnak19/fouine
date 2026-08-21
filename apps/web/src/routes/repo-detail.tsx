@@ -106,12 +106,19 @@ export default function RepoDetailPage() {
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [enabled, setEnabled] = useState(true);
+  // null = inherit the global default; 1 = deny; 0 = explicitly allow.
+  const [denyTestCommands, setDenyTestCommands] = useState<number | null>(null);
+
+  // Only to show which way "inherit" currently resolves. Same query key as the
+  // settings page, so it's usually already cached.
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
 
   useEffect(() => {
     if (repo) {
       setModel(repo.model ?? "");
       setPrompt(repo.prompt ?? "");
       setEnabled(repo.enabled !== 0);
+      setDenyTestCommands(repo.deny_test_commands ?? null);
     }
   }, [repo]);
 
@@ -121,6 +128,8 @@ export default function RepoDetailPage() {
         model: model.trim() || undefined,
         prompt: prompt.trim() || undefined,
         enabled: enabled ? 1 : 0,
+        // Explicit null clears the override — absent would mean "unchanged".
+        deny_test_commands: denyTestCommands,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
   });
@@ -246,6 +255,24 @@ export default function RepoDetailPage() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="deny_test_commands">Tests, lint, typecheck, build</Label>
+              <select
+                id="deny_test_commands"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={denyTestCommands === null ? "inherit" : String(denyTestCommands)}
+                onChange={(e) =>
+                  setDenyTestCommands(e.target.value === "inherit" ? null : Number(e.target.value))
+                }
+              >
+                <option value="inherit">
+                  Use global default (
+                  {settings?.deny_test_commands === "1" ? "don't run them" : "run them"})
+                </option>
+                <option value="1">Don't run them on this repo</option>
+                <option value="0">Run them on this repo</option>
+              </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
               <input

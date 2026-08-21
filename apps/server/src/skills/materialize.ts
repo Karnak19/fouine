@@ -40,6 +40,66 @@ const INSTALL_COMMANDS = [
   "yarn add",
 ];
 
+// Commands the reviewer agent is denied when the deny-test-commands toggle is on
+// (global setting, per-repo override). CI already ran these on the same commit,
+// and the review worktree usually has no env vars — so a local run mostly
+// produces failures that belong to the environment, not the PR, and the agent
+// can report them as findings. Same pattern semantics as INSTALL_COMMANDS above:
+// specific patterns only, both bare and trailing-`*` form.
+const TEST_COMMANDS = [
+  "bun test",
+  "bun run test",
+  "bun run build",
+  "bun run lint",
+  "bun run typecheck",
+  "bunx vitest",
+  "bunx oxlint",
+  "bunx tsc",
+  "vitest",
+  "oxlint",
+  "eslint",
+  "jest",
+  "tsc",
+  "npx vitest",
+  "npx eslint",
+  "npx jest",
+  "npx tsc",
+  "npm test",
+  "npm run test",
+  "npm run build",
+  "npm run lint",
+  "npm run typecheck",
+  "pnpm test",
+  "pnpm build",
+  "pnpm lint",
+  "pnpm typecheck",
+  "yarn test",
+  "yarn build",
+  "yarn lint",
+  "yarn typecheck",
+];
+
+// The per-spawn config passed to createOpencode, layered on top of the config
+// dir's opencode.json. Empirically (opencode 1.18.21) opencode DEEP-MERGES
+// permission.bash key-by-key and appends the per-spawn keys AFTER the dir's,
+// insertion order preserved — and last matching rule wins, so these denies land
+// after the dir's blanket `"*": "allow"` and take effect.
+//
+// Consequence: this map must carry ONLY deny keys. Re-sending `"*": "allow"`
+// here would be deduped in place at position 0, not moved to the end, so it
+// would buy nothing — and a `"*"` DENY must never appear (opencode drops bash
+// from the model's tool list entirely, leaving the reviewer unable to run
+// anything). Denylist of specific patterns, always.
+export function reviewOpencodeConfig(denyTestCommands: boolean): Record<string, unknown> {
+  if (!denyTestCommands) return {};
+  const bash: Record<string, string> = {};
+  for (const cmd of TEST_COMMANDS) {
+    bash[cmd] = "deny";
+    bash[`${cmd} *`] = "deny";
+  }
+  return { permission: { bash } };
+}
+
 // The opencode.json fouine writes into the runtime config dir. Pure so the
 // interesting part — which keys appear, and the POSTHOG_API_KEY branch — is
 // testable without touching the filesystem.

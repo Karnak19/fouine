@@ -20,12 +20,14 @@ export default function SettingsPage() {
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [improverModel, setImproverModel] = useState("");
+  const [denyTestCommands, setDenyTestCommands] = useState(false);
 
   useEffect(() => {
     if (settings) {
       setModel(settings.opencode_model ?? "");
       setPrompt(settings.default_prompt ?? "");
       setImproverModel(settings.improver_model ?? "");
+      setDenyTestCommands(settings.deny_test_commands === "1");
     }
   }, [settings]);
 
@@ -37,6 +39,9 @@ export default function SettingsPage() {
       if (model.trim()) data.opencode_model = model.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
       if (improverModel.trim()) data.improver_model = improverModel.trim();
+      // Empty string deletes the row, i.e. off — so always send it, unlike the
+      // text fields above where blank means "keep what's there".
+      data.deny_test_commands = denyTestCommands ? "1" : "";
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -124,6 +129,23 @@ export default function SettingsPage() {
               <p className="text-xs text-zinc-500">
                 Used by the daily REVIEW.md improver. It runs rarely but its output shapes every
                 future review — worth a stronger model than the reviewer.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="deny_test_commands"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={denyTestCommands}
+                  onChange={(e) => setDenyTestCommands(e.target.checked)}
+                />
+                Don't run tests, linter, typechecker or build during a review
+              </label>
+              <p className="text-xs text-zinc-500">
+                Default for every repo. CI already runs them, and the review worktree has no env
+                vars — so they tend to fail for unrelated reasons and show up as findings. A repo
+                can override this.
               </p>
             </div>
             <div className="space-y-1.5">

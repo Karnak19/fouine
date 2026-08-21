@@ -80,3 +80,10 @@ test("the fouine agent prompt owns the review mechanics", async () => {
   expect(agent).toMatch(/`APPROVE`[^.]*most recent review on this PR is `CHANGES_REQUESTED`/);
   expect(agent).toContain("post_review");
 });
+
+test("the blocked-commands line appears only when the toggle is on", () => {
+  expect(buildPrompt(pr, null, undefined, false, false)).not.toContain("are blocked");
+  expect(buildPrompt(pr, null, undefined, false, true)).toContain(
+    "Do NOT run the test suite, the linter, the typechecker or a build",
+  );
+});

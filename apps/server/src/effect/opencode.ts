@@ -12,6 +12,7 @@ import {
   type RunResult,
 } from "~/review/opencode";
 import { createTranscriptStream } from "~/review/transcript";
+import { reviewOpencodeConfig } from "~/skills/materialize";
 import { OpenCodeError } from "~/effect/errors";
 import { publishTranscript } from "~/server/events";
 import { log } from "~/server/log";
@@ -70,7 +71,14 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                 }
                 Object.assign(process.env, opts.env);
               }
-              const oc = await createOpencode({ port, signal: ctrl.signal });
+              // Per-spawn config, deep-merged over the config dir's
+              // opencode.json (deny keys appended after the dir's blanket
+              // allow, so they win). Empty object when the toggle is off.
+              const oc = await createOpencode({
+                port,
+                signal: ctrl.signal,
+                config: reviewOpencodeConfig(opts.denyTestCommands ?? false),
+              });
               return {
                 ...oc,
                 ctrl,

@@ -23,6 +23,7 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
     $prompt: "focus on perf",
     $model: "opencode-go/glm-5.1",
     $enabled: 0,
+    $deny_test_commands: 1,
   });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
