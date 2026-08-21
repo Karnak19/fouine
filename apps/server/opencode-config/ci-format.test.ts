@@ -75,7 +75,25 @@ test("annotations render with file, line range and severity", () => {
 
 test("a failing run with no annotations says the detail is unavailable", () => {
   const out = formatCiResults(SHA, [run("e2e", "completed", "failure")], new Map());
-  expect(out).toContain("published no annotations");
+  expect(out).toContain("e2e failed but published no annotations");
+});
+
+test("another run's annotations don't hide a failed run with none", () => {
+  const out = formatCiResults(
+    SHA,
+    [run("e2e", "completed", "failure"), run("lint", "completed", "success", 1)],
+    new Map([["lint", [ann({ annotation_level: "warning" })]]]),
+  );
+  expect(out).toContain("e2e failed but published no annotations");
+});
+
+test("no unexplained-failure note when every failed run has annotations", () => {
+  const out = formatCiResults(
+    SHA,
+    [run("unit", "completed", "failure", 1)],
+    new Map([["unit", [ann()]]]),
+  );
+  expect(out).not.toContain("published no annotations");
 });
 
 test("annotation list is capped and the truncation is stated", () => {

@@ -70,6 +70,7 @@ export function formatCiResults(
   let dropped = 0;
   const sections: string[] = [];
   // Failed runs first so the annotations that matter survive the cap.
+  const unexplained = failed.filter((r) => !(annotations.get(r.name) ?? []).length);
   for (const run of [...failed, ...passed, ...pending]) {
     const list = annotations.get(run.name) ?? [];
     if (!list.length) continue;
@@ -87,10 +88,14 @@ export function formatCiResults(
   if (sections.length) {
     out.push("", "### Annotations", ...sections);
     if (dropped) out.push("", `…(${dropped} further annotation(s) truncated)`);
-  } else if (failed.length) {
+  }
+  // Gated on the failing runs, not on whether ANY annotations came back: a passing
+  // lint job's warnings would otherwise hide the fact that a failed run's detail
+  // is logs-only — the same read-as-green hazard this tool exists to prevent.
+  if (unexplained.length) {
     out.push(
       "",
-      "The failing runs published no annotations — the failure detail is only in the workflow logs, which fouine cannot read. Judge the code itself.",
+      `${unexplained.map((r) => r.name).join(", ")} failed but published no annotations — that failure's detail is only in the workflow logs, which fouine cannot read. Judge the code itself; don't assume it's benign.`,
     );
   }
 
