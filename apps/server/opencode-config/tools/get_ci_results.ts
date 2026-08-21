@@ -1,6 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
 import { type Annotation, type CheckRun, formatCiResults } from "./_ci_format";
-import { fouineCtx, ghHeaders } from "./_ctx";
+import { fouineCtx, ghGet, ghHeaders } from "./_ctx";
 
 export default tool({
   description:
@@ -42,9 +42,3 @@ export default tool({
     return formatCiResults(sha, runs, new Map(fetched));
   },
 });
-
-async function ghGet(url: string, headers: Record<string, string>): Promise<unknown> {
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
-  return await res.json();
-}
