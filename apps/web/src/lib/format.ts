@@ -21,7 +21,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   opened: "opened",
   synchronize: "push",
   reopened: "reopened",
-  command: "/review",
+  command: "/fouine",
   retry: "retry",
 };
 

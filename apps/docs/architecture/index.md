@@ -124,7 +124,7 @@ The `type` field is part of the JSON payload (not the SSE `event:` field):
 
 | type | payload | published when |
 |---|---|---|
-| `review:created` | `{ repo, review }` | a review row is inserted (webhook, `/review`, retry, improver) |
+| `review:created` | `{ repo, review }` | a review row is inserted (webhook, `/fouine`, retry, improver) |
 | `review:updated` | `{ repo, review }` | status/session/cost/tokens change on a review row |
 | `review:findings` | `{ repo, reviewId }` | the opencode post_* tools write findings back (`/internal/reviews/:id/findings`) |
 | `repo:updated` | `{ repo, row }` | repo added or edited via the dashboard, or auto-registered by a webhook |
