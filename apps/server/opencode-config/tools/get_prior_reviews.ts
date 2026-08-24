@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
-import { fouineRepoCtx, ghHeaders } from "./_ctx";
+import { fouineRepoCtx, ghGet, ghHeaders } from "./_ctx";
 
 export default tool({
   description:
@@ -85,10 +85,4 @@ interface GhComment {
   in_reply_to_id?: number;
   commit_id?: string;
   created_at?: string;
-}
-
-async function ghGet(url: string, headers: Record<string, string>): Promise<unknown[]> {
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
-  return (await res.json()) as unknown[];
 }
