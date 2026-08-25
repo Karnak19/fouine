@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, readRepoNotes, writeFailure } from "~/effect/review";
-import { resolveImproverModel } from "~/settings";
+import { resolveDenyTestCommands, resolveImproverModel } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { internalSecret, internalBaseUrl } from "~/server/internal";
@@ -117,6 +117,9 @@ export function improvePipeline(
         const currentNotes = yield* readRepoNotes(worktree);
         const prompt = buildImprovePrompt(target, branch, currentNotes, pending);
         const model = resolveImproverModel();
+        // Same toggle as a review: the repo's override, else the global default.
+        const repoRow = yield* db.getRepo(target.repoFullName);
+        const denyTestCommands = resolveDenyTestCommands(repoRow?.deny_test_commands ?? null);
 
         const result = yield* oc.runReview(
           {
@@ -127,6 +130,7 @@ export function improvePipeline(
             // The improver has no PR, but it does have a review row, and its
             // detail page is transcript-only — so it streams the same way.
             transcript: { reviewId: id, repo: target.repoFullName },
+            denyTestCommands,
             env: improveToolEnv({
               githubToken: token,
               owner,

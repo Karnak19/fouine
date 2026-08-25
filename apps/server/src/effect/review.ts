@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import type { Octokit } from "octokit";
 import type { PullRequestInfo } from "~/review/types";
 import { buildPrompt } from "~/review/prompt";
-import { resolveDefaultModel, resolvePrompt } from "~/settings";
+import { resolveDefaultModel, resolveDenyTestCommands, resolvePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { internalSecret, internalBaseUrl } from "~/server/internal";
@@ -182,10 +182,18 @@ export function reviewPipeline(
         // superseding commit interrupt an install that's still going.
         yield* installDeps(worktree, signal);
 
+        const denyTestCommands = resolveDenyTestCommands(repo?.deny_test_commands ?? null);
+
         // Anything but a brand-new "opened" run may have prior reviews to reconcile
         // with — tell the agent to pull them via get_prior_reviews.
         const reReview = trigger != null && trigger !== "opened";
-        const prompt = buildPrompt(pr, resolvePrompt(repo?.prompt ?? null), repoNotes, reReview);
+        const prompt = buildPrompt(
+          pr,
+          resolvePrompt(repo?.prompt ?? null),
+          repoNotes,
+          reReview,
+          denyTestCommands,
+        );
         const model = repo?.model ?? resolveDefaultModel();
 
         // Custom tools (opencode-config/tools) read these to post to GitHub, then
@@ -216,6 +224,7 @@ export function reviewPipeline(
             // repo, so the detail page streams instead of re-exporting the
             // whole session (which spawns an opencode server per request).
             transcript: { reviewId: id, repo: pr.repoFullName },
+            denyTestCommands,
             // Sync SQLite read, same runSync bridge as setSession below. On a DB
             // error assume posted — better to miss a nudge than nudge a review
             // that's already on GitHub.

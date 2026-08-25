@@ -31,7 +31,7 @@ function seedReview(full: string, pr: number) {
 test("delivers a typed event to subscribers", () => {
   const got: ServerEvent[] = [];
   const unsub = subscribeEvents(null, (e) => got.push(e));
-  publishEvent({ type: "repo:updated", repo: "a/b", row: { full_name: "a/b", installation_id: 1, prompt: null, model: null, enabled: 1, created_at: 0 } });
+  publishEvent({ type: "repo:updated", repo: "a/b", row: { full_name: "a/b", installation_id: 1, prompt: null, model: null, enabled: 1, deny_test_commands: null, created_at: 0 } });
   unsub();
   expect(got).toHaveLength(1);
   expect(got[0].type).toBe("repo:updated");
@@ -107,7 +107,7 @@ test("upsertRepoAndPublish announces new repos and real changes only", () => {
 
 test("upsertRepoAndPublish keeps settings an operator already set", () => {
   upsertRepoAndPublish("keep/settings", 1);
-  repos.update.run({ $full_name: "keep/settings", $prompt: "custom", $model: "m", $enabled: 1 });
+  repos.update.run({ $full_name: "keep/settings", $prompt: "custom", $model: "m", $enabled: 1, $deny_test_commands: null });
   const row = upsertRepoAndPublish("keep/settings", 1);
   expect(row).toMatchObject({ prompt: "custom", model: "m", enabled: 1 });
 });
