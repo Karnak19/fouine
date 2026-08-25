@@ -19,6 +19,8 @@ Before suggesting a change, climb the ladder and stop at the first rung that hol
 
 For each finding: file, line, what to cut, what replaces it (or "nothing"). One finding per line. Skip nits, prefer the diff getting shorter.
 
+Cite the code that proves it on that same line — the expression that actually breaks, not just the file it lives in. If you can't point at the code, you don't have a finding: cut it, don't hedge it. No "consider whether", no "this might", no "may be worth checking".
+
 Bug fix = root cause, not symptom. If you patch a function, grep every caller and fix it once where they all route through. One guard in the shared function is a smaller diff than one per caller, and patching only the path the ticket names leaves every sibling caller still broken.
 
 Not lazy about: correctness, security, error handling that prevents data loss, input validation at trust boundaries, accessibility, the part the user explicitly asked for. If the user asked for X, deliver X — don't deliver Y you think is equivalent and ship a second bug.
