@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { reviews } from "~/db";
 import type { PullRequestInfo } from "~/review/types";
 import { AppLayer, reviewPipeline } from "~/effect";
 import { improvePipeline, type ImproveTarget } from "~/effect/improve";
@@ -42,21 +43,28 @@ const AUTO_RETRY_DELAY_MS = 60_000;
 
 // The one-retry policy, pure so it's unit-testable. Retry only a genuine
 // failure (never a user stop or a supersession — those abort the controller),
-// only once (attempt 0 → 1, never further), and only if nothing else is
-// already reviewing the same PR by the time the delay elapses (a new push in
-// the meantime owns the PR).
+// only once (attempt 0 → 1, never further), and only if our row is still the
+// newest for the PR by the time the delay elapses — any newer row, running OR
+// finished (a push, a manual retry), owns the PR and the stale retry stands
+// down rather than re-reviewing an old head SHA.
 export function shouldAutoRetry(o: {
   failed: boolean;
   aborted: boolean;
   attempt: number;
-  activeForKey: boolean;
+  ownsPR: boolean;
 }): boolean {
-  return o.failed && !o.aborted && o.attempt === 0 && !o.activeForKey;
+  return o.failed && !o.aborted && o.attempt === 0 && o.ownsPR;
 }
 
-function hasActiveForKey(key: string): boolean {
-  for (const entry of activeReviews.values()) if (entry.key === key) return true;
-  return false;
+// Our row is the newest for the PR. A running review always has a row
+// (insertReview is the pipeline's first step), so the table is the complete
+// picture — no need to also consult the in-memory map. `id` undefined means
+// our own insert failed (local DB error, not the transient failures retry
+// targets): stand down.
+function ownsPR(pr: PullRequestInfo, id: number | undefined): boolean {
+  if (id === undefined) return false;
+  const newest = reviews.byRepoPR.get({ $repo: pr.repoFullName, $pr: pr.number, $limit: 1 });
+  return newest?.id === id;
 }
 
 // A newer commit supersedes any review still running for the same PR. Signalled
@@ -107,14 +115,13 @@ export function runReviewForPR(
       // Automatic retry, once. The pipeline resolves cleanly on an abort (user
       // stop / supersession) and rejects only on a genuine failure, so a
       // rejection here plus a non-aborted controller IS the failure signal.
-      // activeForKey is re-checked at fire time: a push during the delay owns
-      // the PR and the retry stands down.
-      if (shouldAutoRetry({ failed: true, aborted: ctrl.signal.aborted, attempt, activeForKey: false })) {
+      // Ownership is re-checked at fire time: any newer review row for the PR
+      // created during the delay (a push, a manual retry) makes ours stale.
+      if (shouldAutoRetry({ failed: true, aborted: ctrl.signal.aborted, attempt, ownsPR: true })) {
         log.info("review failed, auto-retrying in 60s", { review: id, pr: key });
         const timer = setTimeout(() => {
-          const activeForKey = hasActiveForKey(key);
-          if (!shouldAutoRetry({ failed: true, aborted: ctrl.signal.aborted, attempt, activeForKey })) {
-            log.info("auto-retry cancelled — a newer review is already running", { pr: key });
+          if (!shouldAutoRetry({ failed: true, aborted: ctrl.signal.aborted, attempt, ownsPR: ownsPR(pr, id) })) {
+            log.info("auto-retry cancelled — a newer review owns this PR", { pr: key });
             return;
           }
           // Same PR snapshot on purpose: the failure was ours, not the PR's.
