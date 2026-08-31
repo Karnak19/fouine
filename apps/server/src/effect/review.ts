@@ -84,6 +84,9 @@ export function reviewPipeline(
   // that the previous review keeps running for the few seconds the fetch and the
   // patch-id take.
   onProceed: (id: number) => void,
+  // 0 for a first run, 1 when the runner fires its single automatic retry —
+  // stored on the row so the runner never retries a retry.
+  attempt: number = 0,
 ): Effect.Effect<
   void,
   ReviewError,
@@ -101,6 +104,7 @@ export function reviewPipeline(
       pr: pr.number,
       title: pr.title,
       trigger,
+      attempt,
     });
     yield* Effect.sync(() => onStart(id));
 

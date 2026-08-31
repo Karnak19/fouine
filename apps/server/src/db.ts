@@ -139,6 +139,9 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // would match it and the diff would sit permanently unreviewed while looking
 // clean. Also written on a `skipped` row, so the skip itself is auditable.
 // Null for failures, for improver runs, and for pre-column rows.
+// attempt is 0 for a first run and 1 for the single automatic retry the runner
+// fires after a failure (see src/review/runner.ts) — the retry guard, so a
+// failing retry never retries again. Pre-column rows default to 0.
 for (const def of [
   "title TEXT",
   "error TEXT",
@@ -148,6 +151,7 @@ for (const def of [
   "model TEXT",
   "check_run_id INTEGER",
   "patch_id TEXT",
+  "attempt INTEGER NOT NULL DEFAULT 0",
 ])
   addColumn("reviews", def);
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
@@ -238,10 +242,11 @@ export const reviews = {
       $session: string | null;
       $status: string;
       $trigger: string | null;
+      $attempt: number;
     }
   >(
-    `INSERT INTO reviews (repo_full_name, pr_number, title, session_id, status, trigger)
-     VALUES ($repo, $pr, $title, $session, $status, $trigger)
+    `INSERT INTO reviews (repo_full_name, pr_number, title, session_id, status, trigger, attempt)
+     VALUES ($repo, $pr, $title, $session, $status, $trigger, $attempt)
      RETURNING *`,
   ),
   updateStatus: db.prepare<null, { $status: string; $done: number; $id: number }>(

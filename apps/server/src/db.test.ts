@@ -47,6 +47,7 @@ test("review lifecycle: pending -> running -> completed", () => {
     $session: null,
     $status: "pending",
     $trigger: "opened",
+    $attempt: 0,
   })!;
   expect(row.status).toBe("pending");
   expect(row.trigger).toBe("opened");
@@ -96,6 +97,7 @@ test("byRepoPR returns only that PR's reviews, newest first", () => {
     $session: null,
     $status: "completed",
     $trigger: "opened",
+    $attempt: 0,
   })!;
   reviews.insert.get({
     $repo: full,
@@ -104,6 +106,7 @@ test("byRepoPR returns only that PR's reviews, newest first", () => {
     $session: null,
     $status: "completed",
     $trigger: "synchronize",
+    $attempt: 0,
   })!;
   const a2 = reviews.insert.get({
     $repo: full,
@@ -112,6 +115,7 @@ test("byRepoPR returns only that PR's reviews, newest first", () => {
     $session: null,
     $status: "completed",
     $trigger: "retry",
+    $attempt: 0,
   })!;
 
   const got = reviews.byRepoPR.all({ $repo: full, $pr: 11, $limit: 50 });
@@ -389,6 +393,7 @@ const seed = (
     $session: null,
     $status: "pending",
     $trigger: extra.trigger ?? "synchronize",
+    $attempt: 0,
   })!;
   if (status === "completed")
     reviews.complete.run({
@@ -529,4 +534,36 @@ test("lastReviewedPatch: newest completed row with a patch_id, nothing else", ()
   // Trap 6: improver runs are stored with pr_number = 0 and must never shadow.
   seed(full, 0, "completed", { patch: "improver" });
   expect(reviews.lastReviewedPatch.get({ $repo: full, $pr: 0 })).toBeNull();
+});
+
+test("attempt column: stored at insert, defaults to 0 for rows that omit it", () => {
+  const full = "acme/attempt";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+
+  const first = reviews.insert.get({
+    $repo: full,
+    $pr: 1,
+    $title: "t",
+    $session: null,
+    $status: "pending",
+    $trigger: "opened",
+    $attempt: 0,
+  })!;
+  expect(first.attempt).toBe(0);
+
+  const retry = reviews.insert.get({
+    $repo: full,
+    $pr: 1,
+    $title: "t",
+    $session: null,
+    $status: "pending",
+    $trigger: "retry",
+    $attempt: 1,
+  })!;
+  expect(retry.attempt).toBe(1);
+
+  // Pre-column rows (and raw inserts that omit it) read as 0, per the DEFAULT.
+  db.exec(`INSERT INTO reviews (repo_full_name, pr_number) VALUES ('${full}', 2)`);
+  const legacy = reviews.byRepoPR.get({ $repo: full, $pr: 2, $limit: 1 });
+  expect(legacy?.attempt).toBe(0);
 });

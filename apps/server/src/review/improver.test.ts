@@ -32,6 +32,7 @@ function seedCompletedReview(pr: number, agoSeconds = 0, repo = FULL) {
     $session: null,
     $status: "pending",
     $trigger: "opened",
+    $attempt: 0,
   })!;
   reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m", $patch: null });
   if (agoSeconds) {
@@ -87,6 +88,7 @@ test("improver gating: failed run does not advance the marker", async () => {
     $session: null,
     $status: "pending",
     $trigger: "opened",
+    $attempt: 0,
   })!;
   reviews.complete.run({ $id: row.id, $cost: 0, $tokens: 0, $model: "m", $patch: null });
 

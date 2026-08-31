@@ -19,6 +19,8 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
       pr: number;
       title: string;
       trigger: string | null;
+      // 0 (default) for a first run, 1 for the runner's automatic retry.
+      attempt?: number;
     }): Effect.Effect<number, DatabaseError> =>
       attempt("reviews.insert", () => {
         const row = reviews.insert.get({
@@ -28,6 +30,7 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
           $session: null,
           $status: "pending",
           $trigger: input.trigger,
+          $attempt: input.attempt ?? 0,
         })!;
         publishReviewEvent("created", row.id);
         return row.id;
