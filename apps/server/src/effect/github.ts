@@ -61,6 +61,26 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         ),
       ),
 
+    // Best-effort like the check calls: a missing permission or an API hiccup
+    // must never fail the caller — log and carry on.
+    createIssueComment: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      issueNumber: number,
+      body: string,
+    ): Effect.Effect<void> =>
+      Effect.tryPromise(() =>
+        octokit.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body }),
+      ).pipe(
+        Effect.asVoid,
+        Effect.catchAll((cause) =>
+          Effect.sync(() => {
+            log.warn("issue comment create failed", { error: String(cause) });
+          }),
+        ),
+      ),
+
     finishCheck: (
       octokit: Octokit,
       owner: string,

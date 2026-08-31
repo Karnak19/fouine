@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { reviewPipeline } from "~/effect/review";
+import { reviewPipeline, shouldPostFailureComment } from "~/effect/review";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
@@ -43,6 +43,7 @@ function makeLayer(over: {
     baselineQueries: 0,
     reviewsRun: 0,
     proceeded: 0,
+    comments: [] as string[],
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
@@ -79,6 +80,8 @@ function makeLayer(over: {
         calls.checkBodies.push(body);
         return over.finishCheck ? over.finishCheck(conclusion) : Effect.succeed(true);
       }),
+    createIssueComment: (_o: unknown, _owner: string, _repo: string, _n: number, body: string) =>
+      Effect.sync(() => void calls.comments.push(body)),
   } as unknown as GitHubService);
 
   const git = Layer.succeed(GitService, {
@@ -265,6 +268,66 @@ test("tool GitHub context is passed per-review, not via global process.env (#23)
   // OpenCodeService under a mutex, right before the subprocess snapshots it.
   expect(process.env.FOUINE_GITHUB_TOKEN).toBeUndefined();
   expect(process.env.FOUINE_PR_NUMBER).toBeUndefined();
+});
+
+// ── Final-failure PR comment ─────────────────────────────────────────────────
+// One comment, exactly when no auto-retry will follow: genuine failure on
+// attempt >= 1. Everything else stays silent.
+
+test("shouldPostFailureComment: only a genuine unsettled attempt-1 failure", () => {
+  const base = { failed: true, aborted: false, settled: false, attempt: 1 };
+  expect(shouldPostFailureComment(base)).toBe(true);
+  expect(shouldPostFailureComment({ ...base, attempt: 0 })).toBe(false);
+  expect(shouldPostFailureComment({ ...base, aborted: true })).toBe(false);
+  expect(shouldPostFailureComment({ ...base, failed: false })).toBe(false);
+  expect(shouldPostFailureComment({ ...base, settled: true })).toBe(false);
+});
+
+test("an attempt-1 failure posts one PR comment with the truncated error", async () => {
+  const { layer, calls } = makeLayer({
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "x".repeat(600) })),
+  });
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, "retry", noAbort(), () => {}, () => {}, 1).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.comments.length).toBe(1);
+  expect(calls.comments[0]).toContain("🦡 Review failed after an automatic retry");
+  expect(calls.comments[0]).toContain("/fouine");
+  // 500-char cap on the squashed error.
+  expect(calls.comments[0]).toContain("x".repeat(500));
+  expect(calls.comments[0]).not.toContain("x".repeat(501));
+});
+
+test("an attempt-0 failure posts no comment — the auto-retry will speak", async () => {
+  const { layer, calls } = makeLayer({
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "boom" })),
+  });
+  await Effect.runPromiseExit(
+    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(calls.comments).toEqual([]);
+});
+
+test("an aborted attempt-1 run posts no comment", async () => {
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const { layer, calls } = makeLayer({
+    oc: () => Effect.fail(new OpenCodeError({ op: "runReview", cause: "AbortError" })),
+  });
+  await Effect.runPromiseExit(
+    reviewPipeline(pr, "retry", ctrl.signal, () => {}, () => {}, 1).pipe(Effect.provide(layer)),
+  );
+  expect(calls.comments).toEqual([]);
+});
+
+test("a successful attempt-1 run posts no comment", async () => {
+  const { layer, calls } = makeLayer({});
+  const exit = await Effect.runPromiseExit(
+    reviewPipeline(pr, "retry", noAbort(), () => {}, () => {}, 1).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.comments).toEqual([]);
 });
 
 // ── Skip on an unchanged diff (#78) ──────────────────────────────────────────
