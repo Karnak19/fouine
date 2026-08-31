@@ -191,6 +191,8 @@ POST /api/reviews/:id/retry
 
 Re-fetches the PR from GitHub and starts a fresh review of it, tagged with trigger `retry`. The original row is left as it is; the retry creates a new one.
 
+Failed reviews also retry themselves automatically, once: 60 seconds after a genuine failure, the server re-runs the review (trigger `retry`, `attempt` 1). A review stopped by a user, superseded by a newer push, or interrupted by a server restart is never auto-retried, and neither is the retry itself. If another review for the same PR is already running when the delay elapses, the retry stands down. When the retry itself fails, fouine posts a comment on the PR saying so.
+
 - `202 → { "ok": true }` — queued.
 - `404` if the review does not exist (`Not found`) or its repo is no longer registered (`repo not found`).
 - `502 → { "ok": false, "error": "..." }` if GitHub cannot be reached or the PR cannot be fetched.
@@ -546,6 +548,7 @@ The shapes below live in `packages/shared/src/index.ts` and are imported by both
 | `status` | string — `pending` \| `running` \| `completed` \| `failed` \| `skipped` |
 | `error` | string \| null |
 | `trigger` | string \| null — `opened` \| `synchronize` \| `reopened` \| `command` \| `retry` |
+| `attempt` | number — `0` for a first run, `1` for the single automatic retry after a failure |
 | `cost` | number \| null — set at completion |
 | `tokens` | number \| null — set at completion |
 | `model` | string \| null — resolved spec, set at completion |

@@ -25,6 +25,7 @@ function seedReview(full: string, pr: number) {
     $session: null,
     $status: "pending",
     $trigger: "opened",
+    $attempt: 0,
   })!;
 }
 

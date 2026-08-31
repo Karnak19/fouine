@@ -45,6 +45,19 @@ export function failureMessage(
   return String(Cause.squash(cause));
 }
 
+// Post a PR comment only when the failure is final: genuine (not a user stop
+// or supersession), on a row not already settled, and past the single
+// auto-retry (attempt >= 1). An attempt-0 failure stays silent — the retry
+// either fixes it quietly or posts on its own attempt-1 failure.
+export function shouldPostFailureComment(input: {
+  failed: boolean;
+  aborted: boolean;
+  settled: boolean;
+  attempt: number;
+}): boolean {
+  return input.failed && !input.aborted && !input.settled && input.attempt >= 1;
+}
+
 // The status write is the whole point of the failure path, so its own failure
 // can't be swallowed silently the way it used to be — a locked DB there means a
 // zombie row that the log claims is failed.
@@ -84,6 +97,9 @@ export function reviewPipeline(
   // that the previous review keeps running for the few seconds the fetch and the
   // patch-id take.
   onProceed: (id: number) => void,
+  // 0 for a first run, 1 when the runner fires its single automatic retry —
+  // stored on the row so the runner never retries a retry.
+  attempt: number = 0,
 ): Effect.Effect<
   void,
   ReviewError,
@@ -101,6 +117,7 @@ export function reviewPipeline(
       pr: pr.number,
       title: pr.title,
       trigger,
+      attempt,
     });
     yield* Effect.sync(() => onStart(id));
 
@@ -317,6 +334,36 @@ export function reviewPipeline(
               .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
             const settled = current === "completed" || current === "failed";
             if (!settled) yield* writeFailure(db, id, message);
+
+            // Final failure (the auto-retry already fired, or this IS the
+            // retry): tell the PR. Best-effort, catchAllCause for the same
+            // reason as the check close below — a defect here must never mask
+            // the original cause.
+            if (shouldPostFailureComment({ failed, aborted, settled, attempt })) {
+              const octokit = yield* Ref.get(octokitRef);
+              if (octokit) {
+                yield* gh
+                  .createIssueComment(
+                    octokit,
+                    owner,
+                    repoName,
+                    pr.number,
+                    `🦡 Review failed after an automatic retry: ${message.slice(0, 500)}. Comment \`/fouine\` to retry, or use the dashboard.`,
+                  )
+                  .pipe(
+                    Effect.catchAllCause((cause) =>
+                      Effect.sync(() =>
+                        log.error("failed to post failure comment", {
+                          repo: pr.repoFullName,
+                          number: pr.number,
+                          review: id,
+                          error: String(Cause.squash(cause)),
+                        }),
+                      ),
+                    ),
+                  );
+              }
+            }
           }
 
           // Runs on BOTH outcomes, independent of the row status: finishCheck

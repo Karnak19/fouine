@@ -27,6 +27,8 @@ export interface ReviewRow {
   status: string;
   error: string | null;
   trigger: string | null;
+  // 0 for a first run, 1 for the single automatic retry after a failure.
+  attempt: number;
   cost: number | null;
   tokens: number | null;
   model: string | null;
