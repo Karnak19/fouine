@@ -12,8 +12,7 @@ const AGENT_FOOTER =
 export default tool({
   description:
     "Post a formal PR review: a summary plus optional inline comments pinned to specific file " +
-    "lines in the diff. Call once with all inline findings. Use event COMMENT unless approving " +
-    "or requesting changes.",
+    "lines in the diff. Call once with all inline findings.",
   args: {
     summary: tool.schema.string().describe("Review summary shown at the top of the review."),
     event: tool.schema
