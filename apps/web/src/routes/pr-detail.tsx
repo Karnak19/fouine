@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import { api, type ReviewRow } from "@/lib/api";
 import { timeAgo, duration, triggerLabel, formatCost, formatTokens } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,136 @@ import { Button } from "@/components/ui/button";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { ArrowLeft, ExternalLink, ChevronRight, RotateCw, Square, History } from "lucide-react";
+import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+
+// Tailwind's `animate-pulse`. Restated locally because the @keyframes only
+// exist while a className references the utility.
+const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
+
+const s = stylex.create({
+  // `space-y-*` is a `& > * + *` margin rule StyleX cannot express; a column
+  // flex with the same gap renders identically for these block-level children.
+  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x768 },
+  loadingPage: { display: "flex", flexDirection: "column", gap: space.x16, maxWidth: space.x768 },
+  pulseBase: {
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 60%, transparent)`,
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+  skeletonLine: { height: space.x16, width: space.x128, borderRadius: radius.base },
+  skeletonBlock: { height: space.x128, borderRadius: radius.lg },
+
+  backLink: {
+    fontSize: text.sm, lineHeight: leading.sm,
+    color: { default: color.zinc400, ":hover": color.zinc100 },
+    display: "flex",
+    alignItems: "center",
+    gap: space.x4
+  },
+
+  headRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: space.x16 },
+  headMain: { minWidth: 0 },
+  titleRow: { display: "flex", alignItems: "center", gap: space.x8, minWidth: 0 },
+  title: {
+    fontSize: text.xl, lineHeight: leading.xl,
+    fontWeight: 700,
+    letterSpacing: tracking.tight,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  meta: {
+    marginTop: space.x4,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    columnGap: space.x12,
+    rowGap: space.x4,
+    fontSize: text.sm, lineHeight: leading.sm,
+    color: color.zinc500
+  },
+  metaLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x4,
+    fontFamily: font.mono,
+    color: { default: color.zinc400, ":hover": color.zinc200 }
+  },
+  faded: { opacity: 0.5 },
+  metaItem: { display: "inline-flex", alignItems: "center", gap: space.x4 },
+  nums: { fontVariantNumeric: "tabular-nums" },
+  dim: { color: color.zinc600 },
+  actions: { display: "flex", alignItems: "center", gap: space.x8, flexShrink: 0 },
+
+  empty: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "dashed",
+    borderColor: color.zinc800,
+    paddingBlock: space.x64,
+    textAlign: "center"
+  },
+  emptyIcon: { color: color.zinc700 },
+  emptyTitle: { marginTop: space.x12, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
+
+  timeline: {
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    overflow: "hidden"
+  },
+  // `divide-y divide-zinc-900` lived on the <ul>; StyleX cannot reach children,
+  // so each row draws its own top border and the first one opts out.
+  timelineRow: {
+    borderTopWidth: { default: 0, ":not(:first-child)": "1px" },
+    borderTopStyle: "solid",
+    borderTopColor: color.zinc900
+  },
+  rowLink: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x12,
+    paddingInline: space.x16,
+    paddingBlock: space.x12,
+    backgroundColor: {
+      default: null,
+      ":hover": `color-mix(in oklab, ${color.zinc900} 60%, transparent)`
+    },
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms"
+  },
+  rowBody: { minWidth: 0, flexGrow: 1, flexBasis: 0 },
+  rowTop: { display: "flex", alignItems: "center", gap: space.x8, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc300 },
+  rowId: { fontFamily: font.mono, color: color.zinc500, fontVariantNumeric: "tabular-nums" },
+  trigger: {
+    fontSize: text.xs, lineHeight: leading.xs,
+    color: color.zinc500,
+    borderRadius: radius.base,
+    backgroundColor: `color-mix(in oklab, ${color.zinc800} 60%, transparent)`,
+    paddingInline: space.x6,
+    paddingBlock: space.x2
+  },
+  rowMeta: {
+    fontSize: text.xs, lineHeight: leading.xs,
+    color: color.zinc500,
+    marginTop: space.x2,
+    fontVariantNumeric: "tabular-nums"
+  },
+  rowCost: {
+    fontSize: text.xs, lineHeight: leading.xs,
+    color: color.zinc500,
+    fontVariantNumeric: "tabular-nums",
+    flexShrink: 0
+  },
+  rowChevron: { color: color.zinc600, flexShrink: 0 }
+});
 
 export default function PRDetailPage() {
   const { owner, name, number } = useParams({ from: "/repos/$owner/$name/pr/$number" });
@@ -22,7 +153,7 @@ export default function PRDetailPage() {
       const list = q.state.data;
       if (!list) return false;
       return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
-    },
+    }
   });
 
   // Scoped to this repo. Review events don't carry the PR number, so any
@@ -54,69 +185,63 @@ export default function PRDetailPage() {
       if (!latest) throw new Error("no review");
       return api.reviews.retry(latest.id);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey })
   });
   const stopMut = useMutation({
     mutationFn: () => {
       if (!latest) throw new Error("no review");
       return api.reviews.stop(latest.id);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey })
   });
 
   if (isLoading) {
     return (
-      <div className="space-y-4 max-w-3xl">
-        <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
-        <div className="h-32 rounded-lg bg-zinc-900/60 animate-pulse" />
+      <div {...stylex.props(s.loadingPage)}>
+        <div {...stylex.props(s.pulseBase, s.skeletonLine)} />
+        <div {...stylex.props(s.pulseBase, s.skeletonBlock)} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <Link
-        to="/repos/$owner/$name"
-        params={{ owner, name }}
-        className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
-      >
+    <div {...stylex.props(s.page)}>
+      <Link to="/repos/$owner/$name" params={{ owner, name }} {...stylex.props(s.backLink)}>
         <ArrowLeft size={14} /> {owner}/{name}
       </Link>
 
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-xl font-bold tracking-tight truncate">
-              {latest?.title ?? `PR #${prNumber}`}
-            </h1>
+      <div {...stylex.props(s.headRow)}>
+        <div {...stylex.props(s.headMain)}>
+          <div {...stylex.props(s.titleRow)}>
+            <h1 {...stylex.props(s.title)}>{latest?.title ?? `PR #${prNumber}`}</h1>
             <LiveBadge status={status} />
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
+          <div {...stylex.props(s.meta)}>
             <a
               href={`https://github.com/${owner}/${name}/pull/${prNumber}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 font-mono text-zinc-400 hover:text-zinc-200"
+              {...stylex.props(s.metaLink)}
             >
               #{prNumber}
-              <ExternalLink size={12} className="opacity-50" />
+              <ExternalLink size={12} {...stylex.props(s.faded)} />
             </a>
-            <span className="inline-flex items-center gap-1">
+            <span {...stylex.props(s.metaItem)}>
               <History size={12} />
               {reviews?.length ?? 0} review{(reviews?.length ?? 0) === 1 ? "" : "s"}
             </span>
             {hasCost && (
-              <span className="tabular-nums">
+              <span {...stylex.props(s.nums)}>
                 {formatCost(totals!.cost)}
                 {totals!.tokens > 0 && (
-                  <span className="text-zinc-600"> · {formatTokens(totals!.tokens)}</span>
+                  <span {...stylex.props(s.dim)}> · {formatTokens(totals!.tokens)}</span>
                 )}
               </span>
             )}
           </div>
         </div>
         {latest && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div {...stylex.props(s.actions)}>
             <Badge status={latest.status} />
             {(latest.status === "running" || latest.status === "pending") && (
               <Button
@@ -145,12 +270,12 @@ export default function PRDetailPage() {
       </div>
 
       {reviews == null ? null : reviews.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
-          <History size={28} className="text-zinc-700" />
-          <p className="mt-3 text-sm text-zinc-400">No reviews for this PR yet.</p>
+        <div {...stylex.props(s.empty)}>
+          <History size={28} {...stylex.props(s.emptyIcon)} />
+          <p {...stylex.props(s.emptyTitle)}>No reviews for this PR yet.</p>
         </div>
       ) : (
-        <ul className="rounded-lg border border-zinc-800 divide-y divide-zinc-900 overflow-hidden">
+        <ul {...stylex.props(s.timeline)}>
           {reviews.map((r) => (
             <TimelineRow key={r.id} r={r} />
           ))}
@@ -163,46 +288,38 @@ export default function PRDetailPage() {
 function TimelineRow({ r }: { r: ReviewRow }) {
   const label = triggerLabel(r.trigger);
   return (
-    <li>
-      <Link
-        to="/reviews/$id"
-        params={{ id: String(r.id) }}
-        className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-900/60 transition-colors"
-      >
+    <li {...stylex.props(s.timelineRow)}>
+      <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(s.rowLink)}>
         <Badge status={r.status} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-sm text-zinc-300">
-            <span className="font-mono text-zinc-500 tabular-nums">#{r.id}</span>
-            {label && (
-              <span className="text-xs text-zinc-500 rounded bg-zinc-800/60 px-1.5 py-0.5">
-                {label}
-              </span>
-            )}
+        <div {...stylex.props(s.rowBody)}>
+          <div {...stylex.props(s.rowTop)}>
+            <span {...stylex.props(s.rowId)}>#{r.id}</span>
+            {label && <span {...stylex.props(s.trigger)}>{label}</span>}
           </div>
           <div
-            className="text-xs text-zinc-500 mt-0.5 tabular-nums"
+            {...stylex.props(s.rowMeta)}
             title={new Date(r.created_at * 1000).toLocaleString()}
           >
             {timeAgo(r.created_at)}
             {/* A skip has no meaningful duration — say why it exists instead. */}
             {r.status === "skipped" ? (
-              <span className="text-zinc-600"> · unchanged diff — nothing new to review</span>
+              <span {...stylex.props(s.dim)}> · unchanged diff — nothing new to review</span>
             ) : (
               r.completed_at && (
-                <span className="text-zinc-600"> · {duration(r.created_at, r.completed_at)}</span>
+                <span {...stylex.props(s.dim)}> · {duration(r.created_at, r.completed_at)}</span>
               )
             )}
           </div>
         </div>
         {r.cost != null && (
-          <span className="text-xs text-zinc-500 tabular-nums shrink-0">
+          <span {...stylex.props(s.rowCost)}>
             {formatCost(r.cost)}
             {r.tokens != null && r.tokens > 0 && (
-              <span className="text-zinc-600"> · {formatTokens(r.tokens)}</span>
+              <span {...stylex.props(s.dim)}> · {formatTokens(r.tokens)}</span>
             )}
           </span>
         )}
-        <ChevronRight size={16} className="text-zinc-600 shrink-0" />
+        <ChevronRight size={16} {...stylex.props(s.rowChevron)} />
       </Link>
     </li>
   );

@@ -2,7 +2,9 @@ import * as React from "react";
 import { createAuthClient } from "better-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
+import * as stylex from "@stylexjs/stylex";
 import { Button } from "@/components/ui/button";
+import { color, leading, radius, space, text, tracking } from "@/tokens.stylex";
 
 // Same-origin: the client defaults to `${location.origin}/api/auth`.
 export const authClient = createAuthClient();
@@ -15,17 +17,42 @@ export function signOut() {
   return authClient.signOut().then(() => location.reload());
 }
 
+const s = stylex.create({
+  screen: {
+    display: "flex",
+    height: "100vh",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x24,
+    backgroundColor: color.zinc950,
+    color: color.zinc100
+  },
+  brand: { display: "flex", alignItems: "center", gap: space.x8 },
+  brandMark: {
+    display: "grid",
+    placeItems: "center",
+    height: space.x36,
+    width: space.x36,
+    borderRadius: radius.md,
+    backgroundColor: color.ember500,
+    color: color.zinc950
+  },
+  brandText: { fontSize: text.xl, lineHeight: leading.xl, fontWeight: 700, letterSpacing: tracking.tight },
+  hint: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 }
+});
+
 function LoginScreen() {
   const [pending, setPending] = React.useState(false);
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-6 bg-zinc-950 text-zinc-100">
-      <span className="flex items-center gap-2">
-        <span className="grid place-items-center h-9 w-9 rounded-md bg-ember-500 text-zinc-950">
+    <div {...stylex.props(s.screen)}>
+      <span {...stylex.props(s.brand)}>
+        <span {...stylex.props(s.brandMark)}>
           <Search size={18} strokeWidth={2.5} />
         </span>
-        <span className="text-xl font-bold tracking-tight">fouine</span>
+        <span {...stylex.props(s.brandText)}>fouine</span>
       </span>
-      <p className="text-sm text-zinc-400">Sign in to continue</p>
+      <p {...stylex.props(s.hint)}>Sign in to continue</p>
       <Button
         disabled={pending}
         onClick={() => {
@@ -44,7 +71,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const { data: status, isPending: statusPending } = useQuery({
     queryKey: ["auth-status"],
     queryFn: () => fetch("/api/auth-status").then((r) => r.json() as Promise<{ enabled: boolean }>),
-    staleTime: Infinity,
+    staleTime: Infinity
   });
   const session = authClient.useSession();
 

@@ -4,8 +4,9 @@ import {
   createRoute,
   Link,
   Outlet,
-  useRouterState,
+  useRouterState
 } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import {
   GitPullRequest,
   Settings,
@@ -15,9 +16,174 @@ import {
   Download,
   LogOut,
   ChartNoAxesColumn,
-  MessageSquare,
+  MessageSquare
 } from "lucide-react";
+import { color, leading, radius, space, text, tracking } from "@/tokens.stylex";
 import { useAuth, signOut } from "../lib/auth";
+
+const s = stylex.create({
+  // Shared by the two sidebar footer buttons.
+  sideButton: {
+    margin: space.x8,
+    display: "flex",
+    alignItems: "center",
+    gap: space.x10,
+    borderRadius: radius.md,
+    paddingInline: space.x12,
+    paddingBlock: space.x8,
+    fontSize: text.sm, lineHeight: leading.sm,
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms",
+    color: { default: color.zinc400, ":hover": color.zinc100 },
+    backgroundColor: {
+      default: null,
+      ":hover": `color-mix(in oklab, ${color.zinc800} 60%, transparent)`
+    }
+  },
+  avatar: { height: space.x16, width: space.x16, borderRadius: radius.full },
+  truncate: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  pushRight: { marginLeft: "auto" },
+
+  logo: { display: "flex", alignItems: "center", gap: space.x8 },
+  logoMark: {
+    display: "grid",
+    placeItems: "center",
+    height: space.x28,
+    width: space.x28,
+    borderRadius: radius.md,
+    backgroundColor: color.ember500,
+    color: color.zinc950
+  },
+  logoText: { fontSize: text.base, lineHeight: leading.base, fontWeight: 700, letterSpacing: tracking.tight },
+
+  shell: { display: "flex", height: "100vh" },
+  aside: {
+    display: { default: "none", "@media (min-width: 768px)": "flex" },
+    flexDirection: "column",
+    width: space.x224,
+    flexShrink: 0,
+    borderRightWidth: "1px",
+    borderRightStyle: "solid",
+    borderRightColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`,
+    backgroundColor: color.zinc950
+  },
+  asideHead: {
+    paddingInline: space.x16,
+    height: space.x56,
+    display: "flex",
+    alignItems: "center",
+    borderBottomWidth: "1px",
+    borderBottomStyle: "solid",
+    borderBottomColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`
+  },
+  // `space-y-0.5` is a `& > * + *` margin rule StyleX cannot express; a column
+  // flex with the same gap renders identically for these block-level links.
+  navList: {
+    flexGrow: 1,
+    flexBasis: 0,
+    padding: space.x8,
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x2
+  },
+  main: {
+    flexGrow: 1,
+    flexBasis: 0,
+    overflow: "auto",
+    display: "flex",
+    flexDirection: "column"
+  },
+  header: {
+    display: { default: "flex", "@media (min-width: 768px)": "none" },
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingInline: space.x16,
+    height: space.x56,
+    borderBottomWidth: "1px",
+    borderBottomStyle: "solid",
+    borderBottomColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`,
+    backgroundColor: color.zinc950,
+    flexShrink: 0
+  },
+  tabBar: {
+    display: { default: "grid", "@media (min-width: 768px)": "none" },
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+    borderTopWidth: "1px",
+    borderTopStyle: "solid",
+    borderTopColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`,
+    backgroundColor: `color-mix(in oklab, ${color.zinc950} 95%, transparent)`,
+    backdropFilter: "blur(8px)",
+    paddingBottom: "env(safe-area-inset-bottom)"
+  },
+
+  link: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x10,
+    borderRadius: radius.md,
+    paddingInline: space.x12,
+    paddingBlock: space.x8,
+    fontSize: text.sm, lineHeight: leading.sm,
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms",
+    color: { default: color.zinc400, ":hover": color.zinc100 },
+    backgroundColor: {
+      default: null,
+      ":hover": `color-mix(in oklab, ${color.zinc800} 60%, transparent)`
+    }
+  },
+  // The active colours also restate `:hover`, because the old `[&.active]`
+  // variant outranked `hover:` — an active link stays ember while hovered.
+  linkActive: {
+    color: { default: color.ember300, ":hover": color.ember300 },
+    backgroundColor: {
+      default: `color-mix(in oklab, ${color.ember950} 40%, transparent)`,
+      ":hover": `color-mix(in oklab, ${color.ember950} 40%, transparent)`
+    }
+  },
+  tab: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x4,
+    paddingBlock: space.x10,
+    minHeight: space.x56,
+    fontSize: text.xxxs,
+    fontWeight: 500,
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+    color: color.zinc500
+  },
+  tabActive: { color: color.ember300 },
+
+  content: {
+    marginInline: "auto",
+    width: "100%",
+    maxWidth: space.x1280,
+    paddingInline: { default: space.x16, "@media (min-width: 768px)": space.x32 },
+    paddingTop: { default: space.x24, "@media (min-width: 768px)": space.x32 }
+  },
+  contentFullHeight: {
+    display: "flex",
+    minHeight: 0,
+    flexGrow: 1,
+    flexBasis: 0,
+    flexDirection: "column",
+    paddingBottom: {
+      default: `calc(${space.x56} + env(safe-area-inset-bottom))`,
+      "@media (min-width: 768px)": space.x32
+    }
+  },
+  contentBlock: {
+    paddingBottom: { default: space.x96, "@media (min-width: 768px)": space.x32 }
+  }
+});
 
 // Captured beforeinstallprompt event, so we can trigger the install from our own button.
 type InstallPrompt = Event & { prompt: () => Promise<void> };
@@ -41,7 +207,7 @@ function InstallButton() {
         void prompt.prompt();
         setPrompt(null);
       }}
-      className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
+      {...stylex.props(s.sideButton)}
     >
       <Download size={16} />
       Install app
@@ -66,22 +232,22 @@ function UserMenu() {
       type="button"
       onClick={() => void signOut()}
       title={`Sign out${user.name ? ` (${user.name})` : ""}`}
-      className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
+      {...stylex.props(s.sideButton)}
     >
-      {user.image && <img src={user.image} alt="" className="h-4 w-4 rounded-full" />}
-      <span className="truncate">{user.name ?? "Sign out"}</span>
-      <LogOut size={14} className="ml-auto" />
+      {user.image && <img src={user.image} alt="" {...stylex.props(s.avatar)} />}
+      <span {...stylex.props(s.truncate)}>{user.name ?? "Sign out"}</span>
+      <LogOut size={14} {...stylex.props(s.pushRight)} />
     </button>
   );
 }
 
 function Logo() {
   return (
-    <span className="flex items-center gap-2">
-      <span className="grid place-items-center h-7 w-7 rounded-md bg-ember-500 text-zinc-950">
+    <span {...stylex.props(s.logo)}>
+      <span {...stylex.props(s.logoMark)}>
         <Search size={15} strokeWidth={2.5} />
       </span>
-      <span className="text-base font-bold tracking-tight">fouine</span>
+      <span {...stylex.props(s.logoText)}>fouine</span>
     </span>
   );
 }
@@ -98,34 +264,31 @@ const FULL_HEIGHT_ROUTES = ["/chat"];
 // scrolled content.
 //
 // Chat is the opposite: the thread viewport scrolls internally and the composer
-// sticks to its bottom, so this box must have a *bounded* height for `h-full`
-// inside it to mean anything (`flex-1 min-h-0`). The tab-bar clearance then has
-// to be exactly the bar's height — padding here shrinks the box rather than
-// trailing the content, so the roomy `pb-24` would leave a dead gap above the
-// bar instead of breathing room under the last message.
+// sticks to its bottom, so this box must have a *bounded* height for `height:
+// 100%` inside it to mean anything (flex-grow with min-height 0). The tab-bar
+// clearance then has to be exactly the bar's height — padding here shrinks the
+// box rather than trailing the content, so the roomy 6rem would leave a dead
+// gap above the bar instead of breathing room under the last message.
 //
-// Making every route `flex-1 min-h-0` would look tidier but quietly breaks the
-// long pages: their overflow escapes the box, so `pb-24` would end up floating
-// mid-page and content would run under the tab bar.
-function contentClass(fullHeight: boolean) {
-  const base = "mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8";
-  return fullHeight
-    ? `${base} flex min-h-0 flex-1 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-8`
-    : `${base} pb-24 md:pb-8`;
+// Making every route grow-with-min-height-0 would look tidier but quietly
+// breaks the long pages: their overflow escapes the box, so the 6rem bottom
+// padding would end up floating mid-page and content would run under the tab bar.
+function contentLayout(fullHeight: boolean) {
+  return fullHeight ? s.contentFullHeight : s.contentBlock;
 }
 
 function RootLayout() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({ select: (st) => st.location.pathname });
   const isFullHeight = FULL_HEIGHT_ROUTES.includes(pathname);
 
   return (
-    <div className="flex h-screen">
+    <div {...stylex.props(s.shell)}>
       {/* Desktop: left sidebar. Hidden on mobile in favour of the bottom tab bar. */}
-      <aside className="hidden md:flex w-56 shrink-0 border-r border-zinc-800/80 bg-zinc-950 flex-col">
-        <div className="px-4 h-14 flex items-center border-b border-zinc-800/80">
+      <aside {...stylex.props(s.aside)}>
+        <div {...stylex.props(s.asideHead)}>
           <Logo />
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
+        <nav {...stylex.props(s.navList)}>
           {NAV.map((n) => (
             <NavLink key={n.to} {...n} />
           ))}
@@ -133,18 +296,18 @@ function RootLayout() {
         <InstallButton />
         <UserMenu />
       </aside>
-      <main className="flex-1 overflow-auto flex flex-col">
+      <main {...stylex.props(s.main)}>
         {/* Mobile: top header with brand + install action. */}
-        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-zinc-800/80 bg-zinc-950 shrink-0">
+        <header {...stylex.props(s.header)}>
           <Logo />
           <InstallButton />
         </header>
-        <div className={contentClass(isFullHeight)}>
+        <div {...stylex.props(s.content, contentLayout(isFullHeight))}>
           <Outlet />
         </div>
       </main>
       {/* Mobile: bottom tab bar with safe-area padding for the home indicator. */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav {...stylex.props(s.tabBar)}>
         {NAV.map((n) => (
           <TabLink key={n.to} {...n} />
         ))}
@@ -153,11 +316,16 @@ function RootLayout() {
   );
 }
 
+// The active state is the router's own test, via activeProps/inactiveProps.
+// Each state passes ONE complete stylex.props call — Link concatenates the two
+// classNames and only one of them is ever non-empty, so StyleX's own conflict
+// resolution still decides which declaration wins.
 function NavLink({ to, label, icon }: { to: string; label: string; icon: React.ReactNode }) {
   return (
     <Link
       to={to}
-      className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60 [&.active]:text-ember-300 [&.active]:bg-ember-950/40"
+      activeProps={stylex.props(s.link, s.linkActive)}
+      inactiveProps={stylex.props(s.link)}
     >
       {icon}
       {label}
@@ -170,7 +338,8 @@ function TabLink({ to, label, icon }: { to: string; label: string; icon: React.R
     <Link
       to={to}
       activeOptions={{ exact: to === "/" }}
-      className="flex flex-col items-center justify-center gap-1 py-2.5 min-h-14 text-[0.65rem] font-medium text-zinc-500 transition-colors [&.active]:text-ember-300"
+      activeProps={stylex.props(s.tab, s.tabActive)}
+      inactiveProps={stylex.props(s.tab)}
     >
       {icon}
       {label}
@@ -193,49 +362,49 @@ import ChatPage from "./chat";
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: DashboardPage,
+  component: DashboardPage
 });
 const reposRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos",
-  component: ReposPage,
+  component: ReposPage
 });
 const repoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos/$owner/$name",
-  component: RepoDetailPage,
+  component: RepoDetailPage
 });
 const prRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos/$owner/$name/pr/$number",
-  component: PRDetailPage,
+  component: PRDetailPage
 });
 const reviewsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reviews",
-  component: ReviewsPage,
+  component: ReviewsPage
 });
 const reviewDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reviews/$id",
-  component: ReviewDetailPage,
+  component: ReviewDetailPage
 });
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
   component: StatsPage,
-  validateSearch: validateStatsSearch,
+  validateSearch: validateStatsSearch
 });
 // No validateSearch: this page is deliberately not filter-driven.
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/chat",
-  component: ChatPage,
+  component: ChatPage
 });
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  component: SettingsPage,
+  component: SettingsPage
 });
 
 export const routeTree = rootRoute.addChildren([

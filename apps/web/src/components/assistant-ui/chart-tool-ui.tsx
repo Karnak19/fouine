@@ -1,8 +1,10 @@
 "use client";
 
 import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
+import * as stylex from "@stylexjs/stylex";
 import { AlertTriangleIcon } from "lucide-react";
 import {
+  BAR_ROUNDED_BOTTOM,
   BarChart,
   LegendDot,
   LineChart,
@@ -11,8 +13,92 @@ import {
   PanelSkeleton,
   StackedBarChart,
   TRIGGER_COLORS,
-  scaleMax,
+  scaleMax
 } from "@/components/charts";
+import { color, leading, space, text } from "@/tokens.stylex";
+
+const s = stylex.create({
+  // max-w and min-w-0 together: the chart fills the message column but never
+  // widens it, which is what would push the thread sideways and break its
+  // scrolling on a phone.
+  root: {
+    marginBlock: space.x8,
+    width: "100%",
+    maxWidth: "36rem",
+    minWidth: 0
+  },
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    paddingInline: space.x16,
+    paddingTop: space.x16,
+    paddingBottom: space.x12
+  },
+
+  // A caption row: muted, tiny, and pushed off whatever sits above it.
+  caption: {
+    color: color.mutedForeground,
+    marginTop: space.x8,
+    display: "flex",
+    fontSize: text.xxs
+  },
+  captionGap: { gap: space.x4 },
+  endpoints: {
+    justifyContent: "space-between",
+    gap: space.x8,
+    fontVariantNumeric: "tabular-nums"
+  },
+  legend: {
+    flexWrap: "wrap",
+    columnGap: space.x12,
+    rowGap: space.x4
+  },
+  footer: {
+    flexWrap: "wrap",
+    columnGap: space.x8,
+    fontVariantNumeric: "tabular-nums"
+  },
+
+  axisLabel: {
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "center"
+  },
+  truncate: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  noShrink: { flexShrink: 0 },
+
+  error: {
+    color: color.mutedForeground,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: space.x8,
+    paddingInline: space.x16,
+    paddingBlock: space.x16,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+  errorIcon: {
+    color: color.destructive,
+    marginTop: "1px",
+    height: space.x14,
+    width: space.x14,
+    flexShrink: 0
+  },
+  errorText: { minWidth: 0, overflowWrap: "break-word", margin: 0 },
+
+  note: {
+    color: `color-mix(in oklab, ${color.destructive} 90%, transparent)`
+  }
+});
 
 // Mirrors `apps/server/src/chat/chart.ts`. Duplicated rather than imported
 // because @fouine/shared is the only module both sides may share, and this
@@ -108,9 +194,9 @@ const LABELS_FIT = 12;
 function CategoryAxis({ cats, peak }: { cats: string[]; peak?: number }) {
   if (cats.length <= LABELS_FIT) {
     return (
-      <div className="text-muted-foreground mt-2 flex gap-1 text-[0.7rem]">
+      <div {...stylex.props(s.caption, s.captionGap)}>
         {cats.map((c) => (
-          <span key={c} className="min-w-0 flex-1 truncate text-center" title={c}>
+          <span key={c} {...stylex.props(s.axisLabel)} title={c}>
             {c}
           </span>
         ))}
@@ -118,10 +204,12 @@ function CategoryAxis({ cats, peak }: { cats: string[]; peak?: number }) {
     );
   }
   return (
-    <div className="text-muted-foreground mt-2 flex justify-between gap-2 text-[0.7rem] tabular-nums">
-      <span className="truncate">{cats[0]}</span>
-      {peak !== undefined && <span className="shrink-0">{formatValue(peak)} peak</span>}
-      <span className="truncate">{cats[cats.length - 1]}</span>
+    <div {...stylex.props(s.caption, s.endpoints)}>
+      <span {...stylex.props(s.truncate)}>{cats[0]}</span>
+      {peak !== undefined && (
+        <span {...stylex.props(s.noShrink)}>{formatValue(peak)} peak</span>
+      )}
+      <span {...stylex.props(s.truncate)}>{cats[cats.length - 1]}</span>
     </div>
   );
 }
@@ -147,27 +235,33 @@ function ChartBody({ result }: { result: Extract<RenderChartResult, { ok: true }
     return (
       <>
         <StackedBarChart
-          height="h-32"
           bars={cats.map((cat) => {
             const bucket = grid.get(cat)!;
             const present = ranked.filter((s) => (bucket.get(s) ?? 0) > 0);
             return {
               key: cat,
               title: [cat, ...present.map((s) => `${formatValue(bucket.get(s)!)} ${seriesLabel(s)}`)].join(" · "),
-              segments: present.map((s, i) => ({
-                key: s,
-                value: bucket.get(s)!,
-                className: `${seriesColor(s, ranked)} ${i === present.length - 1 ? "rounded-b" : ""}`,
-              })),
+              segments: present.map((name, i) => ({
+                key: name,
+                value: bucket.get(name)!,
+                style: [
+                  seriesColor(name, ranked),
+                  i === present.length - 1 && BAR_ROUNDED_BOTTOM,
+                ]
+              }))
             };
           })}
         />
         <CategoryAxis cats={cats} />
         {/* A legend is required the moment there are two series — the title can
             only name one thing. */}
-        <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem]">
-          {ranked.map((s) => (
-            <LegendDot key={s} className={seriesColor(s, ranked)} label={seriesLabel(s)} />
+        <div {...stylex.props(s.caption, s.legend)}>
+          {ranked.map((name) => (
+            <LegendDot
+              key={name}
+              style={seriesColor(name, ranked)}
+              label={seriesLabel(name)}
+            />
           ))}
         </div>
       </>
@@ -180,7 +274,7 @@ function ChartBody({ result }: { result: Extract<RenderChartResult, { ok: true }
   const points = cats.map((c, i) => ({
     key: c,
     value: values[i]!,
-    title: `${c} · ${formatValue(values[i]!)} ${spec.y}`,
+    title: `${c} · ${formatValue(values[i]!)} ${spec.y}`
   }));
 
   return (
@@ -193,11 +287,11 @@ function ChartBody({ result }: { result: Extract<RenderChartResult, { ok: true }
 
 function ChartError({ message }: { message: string }) {
   return (
-    <div className="text-muted-foreground flex items-start gap-2 px-4 py-4 text-xs">
-      <AlertTriangleIcon className="text-destructive mt-px size-3.5 shrink-0" />
+    <div {...stylex.props(s.error)}>
+      <AlertTriangleIcon {...stylex.props(s.errorIcon)} />
       {/* Legible rather than hidden: the model reads this error too and usually
           retries, so the user should see what it is reacting to. */}
-      <p className="min-w-0 break-words">{message}</p>
+      <p {...stylex.props(s.errorText)}>{message}</p>
     </div>
   );
 }
@@ -215,17 +309,14 @@ function ChartError({ message }: { message: string }) {
 export const ChartToolUI: ToolCallMessagePartComponent<RenderChartArgs, RenderChartResult> = ({
   args,
   result,
-  status,
+  status
 }) => {
   // The title streams in with the arguments, so the panel is named before it
   // has anything to draw rather than jumping from "Chart" to its real title.
   const title = args?.title || "Chart";
 
   return (
-    // max-w and min-w-0 together: the chart fills the message column but never
-    // widens it, which is what would push the thread sideways and break its
-    // scrolling on a phone.
-    <div className="my-2 w-full max-w-xl min-w-0">
+    <div {...stylex.props(s.root)}>
       <Panel title={title}>
         {status.type !== "complete" || result === undefined ? (
           status.type === "incomplete" ? (
@@ -238,15 +329,15 @@ export const ChartToolUI: ToolCallMessagePartComponent<RenderChartArgs, RenderCh
         ) : result.rows.length === 0 ? (
           <PanelEmpty label="The query returned nothing to plot." />
         ) : (
-          <div className="flex flex-col px-4 pt-4 pb-3">
+          <div {...stylex.props(s.body)}>
             <ChartBody result={result} />
-            <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-2 text-[0.7rem] tabular-nums">
+            <div {...stylex.props(s.caption, s.footer)}>
               <span>
                 {result.rowCount} row{result.rowCount === 1 ? "" : "s"} · {result.ms}ms
               </span>
               {/* The truncation notice. A partial chart that does not say so is
                   a wrong chart. */}
-              {result.note && <span className="text-destructive/90">{result.note}</span>}
+              {result.note && <span {...stylex.props(s.note)}>{result.note}</span>}
             </div>
           </div>
         )}

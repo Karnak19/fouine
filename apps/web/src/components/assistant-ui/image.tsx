@@ -5,10 +5,10 @@ import {
   useState,
   useEffect,
   useRef,
-  type PropsWithChildren,
+  type PropsWithChildren
 } from "react";
 import { createPortal } from "react-dom";
-import { cva, type VariantProps } from "class-variance-authority";
+import * as stylex from "@stylexjs/stylex";
 import {
   CopyIcon,
   DownloadIcon,
@@ -16,13 +16,13 @@ import {
   ImageOffIcon,
   Loader2Icon,
   RefreshCwIcon,
-  ShieldAlertIcon,
+  ShieldAlertIcon
 } from "lucide-react";
 import type {
   ImageMessagePart,
-  ImageMessagePartComponent,
+  ImageMessagePartComponent
 } from "@assistant-ui/react";
-import { cn } from "@/lib/utils";
+import { color, leading, radius, space, text } from "@/tokens.stylex";
 
 const extensionForMimeType = (mimeType?: string): string => {
   switch (mimeType) {
@@ -97,59 +97,213 @@ const copyImagePart = async (
   await navigator.clipboard.write([new ClipboardItem({ [mime]: blob })]);
 };
 
-const imageVariants = cva(
-  "aui-image-root relative overflow-hidden rounded-lg",
-  {
-    variants: {
-      variant: {
-        outline: "border-border border",
-        ghost: "",
-        muted: "bg-muted/50",
-      },
-      size: {
-        sm: "max-w-64",
-        default: "max-w-96",
-        lg: "max-w-[512px]",
-        full: "w-full",
-      },
-    },
-    defaultVariants: {
-      variant: "outline",
-      size: "default",
-    },
+// Tailwind's own `animate-pulse` / `animate-spin` keyframes, restated locally so
+// the animation no longer depends on a utility class being generated.
+const pulse = stylex.keyframes({
+  "0%, 100%": { opacity: 1 },
+  "50%": { opacity: 0.5 }
+});
+const spin = stylex.keyframes({
+  from: { transform: "rotate(0deg)" },
+  to: { transform: "rotate(360deg)" }
+});
+
+const s = stylex.create({
+  root: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: radius.lg,
+    borderWidth: 0,
+    borderStyle: "solid"
   },
-);
 
-export type ImageRootProps = React.ComponentProps<"div"> &
-  VariantProps<typeof imageVariants>;
+  previewContainer: {
+    position: "relative",
+    // min-h-32.
+    minHeight: space.x128
+  },
+  previewLoading: {
+    backgroundColor: `color-mix(in oklab, ${color.muted} 50%, transparent)`,
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  // Shared surface for the three placeholder states (loading error, generating,
+  // content-filter refusal): a muted panel that reserves the image's minimum
+  // height so the thread does not jump when the real image arrives.
+  placeholder: {
+    backgroundColor: `color-mix(in oklab, ${color.muted} 50%, transparent)`,
+    display: "flex",
+    minHeight: space.x128,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: space.x16
+  },
+  placeholderColumn: {
+    flexDirection: "column",
+    gap: space.x8,
+    textAlign: "center"
+  },
 
-function ImageRoot({
-  className,
-  variant,
-  size,
-  children,
-  ...props
-}: ImageRootProps) {
+  img: {
+    display: "block",
+    height: "auto",
+    width: "100%",
+    objectFit: "contain"
+  },
+  imgHidden: { visibility: "hidden" },
+
+  filename: {
+    color: color.mutedForeground,
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingInline: space.x8,
+    paddingBlock: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+
+  zoomTrigger: { cursor: "zoom-in" },
+  zoomOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 50,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    // bg-black/80 — there is no black token; rgb() is not downlevelled the way
+    // an oklch() literal would be.
+    backgroundColor: "rgb(0 0 0 / 0.8)"
+  },
+  zoomContent: {
+    maxHeight: "90vh",
+    maxWidth: "90vw",
+    cursor: "zoom-out",
+    objectFit: "contain"
+  },
+
+  filterTitle: { fontSize: text.sm, lineHeight: leading.sm, fontWeight: 500, margin: 0 },
+  filterReason: {
+    color: color.mutedForeground,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    margin: 0
+  },
+
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x4,
+    padding: space.x4
+  },
+  actionButton: {
+    display: "inline-flex",
+    // size-7.
+    height: space.x28,
+    width: space.x28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+    borderWidth: 0,
+    backgroundColor: { default: "transparent", ":hover": color.muted },
+    color: "inherit",
+    cursor: "pointer",
+    opacity: { default: null, ":disabled": 0.5 }
+  },
+
+  icon8: { height: space.x32, width: space.x32, color: color.mutedForeground },
+  icon4: { height: space.x16, width: space.x16 },
+  pulsing: {
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+  spinning: {
+    animationName: spin,
+    animationDuration: "1s",
+    animationTimingFunction: "linear",
+    animationIterationCount: "infinite"
+  },
+
+  srOnly: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+    borderWidth: 0
+  }
+});
+
+const rootVariants = stylex.create({
+  outline: { borderWidth: "1px", borderColor: color.border },
+  ghost: {},
+  muted: {
+    backgroundColor: `color-mix(in oklab, ${color.muted} 50%, transparent)`
+  }
+});
+
+// Max-widths, not spacing-scale values. 16rem happens to be on the scale;
+// 24rem and 32rem are not, so they stay literals.
+const rootSizes = stylex.create({
+  sm: { maxWidth: space.x256 },
+  default: { maxWidth: "24rem" },
+  lg: { maxWidth: "32rem" },
+  full: { width: "100%" }
+});
+
+export type ImageRootVariant = keyof typeof rootVariants;
+export type ImageRootSize = keyof typeof rootSizes;
+
+export type ImageRootProps = Omit<
+  React.ComponentProps<"div">,
+  "className" | "style"
+> & {
+  variant?: ImageRootVariant;
+  size?: ImageRootSize;
+  style?: stylex.StyleXStyles;
+};
+
+function ImageRoot({ style, variant, size, children, ...props }: ImageRootProps) {
+  const p = stylex.props(
+    s.root,
+    rootVariants[variant ?? "outline"],
+    rootSizes[size ?? "default"],
+    style,
+  );
   return (
     <div
       data-slot="image-root"
       data-variant={variant}
       data-size={size}
-      className={cn(imageVariants({ variant, size, className }))}
       {...props}
+      {...p}
+      className={`aui-image-root ${p.className ?? ""}`}
     >
       {children}
     </div>
   );
 }
 
-type ImagePreviewProps = Omit<React.ComponentProps<"img">, "children"> & {
-  containerClassName?: string;
+type ImagePreviewProps = Omit<
+  React.ComponentProps<"img">,
+  "children" | "className" | "style"
+> & {
+  style?: stylex.StyleXStyles;
+  containerStyle?: stylex.StyleXStyles;
 };
 
 function ImagePreview({
-  className,
-  containerClassName,
+  style,
+  containerStyle,
   onLoad,
   onError,
   alt = "Image content",
@@ -176,33 +330,25 @@ function ImagePreview({
   return (
     <div
       data-slot="image-preview"
-      className={cn("relative min-h-32", containerClassName)}
+      {...stylex.props(s.previewContainer, containerStyle)}
     >
       {!loaded && !error && (
         <div
           data-slot="image-preview-loading"
-          className="bg-muted/50 absolute inset-0 flex items-center justify-center"
+          {...stylex.props(s.previewLoading)}
         >
-          <ImageIcon className="text-muted-foreground size-8 animate-pulse" />
+          <ImageIcon {...stylex.props(s.icon8, s.pulsing)} />
         </div>
       )}
       {error ? (
-        <div
-          data-slot="image-preview-error"
-          className="bg-muted/50 flex min-h-32 items-center justify-center p-4"
-        >
-          <ImageOffIcon className="text-muted-foreground size-8" />
+        <div data-slot="image-preview-error" {...stylex.props(s.placeholder)}>
+          <ImageOffIcon {...stylex.props(s.icon8)} />
         </div>
       ) : (
         <img
           ref={imgRef}
           src={src}
           alt={alt}
-          className={cn(
-            "block h-auto w-full object-contain",
-            !loaded && "invisible",
-            className,
-          )}
           onLoad={(e) => {
             if (typeof src === "string") setLoadedSrc(src);
             onLoad?.(e);
@@ -212,6 +358,7 @@ function ImagePreview({
             onError?.(e);
           }}
           {...props}
+          {...stylex.props(s.img, !loaded && s.imgHidden, style)}
         />
       )}
     </div>
@@ -219,20 +366,19 @@ function ImagePreview({
 }
 
 function ImageFilename({
-  className,
+  style,
   children,
   ...props
-}: React.ComponentProps<"span">) {
+}: Omit<React.ComponentProps<"span">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
   if (!children) return null;
 
   return (
     <span
       data-slot="image-filename"
-      className={cn(
-        "text-muted-foreground block truncate px-2 py-1.5 text-xs",
-        className,
-      )}
       {...props}
+      {...stylex.props(s.filename, style)}
     >
       {children}
     </span>
@@ -273,6 +419,10 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
     };
   }, [isOpen]);
 
+  const trigger = stylex.props(s.zoomTrigger);
+  const overlay = stylex.props(s.zoomOverlay);
+  const content = stylex.props(s.zoomContent);
+
   return (
     <>
       <div
@@ -280,8 +430,9 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
         onKeyDown={(e) => e.key === "Enter" && handleOpen()}
         role="button"
         tabIndex={0}
-        className="aui-image-zoom-trigger cursor-zoom-in"
         aria-label="Click to zoom image"
+        {...trigger}
+        className={`aui-image-zoom-trigger ${trigger.className ?? ""}`}
       >
         {children}
       </div>
@@ -292,20 +443,22 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
             data-slot="image-zoom-overlay"
             role="button"
             tabIndex={0}
-            className="aui-image-zoom-overlay fade-in animate-in fixed inset-0 z-50 flex items-center justify-center bg-black/80 duration-200"
             onClick={handleClose}
             onKeyDown={(e) => e.key === "Enter" && handleClose()}
             aria-label="Close zoomed image"
+            {...overlay}
+            className={`aui-image-zoom-overlay ${overlay.className ?? ""}`}
           >
             <img
               data-slot="image-zoom-content"
               src={src}
               alt={alt}
-              className="aui-image-zoom-content fade-in zoom-in-95 animate-in max-h-[90vh] max-w-[90vw] cursor-zoom-out object-contain duration-200"
               onClick={(e) => {
                 e.stopPropagation();
                 handleClose();
               }}
+              {...content}
+              className={`aui-image-zoom-content ${content.className ?? ""}`}
             />
           </div>,
           document.body,
@@ -314,39 +467,33 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
   );
 }
 
-function ImageGenerating({ className }: { className?: string }) {
+function ImageGenerating({ style }: { style?: stylex.StyleXStyles }) {
   return (
     <div
       data-slot="image-generating"
-      className={cn(
-        "bg-muted/50 flex min-h-32 items-center justify-center p-4",
-        className,
-      )}
+      {...stylex.props(s.placeholder, style)}
     >
-      <Loader2Icon className="text-muted-foreground size-8 animate-spin" />
-      <span className="sr-only">Generating image…</span>
+      <Loader2Icon {...stylex.props(s.icon8, s.spinning)} />
+      <span {...stylex.props(s.srOnly)}>Generating image…</span>
     </div>
   );
 }
 
 function ImageContentFilterError({
-  className,
-  reason,
+  style,
+  reason
 }: {
-  className?: string;
+  style?: stylex.StyleXStyles;
   reason?: string;
 }) {
   return (
     <div
       data-slot="image-content-filter-error"
-      className={cn(
-        "bg-muted/50 flex min-h-32 flex-col items-center justify-center gap-2 p-4 text-center",
-        className,
-      )}
+      {...stylex.props(s.placeholder, s.placeholderColumn, style)}
     >
-      <ShieldAlertIcon className="text-muted-foreground size-8" />
-      <p className="text-sm font-medium">Image could not be generated</p>
-      {reason && <p className="text-muted-foreground text-xs">{reason}</p>}
+      <ShieldAlertIcon {...stylex.props(s.icon8)} />
+      <p {...stylex.props(s.filterTitle)}>Image could not be generated</p>
+      {reason && <p {...stylex.props(s.filterReason)}>{reason}</p>}
     </div>
   );
 }
@@ -358,11 +505,11 @@ export type ImageActionsProps = {
    * renders only when this is set and the part carries a `prompt`.
    */
   onRegenerate?: () => void | Promise<void>;
-  className?: string;
+  style?: stylex.StyleXStyles;
 };
 
 function RegenerateButton({
-  onRegenerate,
+  onRegenerate
 }: {
   onRegenerate: () => void | Promise<void>;
 }) {
@@ -381,29 +528,26 @@ function RegenerateButton({
       disabled={isRegenerating}
       data-slot="image-regenerate"
       aria-label="Regenerate image"
-      className="hover:bg-muted inline-flex size-7 items-center justify-center rounded disabled:opacity-50"
+      {...stylex.props(s.actionButton)}
     >
       <RefreshCwIcon
-        className={cn("size-4", isRegenerating && "animate-spin")}
+        {...stylex.props(s.icon4, isRegenerating && s.spinning)}
       />
     </button>
   );
 }
 
-function ImageActions({ part, onRegenerate, className }: ImageActionsProps) {
+function ImageActions({ part, onRegenerate, style }: ImageActionsProps) {
   return (
-    <div
-      data-slot="image-actions"
-      className={cn("flex items-center gap-1 p-1", className)}
-    >
+    <div data-slot="image-actions" {...stylex.props(s.actions, style)}>
       <button
         type="button"
         onClick={() => downloadImagePart(part)}
         data-slot="image-download"
         aria-label="Download image"
-        className="hover:bg-muted inline-flex size-7 items-center justify-center rounded"
+        {...stylex.props(s.actionButton)}
       >
-        <DownloadIcon className="size-4" />
+        <DownloadIcon {...stylex.props(s.icon4)} />
       </button>
       <button
         type="button"
@@ -412,9 +556,9 @@ function ImageActions({ part, onRegenerate, className }: ImageActionsProps) {
         }}
         data-slot="image-copy"
         aria-label="Copy image"
-        className="hover:bg-muted inline-flex size-7 items-center justify-center rounded"
+        {...stylex.props(s.actionButton)}
       >
-        <CopyIcon className="size-4" />
+        <CopyIcon {...stylex.props(s.icon4)} />
       </button>
       {onRegenerate && <RegenerateButton onRegenerate={onRegenerate} />}
     </div>
@@ -478,6 +622,5 @@ export {
   ImageZoom,
   ImageActions,
   ImageGenerating,
-  ImageContentFilterError,
-  imageVariants,
+  ImageContentFilterError
 };

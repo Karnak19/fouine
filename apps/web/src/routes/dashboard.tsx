@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Link } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
+import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
 import {
   api,
   type DailyStatsRow,
@@ -9,7 +11,7 @@ import {
   type ReviewRow,
   type SeverityStatsRow,
   type Stats,
-  type TriggerStatsRow,
+  type TriggerStatsRow
 } from "@/lib/api";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
@@ -20,6 +22,126 @@ import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "
 import { Inbox } from "lucide-react";
 
 const DAY_S = 24 * 60 * 60;
+
+
+// Tailwind's `animate-pulse`. Restated locally because the @keyframes only
+// exist while some className references the utility. Not `fouine-pulse` — that
+// one bottoms out at 0.35, this one at 0.5.
+const pulse = stylex.keyframes({
+  "0%, 100%": { opacity: 1 },
+  "50%": { opacity: 0.5 }
+});
+
+const s = stylex.create({
+  // space-y-7 as a flex column: children are full-width blocks either way.
+  page: { display: "flex", flexDirection: "column", gap: space.x28 },
+  header: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: space.x16
+  },
+  h1: {
+    fontSize: text.xl2,
+    lineHeight: leading.xl2,
+    fontWeight: 700,
+    letterSpacing: tracking.tight
+  },
+  tagline: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500, marginTop: space.x4 },
+  runningPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.ember300,
+    fontVariantNumeric: "tabular-nums"
+  },
+  runningDot: {
+    height: space.x6,
+    width: space.x6,
+    borderRadius: radius.full,
+    backgroundColor: color.ember400,
+    // fouine-pulse lives in global.css — referenced by name so the two stay
+    // in sync.
+    animationName: "fouine-pulse",
+    animationDuration: "1.4s",
+    animationTimingFunction: "ease-in-out",
+    animationIterationCount: "infinite"
+  },
+  grid2: {
+    display: "grid",
+    gap: space.x28,
+    gridTemplateColumns: { default: null, "@media (min-width: 1024px)": "repeat(2, minmax(0, 1fr))" }
+  },
+  gridTop: { alignItems: "start" },
+  column: { display: "flex", flexDirection: "column", gap: space.x28 },
+  // KPI strip. `divide-x divide-y sm:divide-y-0` was a `& > :not(:last-child)`
+  // rule on this container; StyleX can't reach children, so the hairline moves
+  // onto each cell via <Stat style> (see `cell` below).
+  strip: {
+    display: "grid",
+    gridTemplateColumns: { default: "repeat(2, minmax(0, 1fr))", "@media (min-width: 640px)": "repeat(4, minmax(0, 1fr))" },
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    overflow: "hidden",
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`
+  },
+  // One KPI cell's share of the old `divide-*`: Tailwind v4 puts the line on
+  // `:not(:last-child)` as a trailing border, hence inline-end + bottom rather
+  // than start + top. `sm:divide-y-0` drops the horizontal line once the four
+  // cells sit on one row.
+  cell: {
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    borderInlineEndWidth: { default: "1px", ":last-child": 0 },
+    borderBottomWidth: { default: "1px", ":last-child": 0, "@media (min-width: 640px)": 0 }
+  },
+  running: {
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: `color-mix(in oklab, ${color.ember800} 50%, transparent)`,
+    backgroundColor: `color-mix(in oklab, ${color.ember950} 25%, transparent)`,
+    overflow: "hidden"
+  },
+  // Span both columns when nothing sits beside it, else it's half-width.
+  runningWide: { gridColumn: { default: null, "@media (min-width: 1024px)": "span 2 / span 2" } },
+  runningTitle: {
+    paddingInline: space.x16,
+    paddingTop: space.x12,
+    paddingBottom: space.x10,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    textTransform: "uppercase",
+    letterSpacing: tracking.wide,
+    color: `color-mix(in oklab, ${color.ember300} 90%, transparent)`
+  },
+  list: { display: "block" },
+  sectionTitle: {
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    textTransform: "uppercase",
+    letterSpacing: tracking.wide,
+    color: color.zinc500
+  },
+  // space-y-2.5
+  section: { display: "flex", flexDirection: "column", gap: space.x10 },
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`,
+    overflow: "hidden"
+  },
+  // The 5-col project table is wide by nature — span both columns.
+  wide: { gridColumn: { default: null, "@media (min-width: 1024px)": "span 2 / span 2" } }
+});
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
@@ -50,12 +172,12 @@ export default function DashboardPage() {
       const list = q.state.data;
       if (!list) return false;
       return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
-    },
+    }
   });
 
   const { data: stats } = useQuery({
     queryKey: ["stats"],
-    queryFn: api.stats.get,
+    queryFn: api.stats.get
   });
 
   const now = Date.now() / 1000;
@@ -77,15 +199,15 @@ export default function DashboardPage() {
   const hasMix = Boolean(severityMix || triggerMix);
 
   return (
-    <div className="space-y-7">
-      <div className="flex items-end justify-between gap-4">
+    <div {...stylex.props(s.page)}>
+      <div {...stylex.props(s.header)}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-zinc-500 mt-1">What fouine is doing, latest first.</p>
+          <h1 {...stylex.props(s.h1)}>Dashboard</h1>
+          <p {...stylex.props(s.tagline)}>What fouine is doing, latest first.</p>
         </div>
         {inFlight.length > 0 && (
-          <span className="flex items-center gap-2 text-xs text-ember-300 tabular-nums">
-            <span className="h-1.5 w-1.5 rounded-full bg-ember-400 animate-[fouine-pulse_1.4s_ease-in-out_infinite]" />
+          <span {...stylex.props(s.runningPill)}>
+            <span {...stylex.props(s.runningDot)} />
             {inFlight.length} running
           </span>
         )}
@@ -95,22 +217,24 @@ export default function DashboardPage() {
       {/* The two KPI strips are short — stack them on the left and let the 30-day
           cost chart stretch to their combined height beside them (default grid
           `stretch`, and CostTrend grows its bar area to fill). */}
-      <div className="grid gap-7 lg:grid-cols-2">
-        <div className="space-y-7">
-          <div className="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-zinc-800 divide-x divide-y sm:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
+      <div {...stylex.props(s.grid2)}>
+        <div {...stylex.props(s.column)}>
+          <div {...stylex.props(s.strip)}>
             <Stat
+        style={s.cell}
               label="In flight"
               value={isPending ? null : String(inFlight.length)}
               accent={inFlight.length > 0}
               pulse={inFlight.length > 0}
             />
             <Stat
+        style={s.cell}
               label="Success · 24h"
               value={isPending ? null : successRate == null ? "—" : `${successRate}%`}
               sub={failed24.length ? `${failed24.length} failed` : finished24 ? "all clean" : undefined}
             />
-            <Stat label="Cost · 24h" value={isPending ? null : formatCost(cost24) ?? "—"} />
-            <Stat label="Reviews · 24h" value={isPending ? null : String(last24h.length)} />
+            <Stat style={s.cell} label="Cost · 24h" value={isPending ? null : formatCost(cost24) ?? "—"} />
+            <Stat style={s.cell} label="Reviews · 24h" value={isPending ? null : String(last24h.length)} />
           </div>
           {stats && <AggregateStats stats={stats} />}
         </div>
@@ -120,25 +244,20 @@ export default function DashboardPage() {
       {/* Anything in flight takes the left column with the distribution bars
           stacked on the right; when nothing's running the bars sit side by side. */}
       {(inFlight.length > 0 || hasMix) && (
-        <div className="grid gap-7 lg:grid-cols-2 items-start">
+        <div {...stylex.props(s.grid2, s.gridTop)}>
           {inFlight.length > 0 && (
-            // Span both columns when nothing sits beside it, else it's half-width.
-            <section
-              className={`rounded-lg border border-ember-800/50 bg-ember-950/25 overflow-hidden ${!hasMix ? "lg:col-span-2" : ""}`}
-            >
-              <h2 className="px-4 pt-3 pb-2.5 text-xs font-medium uppercase tracking-wide text-ember-300/90">
-                Running now
-              </h2>
-              <ul className="divide-y divide-ember-800/25">
+            <section {...stylex.props(s.running, !hasMix && s.runningWide)}>
+              <h2 {...stylex.props(s.runningTitle)}>Running now</h2>
+              <ul {...stylex.props(s.list)}>
                 {inFlight.map((r) => (
-                  <ActivityRow key={r.id} r={r} />
+                  <ActivityRow key={r.id} r={r} ember />
                 ))}
               </ul>
             </section>
           )}
           {hasMix &&
             (inFlight.length > 0 ? (
-              <div className="space-y-7">
+              <div {...stylex.props(s.column)}>
                 {severityMix}
                 {triggerMix}
               </div>
@@ -152,11 +271,11 @@ export default function DashboardPage() {
       )}
 
       {stats && (stats.projects.length > 0 || stats.models.length > 0 || stats.topCost.length > 0) && (
-        <div className="grid gap-7 lg:grid-cols-2 items-start">
+        <div {...stylex.props(s.grid2, s.gridTop)}>
           {/* The 5-col project table is wide by nature — span both columns; the
               model table + expensive list pair up beside each other. */}
           {stats.projects.length > 0 && (
-            <div className="lg:col-span-2">
+            <div {...stylex.props(s.wide)}>
               <ProjectStats projects={stats.projects} />
             </div>
           )}
@@ -165,15 +284,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="space-y-2.5">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Recent activity</h2>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+      <section {...stylex.props(s.section)}>
+        <h2 {...stylex.props(s.sectionTitle)}>Recent activity</h2>
+        <div {...stylex.props(s.card)}>
           {isPending ? (
             <SkeletonRows />
           ) : recent.length === 0 ? (
             <Empty />
           ) : (
-            <ul className="divide-y divide-zinc-800/70">
+            <ul {...stylex.props(s.list)}>
               {recent.map((r) => (
                 <ActivityRow key={r.id} r={r} />
               ))}
@@ -193,15 +312,17 @@ function AggregateStats({ stats }: { stats: Stats }) {
   const retryRate = triggerTotal ? Math.round((retries / triggerTotal) * 100) : null;
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-zinc-800 divide-x divide-y sm:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
-      <Stat label="Avg review" value={formatSeconds(stats.latency.avg) ?? "—"} />
+    <div {...stylex.props(s.strip)}>
+      <Stat style={s.cell} label="Avg review" value={formatSeconds(stats.latency.avg) ?? "—"} />
       <Stat
+        style={s.cell}
         label="p95 review"
         value={formatSeconds(stats.latency.p95) ?? "—"}
         sub={stats.latency.count ? `${stats.latency.count} done` : undefined}
       />
-      <Stat label="Avg cost / review" value={formatCost(avgCost) ?? "—"} />
+      <Stat style={s.cell} label="Avg cost / review" value={formatCost(avgCost) ?? "—"} />
       <Stat
+        style={s.cell}
         label="Retry rate"
         value={retryRate == null ? "—" : `${retryRate}%`}
         sub={retries ? `${retries} retried` : undefined}
@@ -222,24 +343,74 @@ function last30Days(daily: DailyStatsRow[]): DailyStatsRow[] {
   return daily.filter((d) => d.day >= cutoff);
 }
 
+const trend = stylex.create({
+  body: {
+    display: "flex",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    flexDirection: "column",
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`,
+    paddingInline: space.x16,
+    paddingTop: space.x16,
+    paddingBottom: space.x12
+  },
+  bars: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: space.x4,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    minHeight: space.x96
+  },
+  bar: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    minWidth: 0,
+    borderStartStartRadius: radius.base,
+    borderStartEndRadius: radius.base,
+    backgroundColor: {
+      default: `color-mix(in oklab, ${color.ember500} 70%, transparent)`,
+      ":hover": color.ember400
+    },
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms"
+  },
+  // Runtime-computed: the day's cost as a share of the window's max.
+  barHeight: (h: string) => ({ height: h }),
+  axis: {
+    marginTop: space.x8,
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: text.xxs,
+    color: color.zinc600,
+    fontVariantNumeric: "tabular-nums"
+  }
+});
+
 function CostTrend({ daily }: { daily: DailyStatsRow[] }) {
   const max = Math.max(...daily.map((d) => d.cost), 0.0001);
   return (
-    <section className="flex flex-col space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost · last 30d</h2>
-      <div className="flex flex-1 flex-col rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 pt-4 pb-3">
-        <div className="flex items-end gap-1 flex-1 min-h-24">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>Cost · last 30d</h2>
+      <div {...stylex.props(trend.body)}>
+        <div {...stylex.props(trend.bars)}>
           {daily.map((d) => (
             <div
               key={d.day}
-              className="flex-1 min-w-0 rounded-t bg-ember-500/70 hover:bg-ember-400 transition-colors"
-              style={{ height: `${Math.max(2, (d.cost / max) * 100)}%` }}
               title={`${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`}
+              {...stylex.props(trend.bar, trend.barHeight(`${Math.max(2, (d.cost / max) * 100)}%`))}
             />
           ))}
         </div>
         {daily.length > 0 && (
-          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-600 tabular-nums">
+          <div {...stylex.props(trend.axis)}>
             <span>{daily[0].day}</span>
             <span>{daily[daily.length - 1].day}</span>
           </div>
@@ -248,6 +419,56 @@ function CostTrend({ daily }: { daily: DailyStatsRow[] }) {
     </section>
   );
 }
+
+const cells = stylex.create({
+  num: {
+    paddingBlock: space.x10,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc400
+  },
+  numStrong: {
+    paddingBlock: space.x10,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc200
+  },
+  numTotal: {
+    paddingBlock: space.x10,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc300
+  },
+  numTotalCost: {
+    paddingBlock: space.x10,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc100,
+    fontWeight: 600
+  },
+  mono: {
+    paddingBlock: space.x10,
+    fontFamily: font.mono,
+    color: color.zinc200
+  },
+  totalLabel: {
+    paddingBlock: space.x10,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    textTransform: "uppercase",
+    letterSpacing: tracking.wide,
+    color: color.zinc500
+  },
+  headRight: { textAlign: "right" },
+  repoLink: { color: { default: null, ":hover": color.ember300 } },
+  foot: {
+    borderTopWidth: "1px",
+    borderTopStyle: "solid",
+    borderTopColor: color.zinc800
+  },
+  footRow: { backgroundColor: { default: null, ":hover": "transparent" } }
+});
 
 function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
   const totals = projects.reduce(
@@ -261,17 +482,17 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
   );
 
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost by project</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>Cost by project</h2>
+      <div {...stylex.props(s.card)}>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Project</TableHead>
-              <TableHead className="text-right">Reviews</TableHead>
-              <TableHead className="text-right">Avg time</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead style={cells.headRight}>Reviews</TableHead>
+              <TableHead style={cells.headRight}>Avg time</TableHead>
+              <TableHead style={cells.headRight}>Tokens</TableHead>
+              <TableHead style={cells.headRight}>Cost</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -279,12 +500,12 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
               const [owner, name] = p.repo_full_name.split("/");
               return (
                 <TableRow key={p.repo_full_name}>
-                  <TableCell className="py-2.5 font-mono text-zinc-200">
+                  <TableCell style={cells.mono}>
                     {owner && name ? (
                       <Link
                         to="/repos/$owner/$name"
                         params={{ owner, name }}
-                        className="hover:text-ember-300"
+                        {...stylex.props(cells.repoLink)}
                       >
                         {p.repo_full_name}
                       </Link>
@@ -292,38 +513,22 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
                       p.repo_full_name
                     )}
                   </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {p.reviews}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {formatSeconds(p.avg_duration) ?? "—"}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {formatTokens(p.tokens) ?? "—"}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
-                    {formatCost(p.cost) ?? "—"}
-                  </TableCell>
+                  <TableCell style={cells.num}>{p.reviews}</TableCell>
+                  <TableCell style={cells.num}>{formatSeconds(p.avg_duration) ?? "—"}</TableCell>
+                  <TableCell style={cells.num}>{formatTokens(p.tokens) ?? "—"}</TableCell>
+                  <TableCell style={cells.numStrong}>{formatCost(p.cost) ?? "—"}</TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
           {projects.length > 1 && (
-            <tfoot className="border-t border-zinc-800">
-              <TableRow className="hover:bg-transparent">
-                <TableCell className="py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  Total
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-300">
-                  {totals.reviews}
-                </TableCell>
+            <tfoot {...stylex.props(cells.foot)}>
+              <TableRow style={cells.footRow}>
+                <TableCell style={cells.totalLabel}>Total</TableCell>
+                <TableCell style={cells.numTotal}>{totals.reviews}</TableCell>
                 <TableCell />
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-300">
-                  {formatTokens(totals.tokens) ?? "—"}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-100 font-semibold">
-                  {formatCost(totals.cost) ?? "—"}
-                </TableCell>
+                <TableCell style={cells.numTotal}>{formatTokens(totals.tokens) ?? "—"}</TableCell>
+                <TableCell style={cells.numTotalCost}>{formatCost(totals.cost) ?? "—"}</TableCell>
               </TableRow>
             </tfoot>
           )}
@@ -335,31 +540,25 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
 
 function ModelStats({ models }: { models: ModelStatsRow[] }) {
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost by model</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>Cost by model</h2>
+      <div {...stylex.props(s.card)}>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Model</TableHead>
-              <TableHead className="text-right">Reviews</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
+              <TableHead style={cells.headRight}>Reviews</TableHead>
+              <TableHead style={cells.headRight}>Tokens</TableHead>
+              <TableHead style={cells.headRight}>Cost</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {models.map((m) => (
               <TableRow key={m.model}>
-                <TableCell className="py-2.5 font-mono text-zinc-200">{m.model}</TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                  {m.reviews}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                  {formatTokens(m.tokens) ?? "—"}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
-                  {formatCost(m.cost) ?? "—"}
-                </TableCell>
+                <TableCell style={cells.mono}>{m.model}</TableCell>
+                <TableCell style={cells.num}>{m.reviews}</TableCell>
+                <TableCell style={cells.num}>{formatTokens(m.tokens) ?? "—"}</TableCell>
+                <TableCell style={cells.numStrong}>{formatCost(m.cost) ?? "—"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -369,36 +568,107 @@ function ModelStats({ models }: { models: ModelStatsRow[] }) {
   );
 }
 
+const row = stylex.create({
+  // divide-y: the hairline goes on each <li> but the first, which is where the
+  // `& > * + *` rule used to land.
+  divider: {
+    borderTopWidth: { default: "1px", ":first-child": 0 },
+    borderTopStyle: "solid",
+    borderTopColor: `color-mix(in oklab, ${color.zinc800} 70%, transparent)`
+  },
+  dividerEmber: {
+    borderTopColor: `color-mix(in oklab, ${color.ember800} 25%, transparent)`
+  },
+  link: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x12,
+    paddingInline: space.x16,
+    paddingBlock: space.x10,
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms",
+    backgroundColor: {
+      default: null,
+      ":hover": `color-mix(in oklab, ${color.zinc800} 40%, transparent)`
+    }
+  },
+  main: { minWidth: 0, flexGrow: 1, flexShrink: 1, flexBasis: "0%" },
+  title: {
+    fontFamily: font.mono,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc200,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  sub: {
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  trigger: {
+    display: { default: "none", "@media (min-width: 640px)": "inline" },
+    flexShrink: 0,
+    borderRadius: radius.base,
+    backgroundColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`,
+    paddingInline: space.x6,
+    paddingBlock: space.x2,
+    fontSize: text.xxs,
+    color: color.zinc400
+  },
+  metaSm: {
+    flexShrink: 0,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    fontVariantNumeric: "tabular-nums",
+    width: space.x56,
+    textAlign: "right"
+  },
+  metaLg: {
+    flexShrink: 0,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    fontVariantNumeric: "tabular-nums",
+    width: space.x64,
+    textAlign: "right"
+  },
+  costLg: {
+    flexShrink: 0,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc100,
+    fontVariantNumeric: "tabular-nums",
+    width: space.x64,
+    textAlign: "right"
+  }
+});
+
 function TopCost({ rows }: { rows: Stats["topCost"] }) {
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Most expensive reviews
-      </h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <ul className="divide-y divide-zinc-800/70">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>Most expensive reviews</h2>
+      <div {...stylex.props(s.card)}>
+        <ul {...stylex.props(s.list)}>
           {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to="/reviews/$id"
-                params={{ id: String(r.id) }}
-                className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-zinc-800/40"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-sm text-zinc-200 truncate">
+            <li key={r.id} {...stylex.props(row.divider)}>
+              <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(row.link)}>
+                <div {...stylex.props(row.main)}>
+                  <div {...stylex.props(row.title)}>
                     {r.repo_full_name}
                     {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                   </div>
-                  {r.model && <div className="text-xs text-zinc-500 truncate">{r.model}</div>}
+                  {r.model && <div {...stylex.props(row.sub)}>{r.model}</div>}
                 </div>
                 {r.tokens != null && (
-                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums w-14 text-right">
-                    {formatTokens(r.tokens)}
-                  </span>
+                  <span {...stylex.props(row.metaSm)}>{formatTokens(r.tokens)}</span>
                 )}
-                <span className="shrink-0 text-sm text-zinc-100 tabular-nums w-16 text-right">
-                  {formatCost(r.cost)}
-                </span>
+                <span {...stylex.props(row.costLg)}>{formatCost(r.cost)}</span>
               </Link>
             </li>
           ))}
@@ -408,33 +678,85 @@ function TopCost({ rows }: { rows: Stats["topCost"] }) {
   );
 }
 
-const TRIGGER_COLORS = ["bg-ember-400", "bg-sky-400", "bg-violet-400", "bg-amber-400", "bg-zinc-500"];
+// Hue order here is deliberately NOT charts/colors.ts's TRIGGER_COLORS: violet
+// and amber are swapped relative to the shared ramp. Kept as-is so the chart
+// looks exactly as it did — the two palettes are being reconciled separately.
+const hues = stylex.create({
+  ember: { backgroundColor: color.cat1 },
+  sky: { backgroundColor: color.cat2 },
+  violet: { backgroundColor: color.cat4 },
+  amber: { backgroundColor: color.cat3 },
+  zinc: { backgroundColor: color.cat5 }
+});
+
+const TRIGGER_COLORS = [hues.ember, hues.sky, hues.violet, hues.amber, hues.zinc];
+
+const mix = stylex.create({
+  body: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x12,
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`,
+    paddingInline: space.x16,
+    paddingBlock: space.x14
+  },
+  track: {
+    display: "flex",
+    height: space.x8,
+    overflow: "hidden",
+    borderRadius: radius.full,
+    backgroundColor: color.zinc800
+  },
+  // Runtime-computed: each slice's share of the total.
+  slice: (pct: string) => ({ width: pct }),
+  legend: {
+    display: "flex",
+    flexWrap: "wrap",
+    columnGap: space.x16,
+    rowGap: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc400
+  },
+  entry: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x6,
+    fontVariantNumeric: "tabular-nums"
+  },
+  dot: { height: space.x8, width: space.x8, borderRadius: radius.full },
+  count: { color: color.zinc600 }
+});
 
 function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
   const total = triggers.reduce((s, t) => s + t.count, 0);
   if (!total) return null;
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">How reviews start</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3.5 space-y-3">
-        <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>How reviews start</h2>
+      <div {...stylex.props(mix.body)}>
+        <div {...stylex.props(mix.track)}>
           {triggers.map((t, i) => (
             <div
               key={t.trigger}
-              className={TRIGGER_COLORS[i % TRIGGER_COLORS.length]}
-              style={{ width: `${(t.count / total) * 100}%` }}
               title={`${triggerLabel(t.trigger) ?? t.trigger}: ${t.count}`}
+              {...stylex.props(
+                mix.slice(`${(t.count / total) * 100}%`),
+                TRIGGER_COLORS[i % TRIGGER_COLORS.length],
+              )}
             />
           ))}
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
+        <div {...stylex.props(mix.legend)}>
           {triggers.map((t, i) => (
-            <span key={t.trigger} className="flex items-center gap-1.5 tabular-nums">
-              <span
-                className={`h-2 w-2 rounded-full ${TRIGGER_COLORS[i % TRIGGER_COLORS.length]}`}
-              />
+            <span key={t.trigger} {...stylex.props(mix.entry)}>
+              <span {...stylex.props(mix.dot, TRIGGER_COLORS[i % TRIGGER_COLORS.length])} />
               {triggerLabel(t.trigger) ?? t.trigger}
-              <span className="text-zinc-600">{t.count}</span>
+              <span {...stylex.props(mix.count)}>{t.count}</span>
             </span>
           ))}
         </div>
@@ -444,37 +766,43 @@ function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
 }
 
 // blocking = alarm, question = ask, nit = muted — same palette as the review view.
-const SEVERITY_META: Record<string, { label: string; dot: string }> = {
-  blocking: { label: "blocking", dot: "bg-red-400" },
-  question: { label: "question", dot: "bg-amber-400" },
-  nit: { label: "nit", dot: "bg-zinc-500" },
+const sev = stylex.create({
+  blocking: { backgroundColor: color.dangerDot },
+  question: { backgroundColor: color.warnDot },
+  nit: { backgroundColor: color.cat5 }
+});
+
+const SEVERITY_META: Record<string, { label: string; dot: stylex.StyleXStyles }> = {
+  blocking: { label: "blocking", dot: sev.blocking },
+  question: { label: "question", dot: sev.question },
+  nit: { label: "nit", dot: sev.nit }
 };
 
 function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
   const total = severity.reduce((s, x) => s + x.count, 0);
   if (!total) return null;
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Findings by severity
-      </h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3.5 space-y-3">
-        <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
+    <section {...stylex.props(s.section)}>
+      <h2 {...stylex.props(s.sectionTitle)}>Findings by severity</h2>
+      <div {...stylex.props(mix.body)}>
+        <div {...stylex.props(mix.track)}>
           {severity.map((x) => (
             <div
               key={x.severity}
-              className={SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}
-              style={{ width: `${(x.count / total) * 100}%` }}
               title={`${SEVERITY_META[x.severity]?.label ?? x.severity}: ${x.count}`}
+              {...stylex.props(
+                mix.slice(`${(x.count / total) * 100}%`),
+                SEVERITY_META[x.severity]?.dot ?? sev.nit,
+              )}
             />
           ))}
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
+        <div {...stylex.props(mix.legend)}>
           {severity.map((x) => (
-            <span key={x.severity} className="flex items-center gap-1.5 tabular-nums">
-              <span className={`h-2 w-2 rounded-full ${SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}`} />
+            <span key={x.severity} {...stylex.props(mix.entry)}>
+              <span {...stylex.props(mix.dot, SEVERITY_META[x.severity]?.dot ?? sev.nit)} />
               {SEVERITY_META[x.severity]?.label ?? x.severity}
-              <span className="text-zinc-600">{x.count}</span>
+              <span {...stylex.props(mix.count)}>{x.count}</span>
             </span>
           ))}
         </div>
@@ -483,33 +811,25 @@ function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
   );
 }
 
-function ActivityRow({ r }: { r: ReviewRow }) {
+function ActivityRow({ r, ember }: { r: ReviewRow; ember?: boolean }) {
   const trigger = triggerLabel(r.trigger);
   const cost = formatCost(r.cost);
   return (
-    <li>
-      <Link
-        to="/reviews/$id"
-        params={{ id: String(r.id) }}
-        className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-zinc-800/40"
-      >
+    <li {...stylex.props(row.divider, ember && row.dividerEmber)}>
+      <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(row.link)}>
         <Badge status={r.status} />
-        <div className="min-w-0 flex-1">
-          <div className="font-mono text-sm text-zinc-200 truncate">
+        <div {...stylex.props(row.main)}>
+          <div {...stylex.props(row.title)}>
             {r.repo_full_name}
             {r.pr_number > 0 ? `#${r.pr_number}` : ""}
           </div>
-          {r.title && <div className="text-xs text-zinc-500 truncate">{r.title}</div>}
+          {r.title && <div {...stylex.props(row.sub)}>{r.title}</div>}
         </div>
-        {trigger && (
-          <span className="hidden sm:inline shrink-0 rounded bg-zinc-800/80 px-1.5 py-0.5 text-[0.7rem] text-zinc-400">
-            {trigger}
-          </span>
-        )}
-        {cost && <span className="shrink-0 text-xs text-zinc-500 tabular-nums w-14 text-right">{cost}</span>}
+        {trigger && <span {...stylex.props(row.trigger)}>{trigger}</span>}
+        {cost && <span {...stylex.props(row.metaSm)}>{cost}</span>}
         <span
-          className="shrink-0 text-xs text-zinc-500 tabular-nums w-16 text-right"
           title={new Date(r.created_at * 1000).toLocaleString()}
+          {...stylex.props(row.metaLg)}
         >
           {timeAgo(r.created_at)}
         </span>
@@ -518,27 +838,78 @@ function ActivityRow({ r }: { r: ReviewRow }) {
   );
 }
 
+const skel = stylex.create({
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x12,
+    paddingInline: space.x16,
+    paddingBlock: space.x10
+  },
+  bar: {
+    backgroundColor: `color-mix(in oklab, ${color.zinc800} 70%, transparent)`,
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+  badge: { height: space.x20, width: space.x64, borderRadius: radius.full },
+  title: {
+    height: space.x16,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    maxWidth: space.x256,
+    borderRadius: radius.base
+  },
+  meta: { height: space.x16, width: space.x48, borderRadius: radius.base }
+});
+
 function SkeletonRows() {
   return (
-    <ul className="divide-y divide-zinc-800/70">
+    <ul {...stylex.props(s.list)}>
       {Array.from({ length: 5 }).map((_, i) => (
-        <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-          <div className="h-5 w-16 rounded-full bg-zinc-800/70 animate-pulse" />
-          <div className="h-4 flex-1 max-w-64 rounded bg-zinc-800/70 animate-pulse" />
-          <div className="h-4 w-12 rounded bg-zinc-800/70 animate-pulse" />
+        <li key={i} {...stylex.props(row.divider, skel.row)}>
+          <div {...stylex.props(skel.bar, skel.badge)} />
+          <div {...stylex.props(skel.bar, skel.title)} />
+          <div {...stylex.props(skel.bar, skel.meta)} />
         </li>
       ))}
     </ul>
   );
 }
 
+const empty = stylex.create({
+  root: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: space.x8,
+    paddingInline: space.x16,
+    paddingBlock: space.x48,
+    textAlign: "center"
+  },
+  icon: { color: color.zinc700 },
+  label: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
+  hint: {
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc600,
+    maxWidth: space.x320
+  },
+  code: {
+    fontFamily: font.mono,
+    color: color.zinc500
+  }
+});
+
 function Empty() {
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-      <Inbox size={20} className="text-zinc-700" />
-      <p className="text-sm text-zinc-400">No reviews yet.</p>
-      <p className="text-xs text-zinc-600 max-w-xs">
-        Enable a repo, then open a PR or comment <span className="font-mono text-zinc-500">/fouine</span> to
+    <div {...stylex.props(empty.root)}>
+      <Inbox size={20} {...stylex.props(empty.icon)} />
+      <p {...stylex.props(empty.label)}>No reviews yet.</p>
+      <p {...stylex.props(empty.hint)}>
+        Enable a repo, then open a PR or comment <span {...stylex.props(empty.code)}>/fouine</span> to
         kick off the first one.
       </p>
     </div>

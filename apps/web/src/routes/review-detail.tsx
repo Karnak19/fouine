@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import * as stylex from "@stylexjs/stylex";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
+import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
 import { api, type FindingRow } from "@/lib/api";
 import { useLiveEvents, type TranscriptDelta } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
@@ -18,8 +20,341 @@ import {
   RotateCw,
   Square,
   ScrollText,
-  ClipboardCheck,
+  ClipboardCheck
 } from "lucide-react";
+
+// Tailwind's `animate-pulse` (skeleton) and `animate-ping` (live dot).
+// Restated locally because the @keyframes only exist while a className
+// references the utility.
+const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
+const ping = stylex.keyframes({ "75%, 100%": { transform: "scale(2)", opacity: 0 } });
+
+const s = stylex.create({
+  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x896 },
+  stack2: { display: "flex", flexDirection: "column", gap: space.x8 },
+  stack4: { display: "flex", flexDirection: "column", gap: space.x16 },
+
+  skeletonBar: {
+    height: space.x16,
+    width: space.x128,
+    borderRadius: radius.base,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 60%, transparent)`,
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+  skeletonBlock: {
+    height: space.x96,
+    borderRadius: radius.lg,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 60%, transparent)`,
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+
+  backLink: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x4,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: { default: color.zinc400, ":hover": color.zinc100 }
+  },
+
+  header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: space.x16 },
+  headerMain: { minWidth: 0 },
+  title: {
+    fontSize: text.xl,
+    lineHeight: leading.xl,
+    fontWeight: 700,
+    letterSpacing: tracking.tight,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  meta: {
+    marginTop: space.x4,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    columnGap: space.x12,
+    rowGap: space.x4,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc500
+  },
+  metaLink: {
+    fontFamily: font.mono,
+    color: { default: color.zinc400, ":hover": color.zinc200 }
+  },
+  metaLinkInline: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x4,
+    fontFamily: font.mono,
+    color: { default: color.zinc400, ":hover": color.zinc200 }
+  },
+  dim50: { opacity: 0.5 },
+  dim60: { opacity: 0.6 },
+  tabular: { fontVariantNumeric: "tabular-nums" },
+  badges: { display: "flex", alignItems: "center", gap: space.x8 },
+
+  sessionBar: {
+    display: "flex",
+    flexWrap: "wrap",
+    columnGap: space.x20,
+    rowGap: space.x4,
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: color.zinc950,
+    paddingInline: space.x12,
+    paddingBlock: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    fontVariantNumeric: "tabular-nums"
+  },
+  value: { color: color.zinc300 },
+
+  errorBox: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: space.x8,
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: `color-mix(in oklab, ${color.dangerSurface} 50%, transparent)`,
+    backgroundColor: `color-mix(in oklab, ${color.dangerSurfaceDeep} 30%, transparent)`,
+    padding: space.x12,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.dangerText
+  },
+  errorIcon: { marginTop: space.x2, flexShrink: 0 },
+  errorText: {
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    fontFamily: font.mono,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+
+  tabRow: {
+    marginBottom: space.x12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.x12
+  },
+  tabGroup: {
+    display: "inline-flex",
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: color.zinc950,
+    padding: space.x2,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+  hidden: { display: "none" },
+  tab: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x6,
+    borderRadius: radius.base,
+    paddingInline: space.x10,
+    paddingBlock: space.x4,
+    fontWeight: 500,
+    transitionProperty: "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke",
+    transitionDuration: "150ms",
+    transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)"
+  },
+  tabActive: { backgroundColor: color.zinc800, color: color.zinc100 },
+  tabIdle: { color: { default: color.zinc500, ":hover": color.zinc300 } },
+  tabCount: { fontVariantNumeric: "tabular-nums", color: color.zinc500 },
+
+  liveRow: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.okDot
+  },
+  pingWrap: { position: "relative", display: "grid", placeItems: "center" },
+  ping: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: radius.full,
+    backgroundColor: `color-mix(in oklab, ${color.okDot} 40%, transparent)`,
+    animationName: ping,
+    animationDuration: "1s",
+    animationTimingFunction: "cubic-bezier(0, 0, 0.2, 1)",
+    animationIterationCount: "infinite"
+  },
+
+  muted: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc600 },
+
+  summaryCard: {
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: color.zinc950,
+    padding: space.x16
+  },
+  summaryHead: {
+    marginBottom: space.x8,
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500
+  },
+  githubLink: {
+    marginLeft: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x4,
+    color: { default: color.zinc500, ":hover": color.zinc300 }
+  },
+  body: {
+    whiteSpace: "pre-wrap",
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc200
+  },
+
+  findingCard: {
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: color.zinc950,
+    padding: space.x12
+  },
+  findingHead: {
+    marginBottom: space.x6,
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+  severityPill: {
+    borderRadius: radius.base,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingInline: space.x6,
+    paddingBlock: space.x2,
+    fontWeight: 500
+  },
+  pathLink: { fontFamily: font.mono, color: { default: color.zinc400, ":hover": color.zinc200 } },
+
+  commentCard: {
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: `color-mix(in oklab, ${color.zinc800} 70%, transparent)`,
+    backgroundColor: color.zinc950,
+    padding: space.x12
+  },
+  commentLabel: {
+    marginBottom: space.x4,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    color: color.zinc500
+  },
+
+  messageHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    color: color.zinc500
+  },
+
+  textPart: {
+    maxHeight: space.x320,
+    overflow: "auto",
+    borderRadius: radius.md,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 60%, transparent)`,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    paddingInline: space.x12,
+    paddingBlock: space.x8,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc200,
+    whiteSpace: "pre-wrap"
+  },
+  details: {
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: `color-mix(in oklab, ${color.zinc800} 60%, transparent)`,
+    backgroundColor: color.zinc950
+  },
+  detailsSummary: {
+    cursor: "pointer",
+    paddingInline: space.x12,
+    paddingBlock: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500
+  },
+  // `display: flex` is what drops the disclosure triangle here — the original
+  // markup relied on the same thing, so it has to stay flex, not list-item.
+  toolSummary: {
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    paddingInline: space.x12,
+    paddingBlock: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+  reasoningText: {
+    paddingInline: space.x12,
+    paddingBottom: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    whiteSpace: "pre-wrap"
+  },
+  toolIcon: { color: color.zinc500 },
+  toolName: { fontFamily: font.mono, color: color.zinc300 },
+  toolTitle: { color: color.zinc500 },
+  toolStatus: { marginLeft: "auto", color: color.zinc600 },
+  toolOutput: {
+    overflow: "auto",
+    maxHeight: space.x240,
+    paddingInline: space.x12,
+    paddingBottom: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc400
+  },
+  toolError: {
+    paddingInline: space.x12,
+    paddingBottom: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.dangerText
+  }
+});
 
 interface Part {
   id?: string;
@@ -58,7 +393,7 @@ function mergeDelta(session: Session, delta: TranscriptDelta): Session | null {
     if (idx >= 0) return session;
     return {
       ...session,
-      messages: [...messages, { info: { id: delta.messageId, role: delta.role }, parts: [] }],
+      messages: [...messages, { info: { id: delta.messageId, role: delta.role }, parts: [] }]
     };
   }
   if (idx < 0) return null;
@@ -96,12 +431,12 @@ export default function ReviewDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
       navigate({ to: "/reviews" });
-    },
+    }
   });
 
   const stopMut = useMutation({
     mutationFn: () => api.reviews.stop(numId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] })
   });
 
   // SSE: the instant the row, its findings, or its transcript change, react.
@@ -156,7 +491,7 @@ export default function ReviewDetailPage() {
       if (streaming) return false;
       const s = q.state.data?.status;
       return s === "running" || s === "pending" ? 2000 : false;
-    },
+    }
   });
   const inProgress = review?.status === "running" || review?.status === "pending";
   const [tab, setTab] = useState<"review" | "transcript">("review");
@@ -175,7 +510,7 @@ export default function ReviewDetailPage() {
     // instance per call — so this is the snapshot only: fetched on mount, then
     // kept current by review:transcript deltas below. What's left here is the
     // fallback for a dead stream, at 20s rather than the old 2s.
-    refetchInterval: inProgress && tab === "transcript" && !streaming ? 20000 : false,
+    refetchInterval: inProgress && tab === "transcript" && !streaming ? 20000 : false
   });
   const { data: findings } = useQuery({
     queryKey: ["reviews", numId, "findings"],
@@ -185,7 +520,7 @@ export default function ReviewDetailPage() {
     // the transcript. The write-back route publishes review:findings, and the
     // running→done effect below refetches once, so switching tabs never lands
     // on a stale list.
-    refetchInterval: inProgress && tab === "review" ? 2000 : false,
+    refetchInterval: inProgress && tab === "review" ? 2000 : false
   });
 
   useEffect(() => {
@@ -215,9 +550,9 @@ export default function ReviewDetailPage() {
 
   if (!review) {
     return (
-      <div className="space-y-4">
-        <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
-        <div className="h-24 rounded-lg bg-zinc-900/60 animate-pulse" />
+      <div {...stylex.props(s.stack4)}>
+        <div {...stylex.props(s.skeletonBar)} />
+        <div {...stylex.props(s.skeletonBlock)} />
       </div>
     );
   }
@@ -227,25 +562,20 @@ export default function ReviewDetailPage() {
   const messages = session?.messages ?? [];
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <Link
-        to="/reviews"
-        className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
-      >
+    <div {...stylex.props(s.page)}>
+      <Link to="/reviews" {...stylex.props(s.backLink)}>
         <ArrowLeft size={14} /> Reviews
       </Link>
 
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight truncate">
-            {review.title ?? `Review #${review.id}`}
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
+      <div {...stylex.props(s.header)}>
+        <div {...stylex.props(s.headerMain)}>
+          <h1 {...stylex.props(s.title)}>{review.title ?? `Review #${review.id}`}</h1>
+          <div {...stylex.props(s.meta)}>
             {isImprover ? (
               <Link
                 to="/repos/$owner/$name"
                 params={{ owner, name }}
-                className="font-mono text-zinc-400 hover:text-zinc-200"
+                {...stylex.props(s.metaLink)}
               >
                 {review.repo_full_name}
               </Link>
@@ -254,23 +584,23 @@ export default function ReviewDetailPage() {
                 href={`https://github.com/${owner}/${name}/pull/${review.pr_number}`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 font-mono text-zinc-400 hover:text-zinc-200"
+                {...stylex.props(s.metaLinkInline)}
               >
                 {review.repo_full_name}#{review.pr_number}
-                <ExternalLink size={12} className="opacity-50" />
+                <ExternalLink size={12} {...stylex.props(s.dim50)} />
               </a>
             )}
             <span title={new Date(review.created_at * 1000).toLocaleString()}>
               started {timeAgo(review.created_at)}
             </span>
             {review.completed_at && (
-              <span className="tabular-nums">
+              <span {...stylex.props(s.tabular)}>
                 · {duration(review.created_at, review.completed_at)}
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div {...stylex.props(s.badges)}>
           <LiveBadge status={status} />
           <Badge status={review.status} />
         </div>
@@ -297,21 +627,21 @@ export default function ReviewDetailPage() {
       </div>
 
       {session?.info && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-500 tabular-nums">
+        <div {...stylex.props(s.sessionBar)}>
           {session.info.model?.id && (
             <span>
-              model: <span className="text-zinc-300">{session.info.model.id}</span>
+              model: <span {...stylex.props(s.value)}>{session.info.model.id}</span>
             </span>
           )}
           {session.info.cost != null && (
             <span>
-              cost: <span className="text-zinc-300">${session.info.cost.toFixed(4)}</span>
+              cost: <span {...stylex.props(s.value)}>${session.info.cost.toFixed(4)}</span>
             </span>
           )}
           {session.info.tokens && (
             <span>
               tokens:{" "}
-              <span className="text-zinc-300">
+              <span {...stylex.props(s.value)}>
                 {session.info.tokens.input ?? 0}→{session.info.tokens.output ?? 0}
               </span>
               {session.info.tokens.reasoning ? ` (r:${session.info.tokens.reasoning})` : ""}
@@ -321,50 +651,38 @@ export default function ReviewDetailPage() {
       )}
 
       {review.status === "failed" && review.error && (
-        <div className="flex items-start gap-2 rounded-md border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
-          <CircleAlert size={16} className="mt-0.5 shrink-0" />
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{review.error}</pre>
+        <div {...stylex.props(s.errorBox)}>
+          <CircleAlert size={16} {...stylex.props(s.errorIcon)} />
+          <pre {...stylex.props(s.errorText)}>{review.error}</pre>
         </div>
       )}
 
       <div>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div
-            className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
-              isImprover ? "hidden" : ""
-            }`}
-          >
+        <div {...stylex.props(s.tabRow)}>
+          <div {...stylex.props(s.tabGroup, isImprover && s.hidden)}>
             <button
               type="button"
               onClick={() => setTab("review")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
-                tab === "review"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
+              {...stylex.props(s.tab, tab === "review" ? s.tabActive : s.tabIdle)}
             >
               <ClipboardCheck size={13} /> Review
               {findings && findings.length > 0 && (
-                <span className="tabular-nums text-zinc-500">{findings.length}</span>
+                <span {...stylex.props(s.tabCount)}>{findings.length}</span>
               )}
             </button>
             <button
               type="button"
               onClick={() => setTab("transcript")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
-                tab === "transcript"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
+              {...stylex.props(s.tab, tab === "transcript" ? s.tabActive : s.tabIdle)}
             >
               <ScrollText size={13} /> Transcript
             </button>
           </div>
           {inProgress && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
-              <span className="relative grid place-items-center">
+            <span {...stylex.props(s.liveRow)}>
+              <span {...stylex.props(s.pingWrap)}>
                 <Radio size={12} />
-                <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
+                <span {...stylex.props(s.ping)} />
               </span>
               {streaming ? "live · streaming" : "live · polling"}
             </span>
@@ -380,11 +698,11 @@ export default function ReviewDetailPage() {
             pending={inProgress}
           />
         ) : session == null ? (
-          <p className="text-sm text-zinc-600">Loading transcript…</p>
+          <p {...stylex.props(s.muted)}>Loading transcript…</p>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-zinc-600">No transcript available for this review.</p>
+          <p {...stylex.props(s.muted)}>No transcript available for this review.</p>
         ) : (
-          <div className="space-y-4">
+          <div {...stylex.props(s.stack4)}>
             {messages.map((m, i) => (
               <MessageView key={m.info?.id ?? `m-${i}`} m={m} />
             ))}
@@ -395,15 +713,50 @@ export default function ReviewDetailPage() {
   );
 }
 
-const SEVERITY: Record<string, { label: string; cls: string }> = {
-  blocking: { label: "blocking", cls: "border-red-900/60 bg-red-950/40 text-red-300" },
-  question: { label: "question", cls: "border-amber-900/60 bg-amber-950/40 text-amber-300" },
-  nit: { label: "nit", cls: "border-zinc-700 bg-zinc-900 text-zinc-400" },
+// The badge's border/surface/text triple, not the chart dot palette.
+// `SEVERITY_COLORS` from @/components/charts is backgroundColor-only (the
+// saturated -400 dot hue), so painting these badges with it would replace a
+// dark tinted surface with a solid bright one — see the note in the report.
+// The alpha suffixes are the Tailwind ones verbatim, over exact tokens:
+// dangerSurface = red-900, dangerSurfaceDeep = red-950, warnSurface =
+// amber-900, warnSurfaceDeep = amber-950.
+const severity = stylex.create({
+  blocking: {
+    borderColor: `color-mix(in oklab, ${color.dangerSurface} 60%, transparent)`,
+    backgroundColor: `color-mix(in oklab, ${color.dangerSurfaceDeep} 40%, transparent)`,
+    color: color.dangerText
+  },
+  question: {
+    borderColor: `color-mix(in oklab, ${color.warnSurface} 60%, transparent)`,
+    backgroundColor: `color-mix(in oklab, ${color.warnSurfaceDeep} 40%, transparent)`,
+    color: color.warnText
+  },
+  nit: {
+    borderColor: color.zinc700,
+    backgroundColor: color.zinc900,
+    color: color.zinc400
+  },
+  unknown: {
+    borderColor: color.zinc700,
+    color: color.zinc400
+  }
+});
+
+const SEVERITY: Record<string, { label: string; style: stylex.StyleXStyles }> = {
+  blocking: { label: "blocking", style: severity.blocking },
+  question: { label: "question", style: severity.question },
+  nit: { label: "nit", style: severity.nit }
 };
-const EVENT: Record<string, string> = {
-  REQUEST_CHANGES: "text-red-300",
-  APPROVE: "text-emerald-300",
-  COMMENT: "text-zinc-300",
+
+const event = stylex.create({
+  REQUEST_CHANGES: { color: color.dangerText },
+  APPROVE: { color: color.okText },
+  COMMENT: { color: color.zinc300 }
+});
+const EVENT: Record<string, stylex.StyleXStyles> = {
+  REQUEST_CHANGES: event.REQUEST_CHANGES,
+  APPROVE: event.APPROVE,
+  COMMENT: event.COMMENT
 };
 
 function ReviewView({
@@ -411,7 +764,7 @@ function ReviewView({
   owner,
   name,
   pr,
-  pending,
+  pending
 }: {
   findings?: FindingRow[];
   owner: string;
@@ -419,10 +772,10 @@ function ReviewView({
   pr: number;
   pending: boolean;
 }) {
-  if (findings == null) return <p className="text-sm text-zinc-600">Loading review…</p>;
+  if (findings == null) return <p {...stylex.props(s.muted)}>Loading review…</p>;
   if (findings.length === 0)
     return (
-      <p className="text-sm text-zinc-600">
+      <p {...stylex.props(s.muted)}>
         {pending ? "No findings posted yet." : "This review posted no findings."}
       </p>
     );
@@ -433,11 +786,11 @@ function ReviewView({
   const prUrl = `https://github.com/${owner}/${name}/pull/${pr}`;
 
   return (
-    <div className="space-y-4">
+    <div {...stylex.props(s.stack4)}>
       {summary && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium">
-            <span className={EVENT[summary.event ?? "COMMENT"] ?? "text-zinc-300"}>
+        <div {...stylex.props(s.summaryCard)}>
+          <div {...stylex.props(s.summaryHead)}>
+            <span {...stylex.props(EVENT[summary.event ?? "COMMENT"] ?? event.COMMENT)}>
               {summary.event ?? "COMMENT"}
             </span>
             {summary.github_review_id && (
@@ -445,26 +798,27 @@ function ReviewView({
                 href={`${prUrl}#pullrequestreview-${summary.github_review_id}`}
                 target="_blank"
                 rel="noreferrer"
-                className="ml-auto inline-flex items-center gap-1 text-zinc-500 hover:text-zinc-300"
+                {...stylex.props(s.githubLink)}
               >
-                view on GitHub <ExternalLink size={11} className="opacity-60" />
+                view on GitHub <ExternalLink size={11} {...stylex.props(s.dim60)} />
               </a>
             )}
           </div>
-          <div className="whitespace-pre-wrap text-sm text-zinc-200">{summary.body}</div>
+          <div {...stylex.props(s.body)}>{summary.body}</div>
         </div>
       )}
 
       {inline.length > 0 && (
-        <div className="space-y-2">
+        <div {...stylex.props(s.stack2)}>
           {inline.map((f) => (
-            <div key={f.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
-              <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+            <div key={f.id} {...stylex.props(s.findingCard)}>
+              <div {...stylex.props(s.findingHead)}>
                 {f.severity && (
                   <span
-                    className={`rounded border px-1.5 py-0.5 font-medium ${
-                      SEVERITY[f.severity]?.cls ?? "border-zinc-700 text-zinc-400"
-                    }`}
+                    {...stylex.props(
+                      s.severityPill,
+                      SEVERITY[f.severity]?.style ?? severity.unknown,
+                    )}
                   >
                     {SEVERITY[f.severity]?.label ?? f.severity}
                   </span>
@@ -473,22 +827,22 @@ function ReviewView({
                   href={`${prUrl}/files`}
                   target="_blank"
                   rel="noreferrer"
-                  className="font-mono text-zinc-400 hover:text-zinc-200"
+                  {...stylex.props(s.pathLink)}
                 >
                   {f.path}
                   {f.line != null ? `:${f.line}` : ""}
                 </a>
               </div>
-              <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+              <div {...stylex.props(s.body)}>{f.body}</div>
             </div>
           ))}
         </div>
       )}
 
       {comments.map((f) => (
-        <div key={f.id} className="rounded-md border border-zinc-800/70 bg-zinc-950 p-3">
-          <div className="mb-1 text-xs font-medium text-zinc-500">PR comment</div>
-          <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+        <div key={f.id} {...stylex.props(s.commentCard)}>
+          <div {...stylex.props(s.commentLabel)}>PR comment</div>
+          <div {...stylex.props(s.body)}>{f.body}</div>
         </div>
       ))}
     </div>
@@ -498,12 +852,12 @@ function ReviewView({
 function MessageView({ m }: { m: Message }) {
   const isUser = m.info?.role === "user";
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+    <div {...stylex.props(s.stack2)}>
+      <div {...stylex.props(s.messageHead)}>
         {isUser ? <User size={12} /> : <Bot size={12} />}
         {isUser ? "You" : "Assistant"}
       </div>
-      <div className="space-y-2">
+      <div {...stylex.props(s.stack2)}>
         {(m.parts ?? []).map((p, i) => (
           <PartView key={p.id ?? `${m.info?.id}-p-${i}`} p={p} />
         ))}
@@ -516,32 +870,26 @@ function PartView({ p }: { p: Part }) {
   switch (p.type) {
     case "text":
       return (
-        <div className="max-h-80 overflow-auto rounded-md bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap">
-          {p.text}
-        </div>
+        <div {...stylex.props(s.textPart)}>{p.text}</div>
       );
     case "reasoning":
       return (
-        <details className="rounded-md border border-zinc-800/60 bg-zinc-950">
-          <summary className="cursor-pointer px-3 py-1.5 text-xs text-zinc-500">reasoning</summary>
-          <pre className="px-3 pb-2 text-xs text-zinc-500 whitespace-pre-wrap">{p.text}</pre>
+        <details {...stylex.props(s.details)}>
+          <summary {...stylex.props(s.detailsSummary)}>reasoning</summary>
+          <pre {...stylex.props(s.reasoningText)}>{p.text}</pre>
         </details>
       );
     case "tool":
       return (
-        <details className="rounded-md border border-zinc-800/60 bg-zinc-950">
-          <summary className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-xs">
-            <Terminal size={12} className="text-zinc-500" />
-            <span className="font-mono text-zinc-300">{p.tool}</span>
-            {p.state?.title && <span className="text-zinc-500">— {p.state.title}</span>}
-            {p.state?.status && <span className="ml-auto text-zinc-600">{p.state.status}</span>}
+        <details {...stylex.props(s.details)}>
+          <summary {...stylex.props(s.toolSummary)}>
+            <Terminal size={12} {...stylex.props(s.toolIcon)} />
+            <span {...stylex.props(s.toolName)}>{p.tool}</span>
+            {p.state?.title && <span {...stylex.props(s.toolTitle)}>— {p.state.title}</span>}
+            {p.state?.status && <span {...stylex.props(s.toolStatus)}>{p.state.status}</span>}
           </summary>
-          {p.state?.output && (
-            <pre className="overflow-auto max-h-60 px-3 pb-2 text-xs text-zinc-400">
-              {p.state.output}
-            </pre>
-          )}
-          {p.state?.error && <pre className="px-3 pb-2 text-xs text-red-300">{p.state.error}</pre>}
+          {p.state?.output && <pre {...stylex.props(s.toolOutput)}>{p.state.output}</pre>}
+          {p.state?.error && <pre {...stylex.props(s.toolError)}>{p.state.error}</pre>}
         </details>
       );
     case "step-start":

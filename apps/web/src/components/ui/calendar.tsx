@@ -1,31 +1,216 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import {
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "lucide-react"
-import {
-  DayPicker,
-  getDefaultClassNames,
-  type DayButton,
-} from "react-day-picker"
+import * as React from "react";
+import * as stylex from "@stylexjs/stylex";
+import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { DayPicker, getDefaultClassNames, type DayButton } from "react-day-picker";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
+import { color, leading, radius, space, text } from "@/tokens.stylex";
 
-// This project's hand-rolled Button predates shadcn and exposes variants as an
-// internal map rather than a cva `buttonVariants` export. Shimmed here, in the
-// generated file, so the existing primitive stays untouched.
-const buttonVariants = ({ variant = "ghost" }: { variant?: string } = {}) =>
-  cn(
-    "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:pointer-events-none",
-    variant === "outline" ? "border border-zinc-700 bg-transparent hover:bg-zinc-800" : "bg-transparent hover:bg-zinc-800",
-  )
+// react-day-picker takes a `classNames` map of slot -> class string, so every
+// StyleX rule for a slot has to be flattened back into a class name here. The
+// `defaultClassNames.*` value is kept alongside ours: those are day-picker's own
+// `rdp-*` hooks, vendored classes like `shimmer`, not ours to remove.
+// `DayPickerProps` is a discriminated union on `mode`. A non-distributive
+// `Omit<...>` collapses it into one object and TS can no longer assign it back
+// to the union, so the omit has to distribute.
+type OmitClassStyle<T> = T extends unknown ? Omit<T, "className" | "style"> : never;
+
+const rdp = (defaultClass: string, style: stylex.StyleXStyles) =>
+  `${defaultClass} ${stylex.props(style).className ?? ""}`.trim();
+
+// The cell size was a local CSS var, `[--cell-size:--spacing(8)]` === 2rem.
+// StyleX can only declare vars in a *.stylex.ts file, so the token is inlined.
+const s = stylex.create({
+  root: {
+    backgroundColor: color.background,
+    padding: space.x12
+  },
+  rootSlot: { width: "fit-content" },
+  months: {
+    position: "relative",
+    display: "flex",
+    flexDirection: { default: "column", "@media (min-width: 768px)": "row" },
+    gap: space.x16
+  },
+  month: { display: "flex", width: "100%", flexDirection: "column", gap: space.x16 },
+  nav: {
+    position: "absolute",
+    insetInline: 0,
+    top: 0,
+    display: "flex",
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.x4
+  },
+  navButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x8,
+    borderRadius: radius.md,
+    borderWidth: 0,
+    borderStyle: "solid",
+    fontSize: text.sm, lineHeight: leading.sm,
+    fontWeight: 500,
+    transitionProperty: "color, background-color",
+    transitionDuration: "150ms",
+    cursor: "pointer",
+    width: space.x32,
+    height: space.x32,
+    padding: space.x0,
+    userSelect: "none",
+    opacity: { default: null, ":disabled": 0.5, '[aria-disabled="true"]': 0.5 },
+    pointerEvents: { default: null, ":disabled": "none" }
+  },
+  monthCaption: {
+    display: "flex",
+    height: space.x32,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingInline: space.x32
+  },
+  dropdowns: {
+    display: "flex",
+    height: space.x32,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x6,
+    fontSize: text.sm, lineHeight: leading.sm,
+    fontWeight: 500
+  },
+  dropdownRoot: {
+    position: "relative",
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: { default: color.input, ":has(:focus)": color.ring },
+    boxShadow: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+    outlineWidth: { default: 0, ":has(:focus)": "3px" },
+    outlineStyle: "solid",
+    outlineColor: color.ring
+  },
+  dropdown: {
+    position: "absolute",
+    inset: 0,
+    backgroundColor: color.popover,
+    opacity: 0
+  },
+  captionLabel: { fontWeight: 500, userSelect: "none" },
+  captionLabelText: { fontSize: text.sm, lineHeight: leading.sm },
+  captionLabelDropdown: {
+    display: "flex",
+    height: space.x32,
+    alignItems: "center",
+    gap: space.x4,
+    borderRadius: radius.md,
+    paddingRight: space.x4,
+    paddingLeft: space.x8,
+    fontSize: text.sm, lineHeight: leading.sm
+  },
+  monthGrid: { width: "100%", borderCollapse: "collapse" },
+  weekdays: { display: "flex" },
+  weekday: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    borderRadius: radius.md,
+    fontSize: text.xsPlus,
+    fontWeight: 400,
+    color: color.mutedForeground,
+    userSelect: "none"
+  },
+  week: { marginTop: space.x8, display: "flex", width: "100%" },
+  weekNumberHeader: { width: space.x32, userSelect: "none" },
+  weekNumber: { fontSize: text.xsPlus, color: color.mutedForeground, userSelect: "none" },
+  weekNumberCell: {
+    display: "flex",
+    width: space.x32,
+    height: space.x32,
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center"
+  },
+  day: {
+    position: "relative",
+    aspectRatio: 1,
+    height: "100%",
+    width: "100%",
+    padding: space.x0,
+    textAlign: "center",
+    userSelect: "none"
+  },
+  rangeStart: {
+    borderTopLeftRadius: radius.md,
+    borderBottomLeftRadius: radius.md,
+    backgroundColor: color.accent
+  },
+  rangeMiddle: { borderRadius: "0" },
+  rangeEnd: {
+    borderTopRightRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+    backgroundColor: color.accent
+  },
+  today: {
+    borderRadius: { default: radius.md, '[data-selected="true"]': "0" },
+    backgroundColor: color.accent,
+    color: color.accentForeground
+  },
+  outside: { color: color.mutedForeground },
+  disabled: { color: color.mutedForeground, opacity: 0.5 },
+  hidden: { visibility: "hidden" },
+  chevron: { width: space.x16, height: space.x16 }
+});
+
+const navVariants = stylex.create({
+  ghost: { backgroundColor: { default: "transparent", ":hover": color.zinc800 } },
+  outline: {
+    borderWidth: "1px",
+    borderColor: color.zinc700,
+    backgroundColor: { default: "transparent", ":hover": color.zinc800 }
+  }
+});
+
+const dayButton = stylex.create({
+  base: {
+    display: "flex",
+    aspectRatio: 1,
+    height: "auto",
+    width: "100%",
+    minWidth: space.x32,
+    flexDirection: "column",
+    gap: space.x4,
+    lineHeight: 1,
+    fontWeight: 400,
+    borderRadius: {
+      default: null,
+      '[data-range-end="true"]': radius.md,
+      '[data-range-middle="true"]': "0",
+      '[data-range-start="true"]': radius.md
+    },
+    backgroundColor: {
+      default: null,
+      '[data-range-end="true"]': color.primary,
+      '[data-range-middle="true"]': color.accent,
+      '[data-range-start="true"]': color.primary,
+      '[data-selected-single="true"]': color.primary
+    },
+    color: {
+      default: null,
+      '[data-range-end="true"]': color.primaryForeground,
+      '[data-range-middle="true"]': color.accentForeground,
+      '[data-range-start="true"]': color.primaryForeground,
+      '[data-selected-single="true"]': color.primaryForeground
+    }
+  }
+});
 
 function Calendar({
-  className,
+  style,
   classNames,
   showOutsideDays = true,
   captionLayout = "label",
@@ -33,173 +218,98 @@ function Calendar({
   formatters,
   components,
   ...props
-}: React.ComponentProps<typeof DayPicker> & {
-  buttonVariant?: React.ComponentProps<typeof Button>["variant"]
+}: OmitClassStyle<React.ComponentProps<typeof DayPicker>> & {
+  buttonVariant?: React.ComponentProps<typeof Button>["variant"];
+  style?: stylex.StyleXStyles;
 }) {
-  const defaultClassNames = getDefaultClassNames()
+  const defaultClassNames = getDefaultClassNames();
+  const navVariant = navVariants[buttonVariant === "outline" ? "outline" : "ghost"];
 
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn(
-        "group/calendar bg-background p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
-        String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
-        String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
-        className
-      )}
+      className={stylex.props(s.root, style).className}
       captionLayout={captionLayout}
       formatters={{
-        formatMonthDropdown: (date) =>
-          date.toLocaleString("default", { month: "short" }),
-        ...formatters,
+        formatMonthDropdown: (date) => date.toLocaleString("default", { month: "short" }),
+        ...formatters
       }}
       classNames={{
-        root: cn("w-fit", defaultClassNames.root),
-        months: cn(
-          "relative flex flex-col gap-4 md:flex-row",
-          defaultClassNames.months
-        ),
-        month: cn("flex w-full flex-col gap-4", defaultClassNames.month),
-        nav: cn(
-          "absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1",
-          defaultClassNames.nav
-        ),
-        button_previous: cn(
-          buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
-          defaultClassNames.button_previous
-        ),
-        button_next: cn(
-          buttonVariants({ variant: buttonVariant }),
-          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
-          defaultClassNames.button_next
-        ),
-        month_caption: cn(
-          "flex h-(--cell-size) w-full items-center justify-center px-(--cell-size)",
-          defaultClassNames.month_caption
-        ),
-        dropdowns: cn(
-          "flex h-(--cell-size) w-full items-center justify-center gap-1.5 text-sm font-medium",
-          defaultClassNames.dropdowns
-        ),
-        dropdown_root: cn(
-          "relative rounded-md border border-input shadow-xs has-focus:border-ring has-focus:ring-[3px] has-focus:ring-ring/50",
-          defaultClassNames.dropdown_root
-        ),
-        dropdown: cn(
-          "absolute inset-0 bg-popover opacity-0",
-          defaultClassNames.dropdown
-        ),
-        caption_label: cn(
-          "font-medium select-none",
-          captionLayout === "label"
-            ? "text-sm"
-            : "flex h-8 items-center gap-1 rounded-md pr-1 pl-2 text-sm [&>svg]:size-3.5 [&>svg]:text-muted-foreground",
-          defaultClassNames.caption_label
-        ),
-        month_grid: cn("w-full border-collapse", defaultClassNames.month_grid),
-        weekdays: cn("flex", defaultClassNames.weekdays),
-        weekday: cn(
-          "flex-1 rounded-md text-[0.8rem] font-normal text-muted-foreground select-none",
-          defaultClassNames.weekday
-        ),
-        week: cn("mt-2 flex w-full", defaultClassNames.week),
-        week_number_header: cn(
-          "w-(--cell-size) select-none",
-          defaultClassNames.week_number_header
-        ),
-        week_number: cn(
-          "text-[0.8rem] text-muted-foreground select-none",
-          defaultClassNames.week_number
-        ),
-        day: cn(
-          "group/day relative aspect-square h-full w-full p-0 text-center select-none [&:last-child[data-selected=true]_button]:rounded-r-md",
-          props.showWeekNumber
-            ? "[&:nth-child(2)[data-selected=true]_button]:rounded-l-md"
-            : "[&:first-child[data-selected=true]_button]:rounded-l-md",
-          defaultClassNames.day
-        ),
-        range_start: cn(
-          "rounded-l-md bg-accent",
-          defaultClassNames.range_start
-        ),
-        range_middle: cn("rounded-none", defaultClassNames.range_middle),
-        range_end: cn("rounded-r-md bg-accent", defaultClassNames.range_end),
-        today: cn(
-          "rounded-md bg-accent text-accent-foreground data-[selected=true]:rounded-none",
-          defaultClassNames.today
-        ),
-        outside: cn(
-          "text-muted-foreground aria-selected:text-muted-foreground",
-          defaultClassNames.outside
-        ),
-        disabled: cn(
-          "text-muted-foreground opacity-50",
-          defaultClassNames.disabled
-        ),
-        hidden: cn("invisible", defaultClassNames.hidden),
-        ...classNames,
+        root: rdp(defaultClassNames.root, s.rootSlot),
+        months: rdp(defaultClassNames.months, s.months),
+        month: rdp(defaultClassNames.month, s.month),
+        nav: rdp(defaultClassNames.nav, s.nav),
+        button_previous: rdp(defaultClassNames.button_previous, [s.navButton, navVariant]),
+        button_next: rdp(defaultClassNames.button_next, [s.navButton, navVariant]),
+        month_caption: rdp(defaultClassNames.month_caption, s.monthCaption),
+        dropdowns: rdp(defaultClassNames.dropdowns, s.dropdowns),
+        dropdown_root: rdp(defaultClassNames.dropdown_root, s.dropdownRoot),
+        dropdown: rdp(defaultClassNames.dropdown, s.dropdown),
+        caption_label: rdp(defaultClassNames.caption_label, [
+          s.captionLabel,
+          captionLayout === "label" ? s.captionLabelText : s.captionLabelDropdown,
+        ]),
+        month_grid: rdp(defaultClassNames.month_grid, s.monthGrid),
+        weekdays: rdp(defaultClassNames.weekdays, s.weekdays),
+        weekday: rdp(defaultClassNames.weekday, s.weekday),
+        week: rdp(defaultClassNames.week, s.week),
+        week_number_header: rdp(defaultClassNames.week_number_header, s.weekNumberHeader),
+        week_number: rdp(defaultClassNames.week_number, s.weekNumber),
+        day: rdp(defaultClassNames.day, s.day),
+        range_start: rdp(defaultClassNames.range_start, s.rangeStart),
+        range_middle: rdp(defaultClassNames.range_middle, s.rangeMiddle),
+        range_end: rdp(defaultClassNames.range_end, s.rangeEnd),
+        // Not via rdp(): `s.today` keys borderRadius on an arbitrary attribute
+        // selector, so its value type is `unknown` and the narrow
+        // `StyleXStyles` annotation on rdp rejects it. `stylex.props` itself
+        // takes it fine, so the flattening is inlined here.
+        today: `${defaultClassNames.today} ${stylex.props(s.today).className ?? ""}`.trim(),
+        outside: rdp(defaultClassNames.outside, s.outside),
+        disabled: rdp(defaultClassNames.disabled, s.disabled),
+        hidden: rdp(defaultClassNames.hidden, s.hidden),
+        ...classNames
       }}
       components={{
         Root: ({ className, rootRef, ...props }) => {
-          return (
-            <div
-              data-slot="calendar"
-              ref={rootRef}
-              className={cn(className)}
-              {...props}
-            />
-          )
+          return <div data-slot="calendar" ref={rootRef} className={className} {...props} />;
         },
         Chevron: ({ className, orientation, ...props }) => {
           if (orientation === "left") {
-            return (
-              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
-            )
+            return <ChevronLeftIcon className={rdp(className ?? "", s.chevron)} {...props} />;
           }
 
           if (orientation === "right") {
-            return (
-              <ChevronRightIcon
-                className={cn("size-4", className)}
-                {...props}
-              />
-            )
+            return <ChevronRightIcon className={rdp(className ?? "", s.chevron)} {...props} />;
           }
 
-          return (
-            <ChevronDownIcon className={cn("size-4", className)} {...props} />
-          )
+          return <ChevronDownIcon className={rdp(className ?? "", s.chevron)} {...props} />;
         },
         DayButton: CalendarDayButton,
         WeekNumber: ({ children, ...props }) => {
           return (
             <td {...props}>
-              <div className="flex size-(--cell-size) items-center justify-center text-center">
-                {children}
-              </div>
+              <div {...stylex.props(s.weekNumberCell)}>{children}</div>
             </td>
-          )
+          );
         },
-        ...components,
+        ...components
       }}
       {...props}
     />
-  )
+  );
 }
 
 function CalendarDayButton({
-  className,
+  className: _rdpClassName,
+  style: _rdpStyle,
   day,
   modifiers,
   ...props
 }: React.ComponentProps<typeof DayButton>) {
-  const defaultClassNames = getDefaultClassNames()
-
-  const ref = React.useRef<HTMLButtonElement>(null)
+  const ref = React.useRef<HTMLButtonElement>(null);
   React.useEffect(() => {
-    if (modifiers.focused) ref.current?.focus()
-  }, [modifiers.focused])
+    if (modifiers.focused) ref.current?.focus();
+  }, [modifiers.focused]);
 
   return (
     <Button
@@ -216,14 +326,15 @@ function CalendarDayButton({
       data-range-start={modifiers.range_start}
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
-      className={cn(
-        "flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring/50 data-[range-end=true]:rounded-md data-[range-end=true]:rounded-r-md data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-accent data-[range-middle=true]:text-accent-foreground data-[range-start=true]:rounded-md data-[range-start=true]:rounded-l-md data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground dark:hover:text-accent-foreground [&>span]:text-xs [&>span]:opacity-70",
-        defaultClassNames.day,
-        className
-      )}
+      // `dayButton.base` keys borderRadius/backgroundColor/color on arbitrary
+      // attribute selectors, so those properties type as `unknown` and the bare
+      // `stylex.StyleXStyles` on Button's `style` prop rejects them. The cast is
+      // the boundary fix; loosening Button's annotation is the real one, but
+      // that file is owned elsewhere.
+      style={dayButton.base as stylex.StyleXStyles}
       {...props}
     />
-  )
+  );
 }
 
-export { Calendar, CalendarDayButton }
+export { Calendar, CalendarDayButton };

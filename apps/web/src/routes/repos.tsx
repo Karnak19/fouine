@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import { api, type RepoRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,19 +13,145 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
+  TableRow
 } from "@/components/ui/table";
 import { Plus, ChevronRight, FolderGit2 } from "lucide-react";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { timeAgo } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+
+// Tailwind's `animate-pulse`. Restated locally because the @keyframes only
+// exist while a className references the utility.
+const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
+
+const s = stylex.create({
+  // `space-y-*` is a margin-bottom-on-all-but-last rule StyleX cannot express;
+  // a column flex with the same gap renders identically for these block-level
+  // children. NOT so when a child is inline (see `field`): a flex item is
+  // blockified.
+  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x896 },
+  titleRow: { display: "flex", alignItems: "center", gap: space.x8 },
+  title: { fontSize: text.xl2, lineHeight: leading.xl2, fontWeight: 700, letterSpacing: tracking.tight },
+  subtitle: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500, marginTop: space.x4 },
+
+  form: { display: "flex", alignItems: "flex-end", gap: space.x16 },
+  // Plain block, not a column flex: blockifying the inline <label> would make
+  // it full-width and 3px shorter. The label + control need no gap between
+  // them — Tailwind's `space-y-1.5` margin-bottom was ignored on the inline
+  // label, and these fields have no third child.
+  field: {
+    display: "block",
+    flexGrow: 1,
+    flexBasis: 0
+  },
+  fieldNarrow: { display: "block", width: space.x160 },
+
+  skeletonList: { display: "flex", flexDirection: "column", gap: space.x8 },
+  skeletonRow: {
+    height: space.x48,
+    borderRadius: radius.md,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 60%, transparent)`,
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+
+  empty: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "dashed",
+    borderColor: color.zinc800,
+    paddingBlock: space.x64,
+    textAlign: "center"
+  },
+  emptyIcon: { color: color.zinc700 },
+  emptyTitle: { marginTop: space.x12, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
+  emptyHint: { fontSize: text.xs, lineHeight: leading.xs, color: color.zinc600, marginTop: space.x4 },
+
+  tableWrap: {
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`,
+    overflow: "hidden"
+  },
+  alignRight: { textAlign: "right" },
+  colChevron: { width: space.x32 },
+
+  repoLink: {
+    fontFamily: font.mono,
+    fontSize: text.sm, lineHeight: leading.sm,
+    transitionProperty: "color",
+    transitionDuration: "150ms"
+  },
+  // `hover:text-ember-300` outranked the enabled/disabled colour, so both
+  // variants restate the hover value.
+  repoLinkOn: { color: { default: color.zinc100, ":hover": color.ember300 } },
+  repoLinkOff: { color: { default: color.zinc500, ":hover": color.ember300 } },
+
+  numCell: { color: color.zinc400, fontSize: text.sm, lineHeight: leading.sm, fontVariantNumeric: "tabular-nums" },
+  monoCell: { color: color.zinc400, fontSize: text.sm, lineHeight: leading.sm, fontFamily: font.mono },
+  timeCell: {
+    color: color.zinc500,
+    fontSize: text.sm, lineHeight: leading.sm,
+    textAlign: "right",
+    fontVariantNumeric: "tabular-nums"
+  },
+  chevronCell: { color: color.zinc600 },
+  chevronLink: {
+    display: "block",
+    transitionProperty: "color",
+    transitionDuration: "150ms",
+    color: { default: null, ":hover": color.zinc300 }
+  },
+
+  switch: {
+    position: "relative",
+    display: "inline-flex",
+    height: space.x20,
+    width: space.x36,
+    flexShrink: 0,
+    alignItems: "center",
+    borderRadius: radius.full,
+    transitionProperty: "background-color",
+    transitionDuration: "150ms",
+    cursor: { default: "pointer", ":disabled": "not-allowed" },
+    opacity: { default: null, ":disabled": 0.4 },
+    outlineStyle: { default: null, ":focus-visible": "none" },
+    // `ring-2 ring-primary/50` with `ring-offset-2 ring-offset-background`:
+    // the offset ring is the inner shadow, the ring itself the outer one.
+    boxShadow: {
+      default: null,
+      ":focus-visible": `0 0 0 2px ${color.background}, 0 0 0 4px color-mix(in oklab, ${color.primary} 50%, transparent)`
+    }
+  },
+  switchOn: { backgroundColor: color.primary },
+  switchOff: { backgroundColor: color.zinc700 },
+  knob: {
+    display: "inline-block",
+    height: space.x14,
+    width: space.x14,
+    borderRadius: radius.full,
+    backgroundColor: color.zinc950,
+    transitionProperty: "transform",
+    transitionDuration: "150ms"
+  },
+  knobOn: { transform: "translateX(18px)" },
+  knobOff: { transform: "translateX(3px)" }
+});
 
 export default function ReposPage() {
   const queryClient = useQueryClient();
   const { data: repos, isLoading } = useQuery({
     queryKey: ["repos"],
-    queryFn: api.repos.list,
+    queryFn: api.repos.list
   });
 
   // Global scope: repo CRUD can happen for any repo, not just one we're viewing.
@@ -46,17 +173,17 @@ export default function ReposPage() {
       queryClient.invalidateQueries({ queryKey: ["repos"] });
       setFullName("");
       setInstallId("");
-    },
+    }
   });
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div {...stylex.props(s.page)}>
       <div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>
+        <div {...stylex.props(s.titleRow)}>
+          <h1 {...stylex.props(s.title)}>Repositories</h1>
           <LiveBadge status={status} />
         </div>
-        <p className="text-sm text-zinc-500 mt-1">Repos fouine watches for pull requests.</p>
+        <p {...stylex.props(s.subtitle)}>Repos fouine watches for pull requests.</p>
       </div>
 
       <Card>
@@ -69,9 +196,9 @@ export default function ReposPage() {
               e.preventDefault();
               createMut.mutate();
             }}
-            className="flex items-end gap-4"
+            {...stylex.props(s.form)}
           >
-            <div className="flex-1 space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="full_name">Full name (owner/repo)</Label>
               <Input
                 id="full_name"
@@ -82,7 +209,7 @@ export default function ReposPage() {
                 pattern="[^/]+/[^/]+"
               />
             </div>
-            <div className="w-40 space-y-1.5">
+            <div {...stylex.props(s.fieldNarrow)}>
               <Label htmlFor="installation_id">Installation ID</Label>
               <Input
                 id="installation_id"
@@ -102,19 +229,19 @@ export default function ReposPage() {
       </Card>
 
       {isLoading ? (
-        <div className="space-y-2">
+        <div {...stylex.props(s.skeletonList)}>
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-12 rounded-md bg-zinc-900/60 animate-pulse" />
+            <div key={i} {...stylex.props(s.skeletonRow)} />
           ))}
         </div>
       ) : !repos?.length ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
-          <FolderGit2 size={28} className="text-zinc-700" />
-          <p className="mt-3 text-sm text-zinc-400">No repositories registered</p>
-          <p className="text-xs text-zinc-600 mt-1">Add one above to get started.</p>
+        <div {...stylex.props(s.empty)}>
+          <FolderGit2 size={28} {...stylex.props(s.emptyIcon)} />
+          <p {...stylex.props(s.emptyTitle)}>No repositories registered</p>
+          <p {...stylex.props(s.emptyHint)}>Add one above to get started.</p>
         </div>
       ) : (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        <div {...stylex.props(s.tableWrap)}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -122,8 +249,8 @@ export default function ReposPage() {
                 <TableHead>Auto-review</TableHead>
                 <TableHead>Installation</TableHead>
                 <TableHead>Model</TableHead>
-                <TableHead className="text-right">Registered</TableHead>
-                <TableHead className="w-8" />
+                <TableHead style={s.alignRight}>Registered</TableHead>
+                <TableHead style={s.colChevron} />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -150,7 +277,7 @@ function RepoRow({ repo }: { repo: RepoRow }) {
       api.repos.update(owner, name, {
         prompt: repo.prompt ?? undefined,
         model: repo.model ?? undefined,
-        enabled: next ? 1 : 0,
+        enabled: next ? 1 : 0
       }),
     onMutate: async (next: boolean) => {
       await queryClient.cancelQueries({ queryKey: ["repos"] });
@@ -163,7 +290,7 @@ function RepoRow({ repo }: { repo: RepoRow }) {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(["repos"], ctx.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["repos"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["repos"] })
   });
 
   return (
@@ -172,10 +299,7 @@ function RepoRow({ repo }: { repo: RepoRow }) {
         <Link
           to="/repos/$owner/$name"
           params={{ owner, name }}
-          className={cn(
-            "font-mono text-sm transition-colors hover:text-ember-300",
-            enabled ? "text-zinc-100" : "text-zinc-500",
-          )}
+          {...stylex.props(s.repoLink, enabled ? s.repoLinkOn : s.repoLinkOff)}
         >
           {repo.full_name}
         </Link>
@@ -188,16 +312,14 @@ function RepoRow({ repo }: { repo: RepoRow }) {
           label={`Auto-review ${repo.full_name}`}
         />
       </TableCell>
-      <TableCell className="text-zinc-400 text-sm tabular-nums">{repo.installation_id}</TableCell>
-      <TableCell className="text-zinc-400 text-sm font-mono">{repo.model ?? "default"}</TableCell>
-      <TableCell className="text-zinc-500 text-sm text-right tabular-nums">
-        {timeAgo(repo.created_at)}
-      </TableCell>
-      <TableCell className="text-zinc-600">
+      <TableCell style={s.numCell}>{repo.installation_id}</TableCell>
+      <TableCell style={s.monoCell}>{repo.model ?? "default"}</TableCell>
+      <TableCell style={s.timeCell}>{timeAgo(repo.created_at)}</TableCell>
+      <TableCell style={s.chevronCell}>
         <Link
           to="/repos/$owner/$name"
           params={{ owner, name }}
-          className="block transition-colors hover:text-zinc-300"
+          {...stylex.props(s.chevronLink)}
           aria-label={`Open ${repo.full_name}`}
         >
           <ChevronRight size={16} />
@@ -211,7 +333,7 @@ function Switch({
   checked,
   onChange,
   disabled,
-  label,
+  label
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
@@ -226,19 +348,9 @@ function Switch({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        "disabled:opacity-40 disabled:cursor-not-allowed",
-        checked ? "bg-primary" : "bg-zinc-700",
-      )}
+      {...stylex.props(s.switch, checked ? s.switchOn : s.switchOff)}
     >
-      <span
-        className={cn(
-          "inline-block h-3.5 w-3.5 rounded-full bg-zinc-950 transition-transform",
-          checked ? "translate-x-[18px]" : "translate-x-[3px]",
-        )}
-      />
+      <span {...stylex.props(s.knob, checked ? s.knobOn : s.knobOff)} />
     </button>
   );
 }

@@ -1,7 +1,26 @@
 import { useEffect, useState } from "react";
+import * as stylex from "@stylexjs/stylex";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
+import { color, leading, space, text } from "@/tokens.stylex";
+
+const s = stylex.create({
+  // The 6px between the input and this hint used to come from the caller's
+  // `space-y-1.5`; that rule is gone, and every caller renders this fragment
+  // straight after the input, so the gap belongs here now.
+  hint: {
+    fontSize: text.xs, lineHeight: leading.xs,
+    color: color.zinc500,
+    marginTop: space.x6
+  },
+  // Only the two properties the old `underline hover:text-zinc-300` set —
+  // Tailwind's preflight still resets the button's own background/border/font.
+  toggle: {
+    textDecorationLine: "underline",
+    color: { default: null, ":hover": color.zinc300 }
+  }
+});
 
 interface Props {
   id: string;
@@ -36,7 +55,7 @@ export function ModelInput({ id, value, onChange, placeholder }: Props) {
     // Keep the previous suggestions on screen while the next query resolves —
     // an empty datalist mid-keystroke reads as "no such model".
     placeholderData: keepPreviousData,
-    staleTime: 30 * 60 * 1000,
+    staleTime: 30 * 60 * 1000
   });
 
   return (
@@ -58,15 +77,11 @@ export function ModelInput({ id, value, onChange, placeholder }: Props) {
           </option>
         ))}
       </datalist>
-      <p className="text-xs text-zinc-500">
+      <p {...stylex.props(s.hint)}>
         {all
           ? `Every provider on models.dev (${data?.total ?? 0} models).`
           : `${data?.providers.join(", ") || "No provider configured"} — ${data?.total ?? 0} models.`}{" "}
-        <button
-          type="button"
-          className="underline hover:text-zinc-300"
-          onClick={() => setAll(!all)}
-        >
+        <button type="button" onClick={() => setAll(!all)} {...stylex.props(s.toggle)}>
           {all ? "Only configured providers" : "Show all providers"}
         </button>
       </p>

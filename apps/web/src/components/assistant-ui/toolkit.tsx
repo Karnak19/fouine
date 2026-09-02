@@ -5,9 +5,33 @@ import {
   ToolFallbackContent,
   ToolFallbackError,
   ToolFallbackRoot,
-  ToolFallbackTrigger,
+  ToolFallbackTrigger
 } from "@/components/assistant-ui/tool-fallback";
 import { ChartToolUI } from "@/components/assistant-ui/chart-tool-ui";
+import * as stylex from "@stylexjs/stylex";
+import { color, font, radius, space, text } from "@/tokens.stylex";
+
+const s = stylex.create({
+  label: {
+    color: color.mutedForeground,
+    fontSize: text.xs,
+    lineHeight: "calc(1 / 0.75)",
+    fontWeight: 500
+  },
+  block: {
+    backgroundColor: `color-mix(in oklab, ${color.muted} 50%, transparent)`,
+    color: `color-mix(in oklab, ${color.foreground} 90%, transparent)`,
+    marginTop: space.x4,
+    overflowX: "auto",
+    borderRadius: radius.md,
+    padding: space.x10,
+    fontSize: text.xs,
+    lineHeight: "calc(1 / 0.75)",
+    whiteSpace: "pre-wrap"
+  },
+  mono: { fontFamily: font.mono },
+  tabular: { fontVariantNumeric: "tabular-nums" }
+});
 
 /**
  * The SQL behind an answer, collapsed under it — the whole point of this page is
@@ -19,7 +43,7 @@ const QueryStatsToolUI: ToolCallMessagePartComponent<{ sql?: string }, string> =
   args,
   argsText,
   result,
-  status,
+  status
 }) => {
   const sql = args?.sql ?? argsText;
 
@@ -30,16 +54,16 @@ const QueryStatsToolUI: ToolCallMessagePartComponent<{ sql?: string }, string> =
         <ToolFallbackError status={status} />
         {sql && (
           <div>
-            <p className="text-muted-foreground text-xs font-medium">Query</p>
-            <pre className="bg-muted/50 text-foreground/90 mt-1 overflow-x-auto rounded-md p-2.5 font-mono text-xs whitespace-pre-wrap">
+            <p {...stylex.props(s.label)}>Query</p>
+            <pre {...stylex.props(s.block, s.mono)}>
               {sql}
             </pre>
           </div>
         )}
         {result !== undefined && (
           <div>
-            <p className="text-muted-foreground text-xs font-medium">Rows</p>
-            <pre className="bg-muted/50 text-foreground/90 mt-1 overflow-x-auto rounded-md p-2.5 text-xs whitespace-pre-wrap tabular-nums">
+            <p {...stylex.props(s.label)}>Rows</p>
+            <pre {...stylex.props(s.block, s.tabular)}>
               {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
             </pre>
           </div>
@@ -71,5 +95,5 @@ export const chatToolkit = {
   // of how it was reached. Inline (the default) folds it into the collapsed
   // "1 tool call" chain-of-thought group, where a picture drawn for the user
   // would sit behind a disclosure triangle nobody opens.
-  render_chart: { type: "backend", display: "standalone", render: ChartToolUI },
+  render_chart: { type: "backend", display: "standalone", render: ChartToolUI }
 } satisfies Toolkit;

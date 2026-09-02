@@ -9,17 +9,27 @@ import {
   ReasoningContent,
   ReasoningRoot,
   ReasoningText,
-  ReasoningTrigger,
+  ReasoningTrigger
 } from "@/components/assistant-ui/reasoning";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import {
   ToolGroupContent,
   ToolGroupRoot,
-  ToolGroupTrigger,
+  ToolGroupTrigger
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import {
+  color,
+  font,
+  leading,
+  radius,
+  shadow,
+  space,
+  text
+} from "@/tokens.stylex";
+import { attrStyle } from "@/lib/sx";
+import * as stylex from "@stylexjs/stylex";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -35,7 +45,7 @@ import {
   type FileMessagePartComponent,
   type ImageMessagePartComponent,
   type ToolCallMessagePartComponent,
-  useAuiState,
+  useAuiState
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -49,17 +59,414 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
-  SquareIcon,
+  SquareIcon
 } from "lucide-react";
 import {
   createContext,
   useContext,
   type ComponentType,
   type FC,
-  type PropsWithChildren,
+  type PropsWithChildren
 } from "react";
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
+
+// Tailwind's `animate-pulse`, which is gone with the utility classes. Same
+// timing so the working indicator and the dictation square breathe as before.
+const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
+
+// The composer's shell is drawn twice (new message, and editing an existing
+// one) off the same four custom properties, which stay CSS vars so the two
+// copies cannot drift.
+const COMPOSER_SHADOW =
+  "0 4px 16px -8px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)";
+const COMPOSER_SHADOW_FOCUS =
+  "0 6px 24px -8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.05)";
+const DARK = "@media (prefers-color-scheme: dark)";
+
+const s = stylex.create({
+  root: {
+    backgroundColor: color.background,
+    containerType: "inline-size",
+    display: "flex",
+    height: "100%",
+    flexDirection: "column"
+  },
+  viewport: {
+    position: "relative",
+    display: "flex",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    flexDirection: "column",
+    overflowX: "auto",
+    overflowY: "scroll",
+    scrollBehavior: "smooth"
+  },
+  column: {
+    marginInline: "auto",
+    display: "flex",
+    width: "100%",
+    maxWidth: "var(--thread-max-width)",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    flexDirection: "column",
+    paddingInline: space.x16,
+    paddingTop: space.x16
+  },
+  columnCentered: { justifyContent: "center" },
+  messageGroup: {
+    marginBottom: space.x56,
+    display: { default: "flex", ":empty": "none" },
+    flexDirection: "column",
+    rowGap: space.x24
+  },
+  footer: {
+    backgroundColor: color.background,
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x16,
+    overflow: "visible",
+    paddingBottom: { default: space.x16, "@media (min-width: 768px)": space.x24 }
+  },
+  footerDocked: {
+    position: "sticky",
+    bottom: 0,
+    marginTop: "auto",
+    borderTopLeftRadius: "var(--composer-radius)",
+    borderTopRightRadius: "var(--composer-radius)"
+  },
+  scrollToBottom: {
+    position: "absolute",
+    top: `calc(-1 * ${space.x48})`,
+    zIndex: 10,
+    alignSelf: "center",
+    borderRadius: radius.full,
+    padding: space.x16,
+    visibility: { default: null, ":disabled": "hidden" },
+    borderColor: { default: null, [DARK]: color.border },
+    backgroundColor: {
+      default: null,
+      [DARK]: { default: color.background, ":hover": color.accent }
+    }
+  },
+  welcome: {
+    marginBottom: space.x24,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    paddingInline: space.x16,
+    textAlign: "center"
+  },
+  welcomeHeading: {
+    fontSize: text.xl2,
+    lineHeight: leading.xl2,
+    fontWeight: 600,
+    transitionDuration: "200ms"
+  },
+  suggestions: {
+    display: "flex",
+    width: "100%",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x8,
+    paddingInline: space.x16
+  },
+  suggestionDisplay: { transitionDuration: "200ms" },
+  suggestion: {
+    color: color.foreground,
+    backgroundColor: { default: null, ":hover": color.muted },
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: `color-mix(in oklab, ${color.border} 60%, transparent)`,
+    height: "auto",
+    gap: space.x6,
+    borderRadius: radius.full,
+    paddingInline: space.x14,
+    paddingBlock: space.x6,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    transitionProperty: "color, background-color, border-color",
+    transitionDuration: "150ms"
+  },
+  hideWhenEmpty: { display: { default: null, ":empty": "none" } },
+  composerRoot: {
+    position: "relative",
+    display: "flex",
+    width: "100%",
+    flexDirection: "column"
+  },
+  composerShell: {
+    display: "flex",
+    width: "100%",
+    flexDirection: "column",
+    gap: space.x8,
+    borderRadius: "var(--composer-radius)",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: {
+      default: `color-mix(in oklab, ${color.border} 60%, transparent)`,
+      ":focus-within": color.border,
+      [DARK]: {
+        default: `color-mix(in oklab, ${color.mutedForeground} 15%, transparent)`,
+        ":focus-within": `color-mix(in oklab, ${color.mutedForeground} 30%, transparent)`
+      }
+    },
+    backgroundColor: "var(--composer-bg)",
+    padding: "var(--composer-padding)",
+    transitionProperty: "border-color, box-shadow",
+    boxShadow: {
+      default: COMPOSER_SHADOW,
+      ":focus-within": COMPOSER_SHADOW_FOCUS,
+      [DARK]: { default: "none", ":focus-within": "none" }
+    }
+  },
+  composerInput: {
+    caretColor: color.primary,
+    "::placeholder": {
+      color: `color-mix(in oklab, ${color.mutedForeground} 80%, transparent)`
+    },
+    maxHeight: space.x128,
+    minHeight: space.x40,
+    width: "100%",
+    resize: "none",
+    backgroundColor: "transparent",
+    paddingInline: space.x10,
+    paddingBlock: space.x4,
+    fontSize: text.base,
+    lineHeight: leading.base,
+    outlineStyle: "none"
+  },
+  composerActionWrapper: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end"
+  },
+  composerActions: { display: "flex", alignItems: "center", gap: space.x6 },
+  composerButton: {
+    height: space.x28,
+    width: space.x28,
+    borderRadius: radius.full
+  },
+  destructive: { color: color.destructive },
+  icon4: { height: space.x16, width: space.x16 },
+  // TOKEN MISSING: 1.125rem (size-4.5)
+  icon45: { height: "1.125rem", width: "1.125rem" },
+  icon35: { height: space.x14, width: space.x14 },
+  fillCurrent: { fill: "currentColor" },
+  pulse: {
+    animationName: pulse,
+    animationDuration: "2s",
+    animationTimingFunction: "cubic-bezier(0.4, 0, 0.6, 1)",
+    animationIterationCount: "infinite"
+  },
+  errorRoot: {
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.destructive,
+    backgroundColor: {
+      default: `color-mix(in oklab, ${color.destructive} 10%, transparent)`,
+      [DARK]: `color-mix(in oklab, ${color.destructive} 5%, transparent)`
+    },
+    color: { default: color.destructive, [DARK]: color.dangerTextSoft },
+    marginTop: space.x8,
+    borderRadius: radius.md,
+    padding: space.x12,
+    fontSize: text.sm,
+    lineHeight: leading.sm
+  },
+  errorMessage: {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden"
+  },
+  assistantMessage: {
+    position: "relative",
+    marginBottom: `calc(-1 * ${space.x30})`,
+    paddingBottom: space.x30,
+    transitionDuration: "150ms",
+    containIntrinsicSize: "auto 200px",
+    contentVisibility: "auto"
+  },
+  assistantContent: {
+    color: color.foreground,
+    paddingInline: space.x8,
+    lineHeight: leading.relaxed,
+    overflowWrap: "break-word"
+  },
+  partPadding: { paddingBlock: space.x4 },
+  indicator: { fontFamily: font.sans },
+  // Keep the action bar inside the contained root's paint box, then cancel its
+  // reserved space in flow.
+  assistantFooter: {
+    marginInlineStart: space.x8,
+    display: "flex",
+    alignItems: "center",
+    minHeight: space.x30,
+    paddingTop: space.x6
+  },
+  actionBar: {
+    color: color.mutedForeground,
+    gridColumnStart: "3",
+    gridRowStart: "2",
+    marginInlineStart: `calc(-1 * ${space.x4})`,
+    display: "flex",
+    gap: space.x4,
+    transitionDuration: "200ms"
+  },
+  copiedIcon: {
+    transitionDuration: "200ms",
+    transitionTimingFunction: "cubic-bezier(0, 0, 0.2, 1)"
+  },
+  copyIcon: { transitionDuration: "150ms" },
+  // A data-attribute condition types its value as `unknown` — crosses the prop
+  // boundary through `attrStyle()`. See lib/sx.ts.
+  moreOpen: { backgroundColor: { default: null, '[data-state="open"]': color.accent } },
+  moreContent: {
+    backgroundColor: `color-mix(in oklab, ${color.popover} 95%, transparent)`,
+    color: color.popoverForeground,
+    zIndex: 50,
+    minWidth: space.x128,
+    overflow: "hidden",
+    borderRadius: radius.xl,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "currentColor",
+    padding: space.x6,
+    boxShadow: shadow.lg,
+    backdropFilter: "blur(8px)"
+  },
+  moreItem: {
+    backgroundColor: {
+      default: null,
+      ":hover": color.accent,
+      ":focus": color.accent
+    },
+    color: {
+      default: null,
+      ":hover": color.accentForeground,
+      ":focus": color.accentForeground
+    },
+    display: "flex",
+    cursor: "pointer",
+    alignItems: "center",
+    gap: space.x8,
+    borderRadius: radius.lg,
+    paddingInline: space.x10,
+    paddingBlock: space.x6,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    outlineStyle: "none",
+    userSelect: "none"
+  },
+  userMessage: {
+    display: "grid",
+    gridAutoRows: "auto",
+    gridTemplateColumns: "minmax(72px, 1fr) auto",
+    alignContent: "flex-start",
+    rowGap: space.x8,
+    paddingInline: space.x8,
+    transitionDuration: "150ms",
+    containIntrinsicSize: "auto 200px",
+    contentVisibility: "auto"
+  },
+  userContentWrapper: { position: "relative", gridColumnStart: "2", minWidth: 0 },
+  userContent: {
+    backgroundColor: color.muted,
+    color: color.foreground,
+    borderRadius: radius.xl,
+    paddingInline: space.x16,
+    paddingBlock: space.x8,
+    overflowWrap: "break-word",
+    display: { default: null, ":empty": "none" }
+  },
+  // Was `start-0 -translate-x-full` plus an `rtl:translate-x-full` flip. A
+  // transform flip needs an ancestor's direction, which StyleX cannot select
+  // on (and lightningcss downlevels `:dir(rtl)` to a `:lang()` list that
+  // misses `[dir="rtl"]` entirely). `inset-inline-end: 100%` parks the box
+  // just outside the bubble's inline-start edge and is direction-aware on its
+  // own — same position, no flip needed.
+  userActionBarWrapper: {
+    position: "absolute",
+    insetInlineEnd: "100%",
+    top: "50%",
+    transform: "translateY(-50%)",
+    paddingInlineEnd: space.x8
+  },
+  userActionBar: { display: "flex", flexDirection: "column", alignItems: "flex-end" },
+  userBranchPicker: {
+    gridColumnStart: "1",
+    gridColumnEnd: "-1",
+    gridRowStart: "3",
+    marginInlineEnd: `calc(-1 * ${space.x4})`,
+    justifyContent: "flex-end"
+  },
+  editComposerWrapper: {
+    display: "flex",
+    flexDirection: "column",
+    paddingInline: space.x8,
+    containIntrinsicSize: "auto 200px",
+    contentVisibility: "auto"
+  },
+  editComposerRoot: {
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: {
+      default: `color-mix(in oklab, ${color.border} 60%, transparent)`,
+      [DARK]: `color-mix(in oklab, ${color.mutedForeground} 15%, transparent)`
+    },
+    marginInlineStart: "auto",
+    display: "flex",
+    width: "100%",
+    maxWidth: "85%",
+    flexDirection: "column",
+    borderRadius: "var(--composer-radius)",
+    backgroundColor: "var(--composer-bg)",
+    boxShadow: { default: COMPOSER_SHADOW, [DARK]: "none" }
+  },
+  editComposerInput: {
+    color: color.foreground,
+    minHeight: space.x56,
+    width: "100%",
+    resize: "none",
+    backgroundColor: "transparent",
+    paddingInline: space.x16,
+    paddingTop: space.x12,
+    paddingBottom: space.x4,
+    fontSize: text.base,
+    lineHeight: leading.base,
+    outlineStyle: "none"
+  },
+  editComposerFooter: {
+    marginInline: space.x10,
+    marginBottom: space.x10,
+    display: "flex",
+    alignItems: "center",
+    gap: space.x6,
+    alignSelf: "flex-end"
+  },
+  editComposerButton: {
+    height: space.x32,
+    borderRadius: radius.full,
+    paddingInline: space.x14
+  },
+  branchPicker: {
+    color: color.mutedForeground,
+    marginInlineStart: `calc(-1 * ${space.x8})`,
+    marginInlineEnd: space.x8,
+    display: "inline-flex",
+    alignItems: "center",
+    fontSize: text.xs,
+    lineHeight: leading.xs
+  },
+  branchPickerState: { fontWeight: 500 }
+});
 
 /**
  * Optional component overrides for the thread. `AssistantMessage` and
@@ -107,16 +514,19 @@ export const Thread: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
 
 const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const root = stylex.props(s.root);
+  const footer = stylex.props(s.footer, !isEmpty && s.footerDocked);
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      {...root}
+      className={`aui-root aui-thread-root ${root.className ?? ""}`}
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-bg" as string]:
           "color-mix(in oklab, var(--color-muted) 30%, var(--color-background))",
         ["--composer-radius" as string]: "1.5rem",
-        ["--composer-padding" as string]: "8px",
+        ["--composer-padding" as string]: "8px"
       }}
     >
       <ThreadPrimitive.Viewport
@@ -125,21 +535,16 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
         // scrolled. "bottom" follows the stream instead.
         turnAnchor="bottom"
         data-slot="aui_thread-viewport"
-        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
+        {...stylex.props(s.viewport)}
       >
-        <div
-          className={cn(
-            "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
-            isEmpty && "justify-center",
-          )}
-        >
+        <div {...stylex.props(s.column, isEmpty && s.columnCentered)}>
           <AuiIf condition={isNewChatView}>
             <Welcome />
           </AuiIf>
 
           <div
             data-slot="aui_message-group"
-            className="mb-14 flex flex-col gap-y-6 empty:hidden"
+            {...stylex.props(s.messageGroup)}
           >
             <ThreadPrimitive.Messages>
               {() => <ThreadMessage />}
@@ -147,11 +552,8 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
           </div>
 
           <ThreadPrimitive.ViewportFooter
-            className={cn(
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6",
-              !isEmpty &&
-                "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
-            )}
+            {...footer}
+            className={`aui-thread-viewport-footer ${footer.className ?? ""}`}
           >
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
@@ -183,7 +585,8 @@ const ThreadScrollToBottom: FC = () => {
       <TooltipIconButton
         tooltip="Scroll to bottom"
         variant="outline"
-        className="aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-full p-4 disabled:invisible"
+        className="aui-thread-scroll-to-bottom"
+        style={s.scrollToBottom}
       >
         <ArrowDownIcon />
       </TooltipIconButton>
@@ -192,9 +595,18 @@ const ThreadScrollToBottom: FC = () => {
 };
 
 const ThreadWelcome: FC = () => {
+  const root = stylex.props(s.welcome);
+  const heading = stylex.props(s.welcomeHeading);
+
   return (
-    <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
-      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
+    <div
+      {...root}
+      className={`aui-thread-welcome-root ${root.className ?? ""}`}
+    >
+      <h1
+        {...heading}
+        className={`aui-thread-welcome-message-inner ${heading.className ?? ""}`}
+      >
         How can I help you today?
       </h1>
     </div>
@@ -202,8 +614,13 @@ const ThreadWelcome: FC = () => {
 };
 
 const ThreadSuggestions: FC = () => {
+  const root = stylex.props(s.suggestions);
+
   return (
-    <div className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-4">
+    <div
+      {...root}
+      className={`aui-thread-welcome-suggestions ${root.className ?? ""}`}
+    >
       <ThreadPrimitive.Suggestions>
         {() => <ThreadSuggestionItem />}
       </ThreadPrimitive.Suggestions>
@@ -212,15 +629,25 @@ const ThreadSuggestions: FC = () => {
 };
 
 const ThreadSuggestionItem: FC = () => {
+  const display = stylex.props(s.suggestionDisplay);
+  const description = stylex.props(s.hideWhenEmpty);
+
   return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
+    <div
+      {...display}
+      className={`aui-thread-welcome-suggestion-display ${display.className ?? ""}`}
+    >
       <SuggestionPrimitive.Trigger send asChild>
         <Button
           variant="ghost"
-          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+          className="aui-thread-welcome-suggestion"
+          style={s.suggestion}
         >
           <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
-          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
+          <SuggestionPrimitive.Description
+            {...description}
+            className={`aui-thread-welcome-suggestion-text-2 ${description.className ?? ""}`}
+          />
         </Button>
       </SuggestionPrimitive.Trigger>
     </div>
@@ -228,18 +655,22 @@ const ThreadSuggestionItem: FC = () => {
 };
 
 const Composer: FC = () => {
+  const root = stylex.props(s.composerRoot);
+  const input = stylex.props(s.composerInput);
+
   return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+    <ComposerPrimitive.Root
+      {...root}
+      className={`aui-composer-root ${root.className ?? ""}`}
+    >
       {/* No attachment dropzone: POST /api/chat sends user text only, so a
           dropped file would be silently discarded. Don't re-add the dropzone
           or the add-attachment button from the upstream registry. */}
-      <div
-        data-slot="aui_composer-shell"
-        className="border-border/60 focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] dark:shadow-none"
-      >
+      <div data-slot="aui_composer-shell" {...stylex.props(s.composerShell)}>
         <ComposerPrimitive.Input
           placeholder="Send a message..."
-          className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
+          {...input}
+          className={`aui-composer-input ${input.className ?? ""}`}
           rows={1}
           autoFocus
           enterKeyHint="send"
@@ -252,9 +683,18 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC = () => {
+  const wrapper = stylex.props(s.composerActionWrapper);
+  const dictateIcon = stylex.props(s.icon4);
+  const stopDictationIcon = stylex.props(s.icon35, s.pulse, s.fillCurrent);
+  const sendIcon = stylex.props(s.icon45);
+  const cancelIcon = stylex.props(s.icon35, s.fillCurrent);
+
   return (
-    <div className="aui-composer-action-wrapper relative flex items-center justify-end">
-      <div className="flex items-center gap-1.5">
+    <div
+      {...wrapper}
+      className={`aui-composer-action-wrapper ${wrapper.className ?? ""}`}
+    >
+      <div {...stylex.props(s.composerActions)}>
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
@@ -264,10 +704,14 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-dictate size-7 rounded-full"
+                className="aui-composer-dictate"
+                style={s.composerButton}
                 aria-label="Start voice input"
               >
-                <MicIcon className="aui-composer-dictate-icon size-4" />
+                <MicIcon
+                  {...dictateIcon}
+                  className={`aui-composer-dictate-icon ${dictateIcon.className ?? ""}`}
+                />
               </TooltipIconButton>
             </ComposerPrimitive.Dictate>
           </AuiIf>
@@ -279,10 +723,14 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                className="aui-composer-stop-dictation"
+                style={[s.composerButton, s.destructive]}
                 aria-label="Stop voice input"
               >
-                <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
+                <SquareIcon
+                  {...stopDictationIcon}
+                  className={`aui-composer-stop-dictation-icon ${stopDictationIcon.className ?? ""}`}
+                />
               </TooltipIconButton>
             </ComposerPrimitive.StopDictation>
           </AuiIf>
@@ -295,10 +743,14 @@ const ComposerAction: FC = () => {
               type="button"
               variant="default"
               size="icon"
-              className="aui-composer-send size-7 rounded-full"
+              className="aui-composer-send"
+              style={s.composerButton}
               aria-label="Send message"
             >
-              <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+              <ArrowUpIcon
+                {...sendIcon}
+                className={`aui-composer-send-icon ${sendIcon.className ?? ""}`}
+              />
             </TooltipIconButton>
           </ComposerPrimitive.Send>
         </AuiIf>
@@ -308,10 +760,14 @@ const ComposerAction: FC = () => {
               type="button"
               variant="default"
               size="icon"
-              className="aui-composer-cancel size-7 rounded-full"
+              className="aui-composer-cancel"
+              style={s.composerButton}
               aria-label="Stop generating"
             >
-              <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
+              <SquareIcon
+                {...cancelIcon}
+                className={`aui-composer-cancel-icon ${cancelIcon.className ?? ""}`}
+              />
             </Button>
           </ComposerPrimitive.Cancel>
         </AuiIf>
@@ -321,10 +777,19 @@ const ComposerAction: FC = () => {
 };
 
 const MessageError: FC = () => {
+  const root = stylex.props(s.errorRoot);
+  const message = stylex.props(s.errorMessage);
+
   return (
     <MessagePrimitive.Error>
-      <ErrorPrimitive.Root className="aui-message-error-root border-destructive bg-destructive/10 text-destructive dark:bg-destructive/5 mt-2 rounded-md border p-3 text-sm dark:text-red-200">
-        <ErrorPrimitive.Message className="aui-message-error-message line-clamp-2" />
+      <ErrorPrimitive.Root
+        {...root}
+        className={`aui-message-error-root ${root.className ?? ""}`}
+      >
+        <ErrorPrimitive.Message
+          {...message}
+          className={`aui-message-error-message ${message.className ?? ""}`}
+        />
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>
   );
@@ -334,28 +799,24 @@ const AssistantMessage: FC = () => {
   const {
     ToolFallback: ToolFallbackComponent = ToolFallback,
     ToolGroup,
-    ReasoningGroup,
+    ReasoningGroup
   } = useContext(ThreadComponentsContext);
-
-  const ACTION_BAR_PT = "pt-1.5";
-  // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
-  const ACTION_BAR_HEIGHT = `min-h-7.5 ${ACTION_BAR_PT}`;
 
   return (
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
-      className="fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      {...stylex.props(s.assistantMessage)}
     >
       <div
         data-slot="aui_assistant-message-content"
-        className="text-foreground px-2 leading-relaxed wrap-break-word"
+        {...stylex.props(s.assistantContent)}
       >
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
             reasoning: ["group-chainOfThought", "group-reasoning"],
             "tool-call": ["group-chainOfThought", "group-tool"],
-            "standalone-tool-call": [],
+            "standalone-tool-call": []
           })}
         >
           {({ part, children }) => {
@@ -404,13 +865,19 @@ const AssistantMessage: FC = () => {
                 return part.dataRendererUI;
               case "file":
                 return (
-                  <div data-slot="aui_assistant-message-file" className="py-1">
+                  <div
+                    data-slot="aui_assistant-message-file"
+                    {...stylex.props(s.partPadding)}
+                  >
                     <File {...part} />
                   </div>
                 );
               case "image":
                 return (
-                  <div data-slot="aui_assistant-message-image" className="py-1">
+                  <div
+                    data-slot="aui_assistant-message-image"
+                    {...stylex.props(s.partPadding)}
+                  >
                     <Image {...part} />
                   </div>
                 );
@@ -418,7 +885,7 @@ const AssistantMessage: FC = () => {
                 return (
                   <span
                     data-slot="aui_assistant-message-indicator"
-                    className="animate-pulse font-sans"
+                    {...stylex.props(s.indicator, s.pulse)}
                     aria-label="Assistant is working"
                   >
                     {"●"}
@@ -434,7 +901,7 @@ const AssistantMessage: FC = () => {
 
       <div
         data-slot="aui_assistant-message-footer"
-        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+        {...stylex.props(s.assistantFooter)}
       >
         <BranchPicker />
         <AssistantActionBar />
@@ -444,19 +911,24 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const root = stylex.props(s.actionBar);
+  const content = stylex.props(s.moreContent);
+  const item = stylex.props(s.moreItem);
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
-      className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
+      {...root}
+      className={`aui-assistant-action-bar-root ${root.className ?? ""}`}
     >
       <ActionBarPrimitive.Copy asChild>
         <TooltipIconButton tooltip="Copy">
           <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
+            <CheckIcon {...stylex.props(s.copiedIcon)} />
           </AuiIf>
           <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
+            <CopyIcon {...stylex.props(s.copyIcon)} />
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
@@ -469,7 +941,7 @@ const AssistantActionBar: FC = () => {
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
             tooltip="More"
-            className="data-[state=open]:bg-accent"
+            style={attrStyle(s.moreOpen)}
           >
             <MoreHorizontalIcon />
           </TooltipIconButton>
@@ -478,11 +950,15 @@ const AssistantActionBar: FC = () => {
           side="bottom"
           align="start"
           sideOffset={6}
-          className="aui-action-bar-more-content bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+          {...content}
+          className={`aui-action-bar-more-content ${content.className ?? ""}`}
         >
           <ActionBarPrimitive.ExportMarkdown asChild>
-            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
-              <DownloadIcon className="size-4" />
+            <ActionBarMorePrimitive.Item
+              {...item}
+              className={`aui-action-bar-more-item ${item.className ?? ""}`}
+            >
+              <DownloadIcon {...stylex.props(s.icon4)} />
               Export as Markdown
             </ActionBarMorePrimitive.Item>
           </ActionBarPrimitive.ExportMarkdown>
@@ -493,49 +969,68 @@ const AssistantActionBar: FC = () => {
 };
 
 const UserFilePart: FileMessagePartComponent = (part) => (
-  <div data-slot="aui_user-message-file" className="py-1">
+  <div data-slot="aui_user-message-file" {...stylex.props(s.partPadding)}>
     <File {...part} />
   </div>
 );
 
 const UserImagePart: ImageMessagePartComponent = (part) => (
-  <div data-slot="aui_user-message-image" className="py-1">
+  <div data-slot="aui_user-message-image" {...stylex.props(s.partPadding)}>
     <Image {...part} />
   </div>
 );
 
 const UserMessage: FC = () => {
+  const wrapper = stylex.props(s.userContentWrapper);
+  const content = stylex.props(s.userContent);
+  const actionBarWrapper = stylex.props(s.userActionBarWrapper);
+
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
-      className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&:where(>*)]:col-start-2"
+      {...stylex.props(s.userMessage)}
       data-role="user"
     >
-      <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
+      <div
+        {...wrapper}
+        className={`aui-user-message-content-wrapper ${wrapper.className ?? ""}`}
+      >
+        {/* `peer` / `peer-empty:hidden` stay Tailwind: StyleX has no sibling
+            selector, and the action bar has to disappear when the bubble next
+            to it renders empty. */}
+        <div
+          {...content}
+          className={`aui-user-message-content peer ${content.className ?? ""}`}
+        >
           <MessagePrimitive.Parts
             components={{ File: UserFilePart, Image: UserImagePart }}
           />
         </div>
-        <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden rtl:translate-x-full">
+        <div
+          {...actionBarWrapper}
+          className={`aui-user-action-bar-wrapper peer-empty:hidden ${actionBarWrapper.className ?? ""}`}
+        >
           <UserActionBar />
         </div>
       </div>
 
       <BranchPicker
         data-slot="aui_user-branch-picker"
-        className="col-span-full col-start-1 row-start-3 -me-1 justify-end"
+        style={s.userBranchPicker}
       />
     </MessagePrimitive.Root>
   );
 };
 
 const UserActionBar: FC = () => {
+  const root = stylex.props(s.userActionBar);
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
-      className="aui-user-action-bar-root flex flex-col items-end"
+      {...root}
+      className={`aui-user-action-bar-root ${root.className ?? ""}`}
     >
       <ActionBarPrimitive.Edit asChild>
         <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">
@@ -547,28 +1042,35 @@ const UserActionBar: FC = () => {
 };
 
 const EditComposer: FC = () => {
+  const root = stylex.props(s.editComposerRoot);
+  const input = stylex.props(s.editComposerInput);
+  const footer = stylex.props(s.editComposerFooter);
+
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
-      className="flex flex-col px-2 [contain-intrinsic-size:auto_200px] [content-visibility:auto]"
+      {...stylex.props(s.editComposerWrapper)}
     >
-      <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ms-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-(--composer-bg) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
+      <ComposerPrimitive.Root
+        {...root}
+        className={`aui-edit-composer-root ${root.className ?? ""}`}
+      >
         <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+          {...input}
+          className={`aui-edit-composer-input ${input.className ?? ""}`}
           autoFocus
         />
-        <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
+        <div
+          {...footer}
+          className={`aui-edit-composer-footer ${footer.className ?? ""}`}
+        >
           <ComposerPrimitive.Cancel asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full px-3.5"
-            >
+            <Button variant="ghost" size="sm" style={s.editComposerButton}>
               Cancel
             </Button>
           </ComposerPrimitive.Cancel>
           <ComposerPrimitive.Send asChild>
-            <Button size="sm" className="h-8 rounded-full px-3.5">
+            <Button size="sm" style={s.editComposerButton}>
               Update
             </Button>
           </ComposerPrimitive.Send>
@@ -578,25 +1080,31 @@ const EditComposer: FC = () => {
   );
 };
 
-const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
-  className,
-  ...rest
-}) => {
+type BranchPickerProps = Omit<
+  BranchPickerPrimitive.Root.Props,
+  "className" | "style"
+> & { style?: stylex.StyleXStyles };
+
+const BranchPicker: FC<BranchPickerProps> = ({ style, ...rest }) => {
+  const root = stylex.props(s.branchPicker, style);
+  const state = stylex.props(s.branchPickerState);
+
   return (
     <BranchPickerPrimitive.Root
       hideWhenSingleBranch
-      className={cn(
-        "aui-branch-picker-root text-muted-foreground -ms-2 me-2 inline-flex items-center text-xs",
-        className,
-      )}
       {...rest}
+      {...root}
+      className={`aui-branch-picker-root ${root.className ?? ""}`}
     >
       <BranchPickerPrimitive.Previous asChild>
         <TooltipIconButton tooltip="Previous">
           <ChevronLeftIcon />
         </TooltipIconButton>
       </BranchPickerPrimitive.Previous>
-      <span className="aui-branch-picker-state font-medium">
+      <span
+        {...state}
+        className={`aui-branch-picker-state ${state.className ?? ""}`}
+      >
         <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
       </span>
       <BranchPickerPrimitive.Next asChild>

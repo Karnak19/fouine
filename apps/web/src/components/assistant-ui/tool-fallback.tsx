@@ -1,12 +1,20 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useRef,
+  useState
+} from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
   AlertCircleIcon,
   CheckIcon,
   ChevronDownIcon,
   LoaderIcon,
-  XCircleIcon,
+  XCircleIcon
 } from "lucide-react";
 import {
   useScrollLock,
@@ -15,31 +23,196 @@ import {
   type ToolCallMessagePart,
   type ToolCallMessagePartProps,
   type ToolCallMessagePartStatus,
-  type ToolCallMessagePartComponent,
+  type ToolCallMessagePartComponent
 } from "@assistant-ui/react";
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
+  CollapsibleTrigger
 } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { color, radius, space, text } from "@/tokens.stylex";
 
 const ANIMATION_DURATION = 200;
 
-const pressable = "active:scale-[0.98]";
+// The chevron used to rotate off `group-data-open/trigger:` — a parent-state
+// selector StyleX cannot express. The Root already computes the open state, so
+// it hands it down instead. Markup and data attributes are unchanged.
+const ToolFallbackOpenContext = createContext(false);
+
+const s = stylex.create({
+  root: { width: "100%" },
+
+  pressable: { transform: { default: null, ":active": "scale(0.98)" } },
+
+  duration: {
+    color: color.mutedForeground,
+    fontSize: text.xs,
+    lineHeight: 1.33333,
+    fontVariantNumeric: "tabular-nums"
+  },
+
+  trigger: {
+    display: "flex",
+    width: "fit-content",
+    transformOrigin: "0",
+    alignItems: "center",
+    gap: space.x8,
+    paddingBlock: space.x6,
+    fontSize: text.sm,
+    lineHeight: 1.42857,
+    color: { default: color.mutedForeground, ":hover": color.foreground },
+    transitionProperty: "color, scale",
+    transitionDuration: "150ms",
+    transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)",
+    scale: { default: null, ":active": "0.98" }
+  },
+
+  icon: { width: space.x16, height: space.x16, flexShrink: 0 },
+  iconCancelled: { color: color.mutedForeground },
+  iconSpinning: {
+    animationName: "spin",
+    animationDuration: "0.6s",
+    animationTimingFunction: "linear",
+    animationIterationCount: "infinite"
+  },
+
+  label: {
+    position: "relative",
+    display: "inline-block",
+    textAlign: "start",
+    lineHeight: 1
+  },
+  labelCancelled: {
+    color: color.mutedForeground,
+    textDecorationLine: "line-through"
+  },
+
+  shimmer: {
+    pointerEvents: "none",
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    animationName: {
+      default: null,
+      "@media (prefers-reduced-motion: reduce)": "none"
+    }
+  },
+
+  chevron: {
+    width: space.x16,
+    height: space.x16,
+    flexShrink: 0,
+    transitionProperty: {
+      default: "transform, translate, scale, rotate",
+      "@media (prefers-reduced-motion: reduce)": "none"
+    },
+    transitionDuration: "var(--animation-duration)",
+    transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)"
+  },
+  chevronClosed: { rotate: "-90deg" },
+  chevronOpen: { rotate: "0deg" },
+
+  content: {
+    position: "relative",
+    overflowX: "hidden",
+    overflowY: "hidden",
+    fontSize: text.sm,
+    lineHeight: 1.42857,
+    outlineStyle: "none",
+    transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)",
+    transitionDuration: "var(--animation-duration)",
+    // `collapsible-down` / `collapsible-up` are declared in global.css.
+    animationName: {
+      default: null,
+      '[data-state="open"]': {
+        default: "collapsible-down",
+        "@media (prefers-reduced-motion: reduce)": "none"
+      },
+      '[data-state="closed"]': {
+        default: "collapsible-up",
+        "@media (prefers-reduced-motion: reduce)": "none"
+      }
+    },
+    animationDuration: "var(--animation-duration)",
+    animationFillMode: { default: null, '[data-state="closed"]': "forwards" },
+    pointerEvents: { default: null, '[data-state="closed"]': "none" }
+  },
+  contentInner: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x8,
+    paddingInlineStart: space.x24,
+    paddingTop: space.x4,
+    paddingBottom: space.x8,
+    transitionTimingFunction: "cubic-bezier(0.32, 0.72, 0, 1)",
+    transitionDuration: "var(--animation-duration)"
+  },
+
+  cancelled: { opacity: 0.6 },
+
+  code: {
+    backgroundColor: "color-mix(in oklab, var(--color-muted) 50%, transparent)",
+    color: "color-mix(in oklab, var(--color-foreground) 90%, transparent)",
+    borderRadius: radius.md,
+    padding: space.x10,
+    fontSize: text.xs,
+    lineHeight: 1.33333,
+    whiteSpace: "pre-wrap"
+  },
+  codeSpaced: { marginTop: space.x4 },
+
+  resultHeader: {
+    color: color.mutedForeground,
+    fontSize: text.xs,
+    lineHeight: 1.33333,
+    fontWeight: 500
+  },
+
+  errorHeader: { color: color.mutedForeground, fontWeight: 600 },
+  errorReason: { color: color.mutedForeground },
+
+  approvalConfirm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x8,
+    paddingTop: space.x4
+  },
+  approvalConfirmTitle: { fontWeight: 600 },
+  approvalConfirmDescription: { color: color.mutedForeground },
+  grants: { display: "flex", flexDirection: "column", gap: space.x4 },
+  grant: {
+    backgroundColor: color.muted,
+    borderRadius: radius.base,
+    paddingInline: space.x6,
+    paddingBlock: space.x2,
+    fontSize: text.xs,
+    lineHeight: 1.33333
+  },
+  buttonRow: { display: "flex", alignItems: "center", gap: space.x8 },
+  approvalRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    paddingTop: space.x4
+  },
+  approvalRowWrap: { flexWrap: "wrap" }
+});
 
 export type ToolFallbackRootProps = Omit<
   React.ComponentProps<typeof Collapsible>,
-  "open" | "onOpenChange"
+  "open" | "onOpenChange" | "className" | "style"
 > & {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   defaultOpen?: boolean;
+  style?: stylex.StyleXStyles;
 };
 
 function ToolFallbackRoot({
-  className,
+  style,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   defaultOpen = false,
@@ -64,24 +237,26 @@ function ToolFallbackRoot({
     [lockScroll, isControlled, controlledOnOpenChange],
   );
 
+  const sx = stylex.props(s.root, style);
+
   return (
     <Collapsible
       ref={collapsibleRef}
       data-slot="tool-fallback-root"
       open={isOpen}
       onOpenChange={handleOpenChange}
-      className={cn(
-        "aui-tool-fallback-root group/tool-fallback-root w-full",
-        className,
-      )}
+      {...props}
+      className={`aui-tool-fallback-root ${sx.className ?? ""}`}
       style={
         {
-          "--animation-duration": `${ANIMATION_DURATION}ms`,
+          ...sx.style,
+          "--animation-duration": `${ANIMATION_DURATION}ms`
         } as React.CSSProperties
       }
-      {...props}
     >
-      {children}
+      <ToolFallbackOpenContext.Provider value={isOpen}>
+        {children}
+      </ToolFallbackOpenContext.Provider>
     </Collapsible>
   );
 }
@@ -92,7 +267,7 @@ const statusIconMap: Record<ToolStatus, React.ElementType> = {
   running: LoaderIcon,
   complete: CheckIcon,
   incomplete: XCircleIcon,
-  "requires-action": AlertCircleIcon,
+  "requires-action": AlertCircleIcon
 };
 
 const formatToolDuration = (ms: number) => {
@@ -104,20 +279,22 @@ const formatToolDuration = (ms: number) => {
 };
 
 function ToolFallbackDuration({
-  className,
+  style,
   ...props
-}: React.ComponentProps<"span">) {
+}: Omit<React.ComponentProps<"span">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
   const elapsedMs = useToolCallElapsed();
   if (elapsedMs === undefined) return null;
+
+  const sx = stylex.props(s.duration, style);
 
   return (
     <span
       data-slot="tool-fallback-duration"
-      className={cn(
-        "aui-tool-fallback-duration text-muted-foreground text-xs tabular-nums",
-        className,
-      )}
       {...props}
+      className={`aui-tool-fallback-duration ${sx.className ?? ""}`}
+      style={sx.style}
     >
       {formatToolDuration(elapsedMs)}
     </span>
@@ -127,12 +304,17 @@ function ToolFallbackDuration({
 function ToolFallbackTrigger({
   toolName,
   status,
-  className,
+  style,
   ...props
-}: React.ComponentProps<typeof CollapsibleTrigger> & {
+}: Omit<
+  React.ComponentProps<typeof CollapsibleTrigger>,
+  "className" | "style"
+> & {
   toolName: string;
   status?: ToolCallMessagePartStatus;
+  style?: stylex.StyleXStyles;
 }) {
+  const isOpen = useContext(ToolFallbackOpenContext);
   const statusType = status?.type ?? "complete";
   const isRunning = statusType === "running";
   const isCancelled =
@@ -141,29 +323,35 @@ function ToolFallbackTrigger({
   const Icon = statusIconMap[statusType];
   const label = isCancelled ? "Cancelled tool" : "Used tool";
 
+  const sx = stylex.props(s.trigger, style);
+  const iconSx = stylex.props(
+    s.icon,
+    isCancelled && s.iconCancelled,
+    isRunning && s.iconSpinning,
+  );
+  const labelSx = stylex.props(s.label, isCancelled && s.labelCancelled);
+  const shimmerSx = stylex.props(s.shimmer);
+  const chevronSx = stylex.props(
+    s.chevron,
+    isOpen ? s.chevronOpen : s.chevronClosed,
+  );
+
   return (
     <CollapsibleTrigger
       data-slot="tool-fallback-trigger"
-      className={cn(
-        "aui-tool-fallback-trigger group/trigger text-muted-foreground hover:text-foreground flex w-fit origin-left items-center gap-2 py-1.5 text-sm transition-[color,scale] active:scale-[0.98]",
-        className,
-      )}
       {...props}
+      className={`aui-tool-fallback-trigger ${sx.className ?? ""}`}
+      style={sx.style}
     >
       <Icon
         data-slot="tool-fallback-trigger-icon"
-        className={cn(
-          "aui-tool-fallback-trigger-icon size-4 shrink-0",
-          isCancelled && "text-muted-foreground",
-          isRunning && "animate-spin [animation-duration:0.6s]",
-        )}
+        className={`aui-tool-fallback-trigger-icon ${iconSx.className ?? ""}`}
+        style={iconSx.style}
       />
       <span
         data-slot="tool-fallback-trigger-label"
-        className={cn(
-          "aui-tool-fallback-trigger-label-wrapper relative inline-block text-start leading-none",
-          isCancelled && "text-muted-foreground line-through",
-        )}
+        className={`aui-tool-fallback-trigger-label-wrapper ${labelSx.className ?? ""}`}
+        style={labelSx.style}
       >
         <span>
           {label}: <b>{toolName}</b>
@@ -172,7 +360,9 @@ function ToolFallbackTrigger({
           <span
             aria-hidden
             data-slot="tool-fallback-trigger-shimmer"
-            className="aui-tool-fallback-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
+            // `shimmer` is vendored by tw-shimmer, not ours to migrate.
+            className={`aui-tool-fallback-trigger-shimmer shimmer ${shimmerSx.className ?? ""}`}
+            style={shimmerSx.style}
           >
             {label}: <b>{toolName}</b>
           </span>
@@ -181,69 +371,59 @@ function ToolFallbackTrigger({
       <ToolFallbackDuration />
       <ChevronDownIcon
         data-slot="tool-fallback-trigger-chevron"
-        className={cn(
-          "aui-tool-fallback-trigger-chevron size-4 shrink-0",
-          "transition-transform duration-(--animation-duration) ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-          "-rotate-90",
-          "group-data-open/trigger:rotate-0",
-          "group-data-panel-open/trigger:rotate-0",
-        )}
+        className={`aui-tool-fallback-trigger-chevron ${chevronSx.className ?? ""}`}
+        style={chevronSx.style}
       />
     </CollapsibleTrigger>
   );
 }
 
 function ToolFallbackContent({
-  className,
+  style,
   children,
   ...props
-}: React.ComponentProps<typeof CollapsibleContent>) {
+}: Omit<
+  React.ComponentProps<typeof CollapsibleContent>,
+  "className" | "style"
+> & { style?: stylex.StyleXStyles }) {
+  const sx = stylex.props(s.content, style);
+
   return (
     <CollapsibleContent
       data-slot="tool-fallback-content"
-      className={cn(
-        "aui-tool-fallback-content relative overflow-hidden text-sm outline-none",
-        "group/collapsible-content ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
-        "data-closed:animate-collapsible-up",
-        "data-open:animate-collapsible-down",
-        "data-closed:fill-mode-forwards",
-        "data-closed:pointer-events-none",
-        "data-open:duration-(--animation-duration)",
-        "data-closed:duration-(--animation-duration)",
-        className,
-      )}
       {...props}
+      className={`aui-tool-fallback-content ${sx.className ?? ""}`}
+      style={sx.style}
     >
-      <div
-        className={cn(
-          "flex flex-col gap-2 ps-6 pt-1 pb-2 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
-          "group-data-open/collapsible-content:animate-in group-data-open/collapsible-content:fade-in-0 group-data-open/collapsible-content:blur-in-[2px] group-data-open/collapsible-content:slide-in-from-top-1",
-          "group-data-closed/collapsible-content:animate-out group-data-closed/collapsible-content:fade-out-0 group-data-closed/collapsible-content:blur-out-[2px] group-data-closed/collapsible-content:slide-out-to-top-1",
-          "group-data-closed/collapsible-content:duration-(--animation-duration) group-data-open/collapsible-content:duration-(--animation-duration)",
-        )}
-      >
-        {children}
-      </div>
+      <div {...stylex.props(s.contentInner)}>{children}</div>
     </CollapsibleContent>
   );
 }
 
 function ToolFallbackArgs({
   argsText,
-  className,
+  style,
   ...props
-}: React.ComponentProps<"div"> & {
+}: Omit<React.ComponentProps<"div">, "className" | "style"> & {
   argsText?: string;
+  style?: stylex.StyleXStyles;
 }) {
   if (!argsText) return null;
+
+  const sx = stylex.props(style);
+  const codeSx = stylex.props(s.code);
 
   return (
     <div
       data-slot="tool-fallback-args"
-      className={cn("aui-tool-fallback-args", className)}
       {...props}
+      className={`aui-tool-fallback-args ${sx.className ?? ""}`}
+      style={sx.style}
     >
-      <pre className="aui-tool-fallback-args-value bg-muted/50 text-foreground/90 rounded-md p-2.5 text-xs whitespace-pre-wrap">
+      <pre
+        className={`aui-tool-fallback-args-value ${codeSx.className ?? ""}`}
+        style={codeSx.style}
+      >
         {argsText}
       </pre>
     </div>
@@ -252,23 +432,35 @@ function ToolFallbackArgs({
 
 function ToolFallbackResult({
   result,
-  className,
+  style,
   ...props
-}: React.ComponentProps<"div"> & {
+}: Omit<React.ComponentProps<"div">, "className" | "style"> & {
   result?: unknown;
+  style?: stylex.StyleXStyles;
 }) {
   if (result === undefined) return null;
+
+  const sx = stylex.props(style);
+  const headerSx = stylex.props(s.resultHeader);
+  const codeSx = stylex.props(s.code, s.codeSpaced);
 
   return (
     <div
       data-slot="tool-fallback-result"
-      className={cn("aui-tool-fallback-result", className)}
       {...props}
+      className={`aui-tool-fallback-result ${sx.className ?? ""}`}
+      style={sx.style}
     >
-      <p className="aui-tool-fallback-result-header text-muted-foreground text-xs font-medium">
+      <p
+        className={`aui-tool-fallback-result-header ${headerSx.className ?? ""}`}
+        style={headerSx.style}
+      >
         Result:
       </p>
-      <pre className="aui-tool-fallback-result-content bg-muted/50 text-foreground/90 mt-1 rounded-md p-2.5 text-xs whitespace-pre-wrap">
+      <pre
+        className={`aui-tool-fallback-result-content ${codeSx.className ?? ""}`}
+        style={codeSx.style}
+      >
         {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
       </pre>
     </div>
@@ -277,10 +469,11 @@ function ToolFallbackResult({
 
 function ToolFallbackError({
   status,
-  className,
+  style,
   ...props
-}: React.ComponentProps<"div"> & {
+}: Omit<React.ComponentProps<"div">, "className" | "style"> & {
   status?: ToolCallMessagePartStatus;
+  style?: stylex.StyleXStyles;
 }) {
   if (status?.type !== "incomplete") return null;
 
@@ -296,16 +489,27 @@ function ToolFallbackError({
   const isCancelled = status.reason === "cancelled";
   const headerText = isCancelled ? "Cancelled reason:" : "Error:";
 
+  const sx = stylex.props(style);
+  const headerSx = stylex.props(s.errorHeader);
+  const reasonSx = stylex.props(s.errorReason);
+
   return (
     <div
       data-slot="tool-fallback-error"
-      className={cn("aui-tool-fallback-error", className)}
       {...props}
+      className={`aui-tool-fallback-error ${sx.className ?? ""}`}
+      style={sx.style}
     >
-      <p className="aui-tool-fallback-error-header text-muted-foreground font-semibold">
+      <p
+        className={`aui-tool-fallback-error-header ${headerSx.className ?? ""}`}
+        style={headerSx.style}
+      >
         {headerText}
       </p>
-      <p className="aui-tool-fallback-error-reason text-muted-foreground">
+      <p
+        className={`aui-tool-fallback-error-reason ${reasonSx.className ?? ""}`}
+        style={reasonSx.style}
+      >
         {errorText}
       </p>
     </div>
@@ -319,7 +523,7 @@ const APPROVAL_OPTION_DEFAULT_LABELS: Record<string, string> = {
   "allow-once": "Allow",
   "allow-always": "Always allow",
   "reject-once": "Deny",
-  "reject-always": "Always deny",
+  "reject-always": "Always deny"
 };
 
 const isAllowKind = (kind: string) =>
@@ -333,19 +537,20 @@ const approvalOptionLabel = (option: ToolApprovalOption) =>
   option.id;
 
 function ToolFallbackApproval({
-  className,
+  style,
   addResult,
   resume,
   interrupt,
   approval,
   respondToApproval,
   ...props
-}: React.ComponentProps<"div"> &
+}: Omit<React.ComponentProps<"div">, "className" | "style"> &
   Partial<
     Pick<ToolCallMessagePartProps, "addResult" | "resume" | "respondToApproval">
   > & {
     interrupt?: ToolCallMessagePart["interrupt"];
     approval?: ToolCallMessagePart["approval"];
+    style?: stylex.StyleXStyles;
   }) {
   const [submitted, setSubmitted] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -406,38 +611,53 @@ function ToolFallbackApproval({
       typeof confirming.confirm === "object" ? confirming.confirm : undefined;
     const confirmDescription =
       confirmMeta?.description ?? confirming.description;
+    const sx = stylex.props(s.approvalConfirm, style);
+    const titleSx = stylex.props(s.approvalConfirmTitle);
+    const descriptionSx = stylex.props(s.approvalConfirmDescription);
+    const grantsSx = stylex.props(s.grants);
+    const grantSx = stylex.props(s.grant);
     return (
       <div
         data-slot="tool-fallback-approval-confirm"
-        className={cn(
-          "aui-tool-fallback-approval-confirm flex flex-col gap-2 pt-1",
-          className,
-        )}
         {...props}
+        className={`aui-tool-fallback-approval-confirm ${sx.className ?? ""}`}
+        style={sx.style}
       >
-        <p className="aui-tool-fallback-approval-confirm-title font-semibold">
+        <p
+          className={`aui-tool-fallback-approval-confirm-title ${titleSx.className ?? ""}`}
+          style={titleSx.style}
+        >
           {confirmMeta?.title ?? `${approvalOptionLabel(confirming)}?`}
         </p>
         {confirmDescription && (
-          <p className="aui-tool-fallback-approval-confirm-description text-muted-foreground">
+          <p
+            className={`aui-tool-fallback-approval-confirm-description ${descriptionSx.className ?? ""}`}
+            style={descriptionSx.style}
+          >
             {confirmDescription}
           </p>
         )}
         {confirming.grants && confirming.grants.length > 0 && (
-          <ul className="aui-tool-fallback-approval-confirm-grants flex flex-col gap-1">
+          <ul
+            className={`aui-tool-fallback-approval-confirm-grants ${grantsSx.className ?? ""}`}
+            style={grantsSx.style}
+          >
             {confirming.grants.map((grant) => (
               <li key={grant}>
-                <code className="aui-tool-fallback-approval-confirm-grant bg-muted rounded px-1.5 py-0.5 text-xs">
+                <code
+                  className={`aui-tool-fallback-approval-confirm-grant ${grantSx.className ?? ""}`}
+                  style={grantSx.style}
+                >
                   {grant}
                 </code>
               </li>
             ))}
           </ul>
         )}
-        <div className="flex items-center gap-2">
+        <div {...stylex.props(s.buttonRow)}>
           <Button
             size="sm"
-            className={pressable}
+            style={s.pressable}
             onClick={() => respondWithOption(confirming)}
             disabled={submitted}
           >
@@ -446,7 +666,7 @@ function ToolFallbackApproval({
           <Button
             size="sm"
             variant="outline"
-            className={pressable}
+            style={s.pressable}
             onClick={() => setConfirmingId(null)}
             disabled={submitted}
           >
@@ -460,21 +680,20 @@ function ToolFallbackApproval({
   if (declaredOptions && declaredOptions.length > 0) {
     const allowOptions = options?.filter((o) => isAllowKind(o.kind)) ?? [];
     const rejectOptions = options?.filter((o) => !isAllowKind(o.kind)) ?? [];
+    const sx = stylex.props(s.approvalRow, s.approvalRowWrap, style);
     return (
       <div
         data-slot="tool-fallback-approval"
-        className={cn(
-          "aui-tool-fallback-approval flex flex-wrap items-center gap-2 pt-1",
-          className,
-        )}
         {...props}
+        className={`aui-tool-fallback-approval ${sx.className ?? ""}`}
+        style={sx.style}
       >
         {[...allowOptions, ...rejectOptions].map((option) => (
           <Button
             key={option.id}
             size="sm"
             variant={option === allowOptions[0] ? "default" : "outline"}
-            className={pressable}
+            style={s.pressable}
             onClick={() => handleOption(option)}
             disabled={submitted}
           >
@@ -485,7 +704,7 @@ function ToolFallbackApproval({
           <Button
             size="sm"
             variant="outline"
-            className={pressable}
+            style={s.pressable}
             onClick={() => respond(false)}
             disabled={submitted}
           >
@@ -496,18 +715,18 @@ function ToolFallbackApproval({
     );
   }
 
+  const sx = stylex.props(s.approvalRow, style);
+
   return (
     <div
       data-slot="tool-fallback-approval"
-      className={cn(
-        "aui-tool-fallback-approval flex items-center gap-2 pt-1",
-        className,
-      )}
       {...props}
+      className={`aui-tool-fallback-approval ${sx.className ?? ""}`}
+      style={sx.style}
     >
       <Button
         size="sm"
-        className={pressable}
+        style={s.pressable}
         onClick={() => respond(true)}
         disabled={submitted}
       >
@@ -516,7 +735,7 @@ function ToolFallbackApproval({
       <Button
         size="sm"
         variant="outline"
-        className={pressable}
+        style={s.pressable}
         onClick={() => respond(false)}
         disabled={submitted}
       >
@@ -535,7 +754,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   resume,
   interrupt,
   approval,
-  respondToApproval,
+  respondToApproval
 }) => {
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
@@ -556,7 +775,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
         <ToolFallbackError status={status} />
         <ToolFallbackArgs
           argsText={argsText}
-          className={cn(isCancelled && "opacity-60")}
+          style={isCancelled ? s.cancelled : undefined}
         />
         {isRequiresAction && (
           <ToolFallbackApproval
@@ -602,5 +821,5 @@ export {
   ToolFallbackArgs,
   ToolFallbackResult,
   ToolFallbackError,
-  ToolFallbackApproval,
+  ToolFallbackApproval
 };

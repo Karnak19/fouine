@@ -1,163 +1,249 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+import * as React from "react";
+import * as stylex from "@stylexjs/stylex";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
-function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
+const SHADOW_XS = "0 1px 2px 0 rgb(0 0 0 / 0.05)";
+
+const s = stylex.create({
+  group: {
+    position: "relative",
+    display: "flex",
+    width: "100%",
+    alignItems: "center",
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    minWidth: 0,
+    outlineStyle: "none",
+    transitionProperty: "color, box-shadow",
+
+    // A textarea child, or a block-aligned addon, lets the group grow and
+    // stack instead of staying one 36px row.
+    height: {
+      default: space.x36,
+      ":has(> textarea)": "auto",
+      ":has(> [data-align=block-start])": "auto",
+      ":has(> [data-align=block-end])": "auto"
+    },
+    flexDirection: {
+      default: "row",
+      ":has(> [data-align=block-start])": "column",
+      ":has(> [data-align=block-end])": "column"
+    },
+
+    // Focus state, then error state — error wins, matching the original
+    // class order.
+    borderColor: {
+      default: color.input,
+      ":has([data-slot=input-group-control]:focus-visible)": color.ring,
+      ":has([data-slot][aria-invalid=true])": color.destructive
+    },
+    boxShadow: {
+      default: SHADOW_XS,
+      ":has([data-slot=input-group-control]:focus-visible)": `0 0 0 3px color-mix(in oklab, ${color.ring} 50%, transparent), ${SHADOW_XS}`,
+      ":has([data-slot][aria-invalid=true])": {
+        default: `0 0 0 3px color-mix(in oklab, ${color.destructive} 20%, transparent), ${SHADOW_XS}`,
+        "@media (prefers-color-scheme: dark)": `0 0 0 3px color-mix(in oklab, ${color.destructive} 40%, transparent), ${SHADOW_XS}`
+      }
+    },
+    backgroundColor: {
+      default: null,
+      "@media (prefers-color-scheme: dark)": `color-mix(in oklab, ${color.input} 30%, transparent)`
+    }
+  },
+
+  addon: {
+    display: "flex",
+    height: "auto",
+    cursor: "text",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.x8,
+    paddingBlock: space.x6,
+    fontSize: text.sm, lineHeight: leading.sm,
+    fontWeight: 500,
+    color: color.mutedForeground,
+    userSelect: "none"
+  },
+
+  text: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.sm, lineHeight: leading.sm,
+    color: color.mutedForeground
+  },
+
+  control: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    boxShadow: { default: "none", ":focus-visible": "none" }
+  },
+  textareaControl: {
+    resize: "none",
+    paddingBlock: space.x12
+  },
+
+  button: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.sm, lineHeight: leading.sm,
+    boxShadow: "none"
+  }
+});
+
+// `order-first` / `order-last` in Tailwind v4 are `order: calc(±infinity)`;
+// ±9999 is the same thing for a handful of flex children.
+const addonAligns = stylex.create({
+  "inline-start": {
+    order: -9999,
+    paddingLeft: space.x12,
+    marginLeft: { default: null, ":has(> button)": "-0.45rem", ":has(> kbd)": "-0.35rem" }
+  },
+  "inline-end": {
+    order: 9999,
+    paddingRight: space.x12,
+    marginRight: { default: null, ":has(> button)": "-0.45rem", ":has(> kbd)": "-0.35rem" }
+  },
+  "block-start": {
+    order: -9999,
+    width: "100%",
+    justifyContent: "flex-start",
+    paddingInline: space.x12,
+    paddingTop: space.x12
+  },
+  "block-end": {
+    order: 9999,
+    width: "100%",
+    justifyContent: "flex-start",
+    paddingInline: space.x12,
+    paddingBottom: space.x12
+  }
+});
+
+const buttonSizes = stylex.create({
+  xs: {
+    height: space.x24,
+    gap: space.x4,
+    paddingInline: space.x8
+  },
+  sm: {
+    height: space.x32,
+    gap: space.x6,
+    borderRadius: radius.md,
+    paddingInline: space.x10
+  },
+  "icon-xs": {
+    height: space.x24,
+    width: space.x24,
+    padding: space.x0
+  },
+  "icon-sm": {
+    height: space.x32,
+    width: space.x32,
+    padding: space.x0
+  }
+});
+
+function InputGroup({
+  style,
+  ...props
+}: Omit<React.ComponentProps<"div">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
   return (
-    <div
-      data-slot="input-group"
-      role="group"
-      className={cn(
-        "group/input-group relative flex w-full items-center rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none dark:bg-input/30",
-        "h-9 min-w-0 has-[>textarea]:h-auto",
-
-        // Variants based on alignment.
-        "has-[>[data-align=inline-start]]:[&>input]:pl-2",
-        "has-[>[data-align=inline-end]]:[&>input]:pr-2",
-        "has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>[data-align=block-start]]:[&>input]:pb-3",
-        "has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-end]]:[&>input]:pt-3",
-
-        // Focus state.
-        "has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:ring-[3px] has-[[data-slot=input-group-control]:focus-visible]:ring-ring/50",
-
-        // Error state.
-        "has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:ring-destructive/20 dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40",
-
-        className
-      )}
-      {...props}
-    />
-  )
+    <div data-slot="input-group" role="group" {...props} {...stylex.props(s.group, style)} />
+  );
 }
 
-const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-[calc(var(--radius)-5px)] [&>svg:not([class*='size-'])]:size-4",
-  {
-    variants: {
-      align: {
-        "inline-start":
-          "order-first pl-3 has-[>button]:ml-[-0.45rem] has-[>kbd]:ml-[-0.35rem]",
-        "inline-end":
-          "order-last pr-3 has-[>button]:mr-[-0.45rem] has-[>kbd]:mr-[-0.35rem]",
-        "block-start":
-          "order-first w-full justify-start px-3 pt-3 group-has-[>input]/input-group:pt-2.5 [.border-b]:pb-3",
-        "block-end":
-          "order-last w-full justify-start px-3 pb-3 group-has-[>input]/input-group:pb-2.5 [.border-t]:pt-3",
-      },
-    },
-    defaultVariants: {
-      align: "inline-start",
-    },
-  }
-)
-
 function InputGroupAddon({
-  className,
+  style,
   align = "inline-start",
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
+}: Omit<React.ComponentProps<"div">, "className" | "style"> & {
+  align?: "inline-start" | "inline-end" | "block-start" | "block-end";
+  style?: stylex.StyleXStyles;
+}) {
   return (
     <div
       role="group"
       data-slot="input-group-addon"
       data-align={align}
-      className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button")) {
-          return
+          return;
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus()
+        e.currentTarget.parentElement?.querySelector("input")?.focus();
       }}
       {...props}
+      {...stylex.props(s.addon, addonAligns[align], style)}
     />
-  )
+  );
 }
 
-const inputGroupButtonVariants = cva(
-  "flex items-center gap-2 text-sm shadow-none",
-  {
-    variants: {
-      size: {
-        xs: "h-6 gap-1 rounded-[calc(var(--radius)-5px)] px-2 has-[>svg]:px-2 [&>svg:not([class*='size-'])]:size-3.5",
-        sm: "h-8 gap-1.5 rounded-md px-2.5 has-[>svg]:px-2.5",
-        "icon-xs":
-          "size-6 rounded-[calc(var(--radius)-5px)] p-0 has-[>svg]:p-0",
-        "icon-sm": "size-8 p-0 has-[>svg]:p-0",
-      },
-    },
-    defaultVariants: {
-      size: "xs",
-    },
-  }
-)
-
 function InputGroupButton({
-  className,
+  style,
   type = "button",
   variant = "ghost",
   size = "xs",
   ...props
-}: Omit<React.ComponentProps<typeof Button>, "size"> &
-  VariantProps<typeof inputGroupButtonVariants>) {
+}: Omit<React.ComponentProps<typeof Button>, "size" | "style"> & {
+  size?: "xs" | "sm" | "icon-xs" | "icon-sm";
+  style?: stylex.StyleXStyles;
+}) {
   return (
     <Button
       type={type}
       data-size={size}
       variant={variant}
-      className={cn(inputGroupButtonVariants({ size }), className)}
       {...props}
+      style={[s.button, buttonSizes[size], style]}
     />
-  )
+  );
 }
 
-function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span
-      className={cn(
-        "flex items-center gap-2 text-sm text-muted-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      {...props}
-    />
-  )
+function InputGroupText({
+  style,
+  ...props
+}: Omit<React.ComponentProps<"span">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
+  return <span {...props} {...stylex.props(s.text, style)} />;
 }
 
 function InputGroupInput({
-  className,
+  style,
   ...props
-}: React.ComponentProps<"input">) {
-  return (
-    <Input
-      data-slot="input-group-control"
-      className={cn(
-        "flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent",
-        className
-      )}
-      {...props}
-    />
-  )
+}: Omit<React.ComponentProps<"input">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
+  return <Input data-slot="input-group-control" {...props} style={[s.control, style]} />;
 }
 
 function InputGroupTextarea({
-  className,
+  style,
   ...props
-}: React.ComponentProps<"textarea">) {
+}: Omit<React.ComponentProps<"textarea">, "className" | "style"> & {
+  style?: stylex.StyleXStyles;
+}) {
   return (
     <Textarea
       data-slot="input-group-control"
-      className={cn(
-        "flex-1 resize-none rounded-none border-0 bg-transparent py-3 shadow-none focus-visible:ring-0 dark:bg-transparent",
-        className
-      )}
       {...props}
+      style={[s.control, s.textareaControl, style]}
     />
-  )
+  );
 }
 
 export {
@@ -166,5 +252,5 @@ export {
   InputGroupButton,
   InputGroupText,
   InputGroupInput,
-  InputGroupTextarea,
-}
+  InputGroupTextarea
+};

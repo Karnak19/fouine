@@ -1,21 +1,50 @@
+import * as stylex from "@stylexjs/stylex";
+import { color, leading, radius, space, text } from "@/tokens.stylex";
 import type { LiveStatus } from "@/lib/live";
 
-const META: Record<LiveStatus, { label: string; dot: string; text: string }> = {
-  connecting: { label: "connecting", dot: "bg-amber-400", text: "text-amber-300" },
-  live: { label: "live", dot: "bg-emerald-400", text: "text-emerald-300" },
-  reconnecting: { label: "reconnecting…", dot: "bg-amber-400 animate-pulse", text: "text-amber-300" },
-  offline: { label: "offline", dot: "bg-zinc-500", text: "text-zinc-400" },
-  error: { label: "connection error", dot: "bg-red-400", text: "text-red-300" },
+const s = stylex.create({
+  root: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x6,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontVariantNumeric: "tabular-nums"
+  },
+  dot: {
+    height: space.x6,
+    width: space.x6,
+    borderRadius: radius.full
+  },
+  warnText: { color: color.warnText },
+  warnDot: { backgroundColor: color.warnDot },
+  okText: { color: color.okText },
+  okDot: { backgroundColor: color.okDot },
+  offText: { color: color.zinc400 },
+  offDot: { backgroundColor: color.zinc500 },
+  dangerText: { color: color.dangerText },
+  dangerDot: { backgroundColor: color.dangerDot },
+  pulse: {
+    animationName: "fouine-pulse",
+    animationDuration: "1.4s",
+    animationTimingFunction: "ease-in-out",
+    animationIterationCount: "infinite"
+  }
+});
+
+const META: Record<LiveStatus, { label: string; text: stylex.StyleXStyles; dot: stylex.StyleXStyles }> = {
+  connecting: { label: "connecting", text: s.warnText, dot: s.warnDot },
+  live: { label: "live", text: s.okText, dot: s.okDot },
+  reconnecting: { label: "reconnecting…", text: s.warnText, dot: [s.warnDot, s.pulse] },
+  offline: { label: "offline", text: s.offText, dot: s.offDot },
+  error: { label: "connection error", text: s.dangerText, dot: s.dangerDot }
 };
 
 export function LiveBadge({ status }: { status: LiveStatus }) {
   const m = META[status];
   return (
-    <span
-      className={`flex items-center gap-1.5 text-xs tabular-nums ${m.text}`}
-      title={`Live events: ${m.label}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
+    <span {...stylex.props(s.root, m.text)} title={`Live events: ${m.label}`}>
+      <span {...stylex.props(s.dot, m.dot)} />
       {m.label}
     </span>
   );

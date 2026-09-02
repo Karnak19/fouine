@@ -1,3 +1,5 @@
+import * as stylex from "@stylexjs/stylex";
+import { color, space } from "@/tokens.stylex";
 import { scaleMax } from "./scale";
 
 // The one SVG in this codebase. Everything else here is divs with percentage
@@ -10,6 +12,33 @@ import { scaleMax } from "./scale";
 // squashed with it — `vector-effect="non-scaling-stroke"` is what keeps the line
 // exactly 2px wide whatever the panel's aspect ratio.
 
+const s = stylex.create({
+  // Fixed height, like the bar charts: the hover columns below are positioned
+  // against it.
+  root: {
+    position: "relative",
+    height: space.x160
+  },
+  svg: {
+    height: "100%",
+    width: "100%",
+    overflow: "visible"
+  },
+  line: { stroke: color.primary },
+  dot: { fill: color.primary },
+  hoverRow: {
+    position: "absolute",
+    inset: 0,
+    display: "flex"
+  },
+  hoverColumn: {
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%"
+  }
+});
+
 export interface LinePoint {
   key: string;
   value: number;
@@ -19,10 +48,10 @@ export interface LinePoint {
 
 export function LineChart({
   points,
-  height = "h-40",
+  style
 }: {
   points: LinePoint[];
-  height?: string;
+  style?: stylex.StyleXStyles;
 }) {
   const max = scaleMax(points.map((p) => p.value));
   const last = points.length - 1;
@@ -36,38 +65,38 @@ export function LineChart({
   const d = points.map((p, i) => `${i === 0 ? "M" : "L"}${xOf(i)} ${yOf(p.value)}`).join(" ");
 
   return (
-    <div className={`relative ${height}`}>
+    <div {...stylex.props(s.root, style)}>
       <svg
-        className="h-full w-full overflow-visible"
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
         aria-hidden
+        {...stylex.props(s.svg)}
       >
         <path
           d={d}
           fill="none"
-          className="stroke-primary"
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
+          {...stylex.props(s.line)}
         />
         {points.length === 1 && (
           <circle
             cx={xOf(0)}
             cy={yOf(points[0]!.value)}
             r={2}
-            className="fill-primary"
             vectorEffect="non-scaling-stroke"
+            {...stylex.props(s.dot)}
           />
         )}
       </svg>
       {/* Hover targets are divs on top of the SVG, not <circle> elements: the
           non-uniform scale would turn a circle into an ellipse, and a column
           per point is an easier target than a 2px dot anyway. */}
-      <div className="absolute inset-0 flex">
+      <div {...stylex.props(s.hoverRow)}>
         {points.map((p) => (
-          <div key={p.key} className="min-w-0 flex-1" title={p.title} />
+          <div key={p.key} title={p.title} {...stylex.props(s.hoverColumn)} />
         ))}
       </div>
     </div>

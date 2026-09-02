@@ -2,4 +2,9 @@
 preload = ["./tests/setup.ts"]
 
 [serve.static]
-plugins = ["bun-plugin-tailwind"]
+# Dev serves apps/web/src through Bun's bundler, NOT vite — so the StyleX vite
+# plugin never runs here and every stylex.create() would compile to nothing,
+# giving a completely unstyled dev app while prod looks fine. The bun plugin is
+# what keeps the two paths in sync. Tailwind stays for streamdown's vendored
+# utility classes.
+plugins = ["../web/stylex.bun.ts", "bun-plugin-tailwind"]

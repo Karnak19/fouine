@@ -1,9 +1,37 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { Tooltip as TooltipPrimitive } from "radix-ui"
+import * as React from "react";
+import { Tooltip as TooltipPrimitive } from "radix-ui";
+import * as stylex from "@stylexjs/stylex";
+import { color, leading, radius, space, text } from "@/tokens.stylex";
 
-import { cn } from "@/lib/utils"
+// No enter/exit animation on purpose. The Tailwind original carried
+// `animate-in fade-in-0 zoom-in-95 slide-in-from-*-2` / `animate-out`, but
+// those come from `tw-animate-css`, which is not installed — they emit no CSS,
+// so the tooltip appears instantly today and must keep doing so.
+const s = stylex.create({
+  content: {
+    zIndex: 50,
+    width: "fit-content",
+    transformOrigin: "var(--radix-tooltip-content-transform-origin)",
+    borderRadius: radius.md,
+    backgroundColor: color.foreground,
+    paddingInline: space.x12,
+    paddingBlock: space.x6,
+    fontSize: text.xs, lineHeight: leading.xs,
+    textWrap: "balance",
+    color: color.background
+  },
+  arrow: {
+    zIndex: 50,
+    width: space.x10,
+    height: space.x10,
+    transform: "translateY(calc(-50% - 2px)) rotate(45deg)",
+    borderRadius: radius.sm,
+    backgroundColor: color.foreground,
+    fill: color.foreground
+  }
+});
 
 function TooltipProvider({
   delayDuration = 0,
@@ -15,43 +43,36 @@ function TooltipProvider({
       delayDuration={delayDuration}
       {...props}
     />
-  )
+  );
 }
 
-function Tooltip({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
 }
 
-function TooltipTrigger({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
-function TooltipContent({
-  className,
-  sideOffset = 0,
-  children,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+type TooltipContentProps = Omit<
+  React.ComponentProps<typeof TooltipPrimitive.Content>,
+  "className" | "style"
+> & { style?: stylex.StyleXStyles };
+
+function TooltipContent({ style, sideOffset = 0, children, ...props }: TooltipContentProps) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}
-        className={cn(
-          "z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-          className
-        )}
         {...props}
+        {...stylex.props(s.content, style)}
       >
         {children}
-        <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground" />
+        <TooltipPrimitive.Arrow {...stylex.props(s.arrow)} />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
-  )
+  );
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

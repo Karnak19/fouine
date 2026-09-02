@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import * as stylex from "@stylexjs/stylex";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { color, font, leading, radius, space, text } from "@/tokens.stylex";
 import { api, type Settings } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +10,102 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModelInput } from "@/components/model-input";
 
+const s = stylex.create({
+  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x768 },
+  h1: { fontSize: text.xl2, lineHeight: leading.xl2, fontWeight: 700 },
+  // `space-y-4`, same story as `field` below: the submit <button> is
+  // inline-block, and a column flex would blockify it to full width. Block
+  // container; the 16px lives on `field`, which is every child but the last.
+  stack4: { display: "block" },
+  // Tailwind's `space-y-1.5` was `margin-bottom` on every child but the last,
+  // NOT a column flex with a gap: a flex item is blockified, which turns the
+  // inline <label> into a full-width block sized by `line-height: 1` instead
+  // of by font metrics (49x17 -> 718x14, and 4px lost per field). So the
+  // container stays a plain block and each 6px gap is carried by the element
+  // BELOW it (`spaced`) — margin on the inline label is ignored either way,
+  // which is what main did too.
+  field: { display: "block", marginBottom: space.x16 },
+  spaced: { marginTop: space.x6 },
+  hint: { fontSize: text.xs, lineHeight: leading.xs, color: color.zinc500 },
+  error: { fontSize: text.xs, lineHeight: leading.xs, color: color.dangerDot },
+
+  checkboxLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x8,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc300,
+    userSelect: "none"
+  },
+  checkbox: { height: space.x16, width: space.x16, accentColor: color.zinc200 },
+
+  testBlock: {
+    borderTopWidth: "1px",
+    borderTopStyle: "solid",
+    borderTopColor: color.zinc800,
+    paddingTop: space.x16
+  },
+  row: { display: "flex", alignItems: "center", gap: space.x8 },
+  testResult: {
+    marginTop: space.x8,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontFamily: font.mono
+  },
+  ok: { color: color.okDot },
+  fail: { color: color.dangerDot },
+
+  installRow: { display: "flex", gap: space.x8 },
+  // `divide-y` was `border-top` on every child but the first, and the
+  // container's own `border-t` drew the line above the first — hence the
+  // index guard below rather than a border on every row.
+  list: { borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: color.zinc800 },
+  divider: { borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: color.zinc800 },
+  emptyList: {
+    paddingBlock: space.x12,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500
+  },
+  skillRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: space.x12,
+    paddingBlock: space.x12
+  },
+  skillMain: { minWidth: 0 },
+  dot: { height: space.x6, width: space.x6, borderRadius: radius.full },
+  dotOn: { backgroundColor: color.okDot },
+  dotOff: { backgroundColor: color.zinc600 },
+  skillName: { fontFamily: font.mono, fontSize: text.sm, lineHeight: leading.sm },
+  sourceLink: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: { default: color.zinc500, ":hover": color.zinc300 }
+  },
+  description: {
+    marginTop: space.x4,
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc400
+  },
+  actions: { display: "flex", flexShrink: 0, alignItems: "center", gap: space.x8 }
+});
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["settings"],
-    queryFn: api.settings.get,
+    queryFn: api.settings.get
   });
 
   const [apiKey, setApiKey] = useState("");
@@ -48,16 +141,16 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
-    },
+    }
   });
 
   const testMut = useMutation({
-    mutationFn: api.settings.test,
+    mutationFn: api.settings.test
   });
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <h1 className="text-2xl font-bold">Settings</h1>
+    <div {...stylex.props(s.page)}>
+      <h1 {...stylex.props(s.h1)}>Settings</h1>
 
       <Card>
         <CardHeader>
@@ -69,9 +162,9 @@ export default function SettingsPage() {
               e.preventDefault();
               updateMut.mutate();
             }}
-            className="space-y-4"
+            {...stylex.props(s.stack4)}
           >
-            <div className="space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="api_key">API key</Label>
               <Input
                 id="api_key"
@@ -80,9 +173,9 @@ export default function SettingsPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
-              <p className="text-xs text-zinc-500">Leave blank to keep current value.</p>
+              <p {...stylex.props(s.hint, s.spaced)}>Leave blank to keep current value.</p>
             </div>
-            <div className="space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
               <Input
                 id="zai_api_key"
@@ -91,12 +184,12 @@ export default function SettingsPage() {
                 value={zaiApiKey}
                 onChange={(e) => setZaiApiKey(e.target.value)}
               />
-              <p className="text-xs text-zinc-500">
+              <p {...stylex.props(s.hint, s.spaced)}>
                 Only used when a model spec starts with <code>zai-coding-plan/</code>. When unset,
                 opencode uses whatever credential it already has for that provider.
               </p>
             </div>
-            <div className="space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="model">Default model</Label>
               <ModelInput
                 id="model"
@@ -111,14 +204,14 @@ export default function SettingsPage() {
                   needing the Anthropic shape reviews fine and breaks Chat with
                   an unhelpful upstream error, so say so here rather than
                   letting it be discovered at request time. */}
-              <p className="text-xs text-zinc-500">
+              <p {...stylex.props(s.hint, s.spaced)}>
                 Used for reviews. Chat has its own model, set only via{" "}
                 <code>OPENCODE_CHAT_MODEL</code> — it needs an OpenAI-compatible model, and a few
                 opencode-go models use the Anthropic API shape and will work for reviews but fail
                 in Chat.
               </p>
             </div>
-            <div className="space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="improver_model">Improver model</Label>
               <ModelInput
                 id="improver_model"
@@ -126,29 +219,29 @@ export default function SettingsPage() {
                 value={improverModel}
                 onChange={setImproverModel}
               />
-              <p className="text-xs text-zinc-500">
+              <p {...stylex.props(s.hint, s.spaced)}>
                 Used by the daily REVIEW.md improver. It runs rarely but its output shapes every
                 future review — worth a stronger model than the reviewer.
               </p>
             </div>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+            <div {...stylex.props(s.field)}>
+              <label {...stylex.props(s.checkboxLabel)}>
                 <input
                   id="deny_test_commands"
                   type="checkbox"
-                  className="h-4 w-4 accent-zinc-200"
+                  {...stylex.props(s.checkbox)}
                   checked={denyTestCommands}
                   onChange={(e) => setDenyTestCommands(e.target.checked)}
                 />
                 Don't run tests, linter, typechecker or build during a review
               </label>
-              <p className="text-xs text-zinc-500">
+              <p {...stylex.props(s.hint, s.spaced)}>
                 Default for every repo. CI already runs them, and the review worktree has no env
                 vars — so they tend to fail for unrelated reasons and show up as findings. A repo
                 can override this.
               </p>
             </div>
-            <div className="space-y-1.5">
+            <div {...stylex.props(s.field)}>
               <Label htmlFor="prompt">Default review prompt</Label>
               <Textarea
                 id="prompt"
@@ -162,8 +255,8 @@ export default function SettingsPage() {
               Save settings
             </Button>
           </form>
-          <div className="border-t border-zinc-800 pt-4">
-            <div className="flex items-center gap-2">
+          <div {...stylex.props(s.testBlock)}>
+            <div {...stylex.props(s.row)}>
               <Button
                 type="button"
                 variant="outline"
@@ -175,14 +268,12 @@ export default function SettingsPage() {
               >
                 {testMut.isPending ? "Testing…" : "Test connection"}
               </Button>
-              <span className="text-xs text-zinc-500">
+              <span {...stylex.props(s.hint)}>
                 Sends one tiny request to the configured model.
               </span>
             </div>
             {testMut.data && (
-              <p
-                className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
-              >
+              <p {...stylex.props(s.testResult, testMut.data.ok ? s.ok : s.fail)}>
                 {testMut.data.ok
                   ? `OK — model replied: ${testMut.data.text ?? ""}`
                   : `Failed: ${testMut.data.error ?? "unknown error"}`}
@@ -211,16 +302,16 @@ function SkillsCard() {
     onSuccess: () => {
       invalidate();
       setUrl("");
-    },
+    }
   });
   const toggleMut = useMutation({
     mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
       api.skills.setEnabled(name, enabled),
-    onSuccess: invalidate,
+    onSuccess: invalidate
   });
   const removeMut = useMutation({
     mutationFn: (name: string) => api.skills.remove(name),
-    onSuccess: invalidate,
+    onSuccess: invalidate
   });
 
   return (
@@ -228,16 +319,16 @@ function SkillsCard() {
       <CardHeader>
         <CardTitle>Reviewer skills</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent style={s.stack4}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             if (url.trim()) installMut.mutate();
           }}
-          className="space-y-1.5"
+          {...stylex.props(s.field)}
         >
           <Label htmlFor="skill_url">Install a skill</Label>
-          <div className="flex gap-2">
+          <div {...stylex.props(s.installRow)}>
             <Input
               id="skill_url"
               placeholder="https://skills.sh/owner/repo/skill or a github.com URL"
@@ -248,54 +339,53 @@ function SkillsCard() {
               {installMut.isPending ? "Installing…" : "Install"}
             </Button>
           </div>
-          <p className="text-xs text-zinc-500">
+          <p {...stylex.props(s.hint, s.spaced)}>
             Global — applies to every review, live on the next one. For a single repo, commit a{" "}
             <code>.claude/skills/</code> folder to that repo instead.
           </p>
           {installMut.isError && (
-            <p className="text-xs text-red-400">{String(installMut.error)}</p>
+            <p {...stylex.props(s.error, s.spaced)}>{String(installMut.error)}</p>
           )}
         </form>
 
-        <div className="divide-y divide-zinc-800 border-t border-zinc-800">
+        <div {...stylex.props(s.list)}>
           {skills?.length === 0 && (
-            <p className="py-3 text-xs text-zinc-500">No skills installed yet.</p>
+            <p {...stylex.props(s.emptyList)}>No skills installed yet.</p>
           )}
-          {skills?.map((s) => (
-            <div key={s.name} className="flex items-start justify-between gap-3 py-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-zinc-600"}`}
-                  />
-                  <span className="font-mono text-sm">{s.name}</span>
+          {/* `skill`, not `s` — `s` is the stylex bundle at module scope. */}
+          {skills?.map((skill, i) => (
+            <div key={skill.name} {...stylex.props(s.skillRow, i > 0 && s.divider)}>
+              <div {...stylex.props(s.skillMain)}>
+                <div {...stylex.props(s.row)}>
+                  <span {...stylex.props(s.dot, skill.enabled ? s.dotOn : s.dotOff)} />
+                  <span {...stylex.props(s.skillName)}>{skill.name}</span>
                   <a
-                    href={s.source_url}
+                    href={skill.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="truncate text-xs text-zinc-500 hover:text-zinc-300"
+                    {...stylex.props(s.sourceLink)}
                   >
-                    {s.owner}/{s.repo}@{s.ref.slice(0, 7)}
+                    {skill.owner}/{skill.repo}@{skill.ref.slice(0, 7)}
                   </a>
                 </div>
-                {s.description && (
-                  <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{s.description}</p>
+                {skill.description && (
+                  <p {...stylex.props(s.description)}>{skill.description}</p>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div {...stylex.props(s.actions)}>
                 <Button
                   type="button"
                   variant="outline"
                   disabled={toggleMut.isPending}
-                  onClick={() => toggleMut.mutate({ name: s.name, enabled: !s.enabled })}
+                  onClick={() => toggleMut.mutate({ name: skill.name, enabled: !skill.enabled })}
                 >
-                  {s.enabled ? "Disable" : "Enable"}
+                  {skill.enabled ? "Disable" : "Enable"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   disabled={removeMut.isPending}
-                  onClick={() => removeMut.mutate(s.name)}
+                  onClick={() => removeMut.mutate(skill.name)}
                 >
                   Remove
                 </Button>

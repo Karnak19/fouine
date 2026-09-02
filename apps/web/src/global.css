@@ -7,7 +7,11 @@
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 
-@theme {
+/* `static` is load-bearing: Tailwind v4 tree-shakes @theme vars that no
+   utility class references, and StyleX reads these as var(--color-*). Without
+   `static`, removing a className silently deletes the variable the StyleX
+   rule depends on and the colour falls back to nothing. */
+@theme static {
   /* fouine — "marten warm": neutrals are warm-tinted charcoal/taupe (hue ~70),
      never pure black/white. The whole UI reads off the zinc-* scale, so warming
      the scale here recolors every page at once. */
@@ -53,6 +57,41 @@
   --color-border: oklch(0.27 0.008 70);
   --color-input: oklch(0.27 0.008 70);
   --color-ring: oklch(0.7 0.16 55);
+
+  /* Categorical chart ramp. Order is load-bearing — see charts/colors.ts for
+     the deuteranopia ΔE reasoning before reordering. Values are Tailwind's
+     sky/amber/violet-400 lifted verbatim so the ramp survives losing the
+     utility classes. */
+  --color-cat-1: oklch(0.76 0.15 60);
+  --color-cat-2: oklch(74.6% 0.16 232.661);
+  --color-cat-3: oklch(82.8% 0.189 84.429);
+  --color-cat-4: oklch(70.2% 0.183 293.541);
+  --color-cat-5: oklch(0.58 0.007 72);
+
+  /* Status. Dot is the saturated -400, text the lighter -300 for contrast. */
+  --color-ok-dot: oklch(76.5% 0.177 163.223);
+  --color-ok-text: oklch(84.5% 0.143 164.978);
+  --color-warn-dot: oklch(82.8% 0.189 84.429);
+  --color-warn-text: oklch(87.9% 0.169 91.605);
+  --color-danger-dot: oklch(70.4% 0.191 22.216);
+  --color-danger-text: oklch(80.8% 0.114 19.571);
+  --color-danger-text-soft: oklch(88.5% 0.062 18.334);
+  --color-danger-surface: oklch(39.6% 0.141 25.723);
+  --color-danger-surface-hover: oklch(44.4% 0.177 26.899);
+
+  /* Badge pill surfaces and rings. Exact Tailwind v4 values — badge.tsx was
+     approximating these with color-mix off other tokens. */
+  --color-ok-surface: oklch(43.2% 0.095 166.913);
+  --color-ok-surface-deep: oklch(26.2% 0.051 172.552);
+  --color-danger-surface-deep: oklch(25.8% 0.092 26.042);
+  --color-info-text: oklch(82.8% 0.111 230.318);
+  --color-info-surface: oklch(44.3% 0.11 240.79);
+  --color-info-surface-deep: oklch(29.3% 0.066 243.157);
+  --color-warn-surface: oklch(41.4% 0.112 45.904);
+  --color-warn-surface-deep: oklch(27.9% 0.077 45.635);
+  /* amber-500. Distinct from warn-dot (amber-400): different lightness AND
+     hue (70.1 vs 84.4), so it is not interchangeable. */
+  --color-warn-strong: oklch(76.9% 0.188 70.08);
 }
 
 body {
@@ -65,6 +104,15 @@ body {
 
 h1, h2, h3 {
   text-wrap: balance;
+}
+
+/* Tailwind only emits @keyframes for an animation some class still references.
+   Nothing in our own code says `animate-spin` any more, so `spin` was surviving
+   purely because streamdown's bundled JS uses it (see the @source lines above)
+   — our running-tool loaders would silently stop the day that changed. Declared
+   here so the dependency is ours, not accidental. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes fouine-pulse {

@@ -1,42 +1,59 @@
-import * as React from "react"
-import { HoverCard as HoverCardPrimitive } from "radix-ui"
+import * as React from "react";
+import { HoverCard as HoverCardPrimitive } from "radix-ui";
+import * as stylex from "@stylexjs/stylex";
+import { color, radius, shadow, space } from "@/tokens.stylex";
 
-import { cn } from "@/lib/utils"
+// No enter/exit animation on purpose. The Tailwind original carried
+// `animate-in fade-in-0 zoom-in-95 slide-in-from-*-2` / `animate-out`, but
+// those come from `tw-animate-css`, which is not installed — they emit no CSS,
+// so the card appears instantly today and must keep doing so.
+const s = stylex.create({
+  content: {
+    zIndex: 50,
+    width: space.x256,
+    transformOrigin: "var(--radix-hover-card-content-transform-origin)",
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.border,
+    backgroundColor: color.popover,
+    padding: space.x16,
+    color: color.popoverForeground,
+    boxShadow: shadow.md,
+    outlineStyle: "none"
+  }
+});
 
-function HoverCard({
-  ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Root>) {
-  return <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
+function HoverCard({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) {
+  return <HoverCardPrimitive.Root data-slot="hover-card" {...props} />;
 }
 
-function HoverCardTrigger({
-  ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) {
-  return (
-    <HoverCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />
-  )
+function HoverCardTrigger({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) {
+  return <HoverCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />;
 }
+
+type HoverCardContentProps = Omit<
+  React.ComponentProps<typeof HoverCardPrimitive.Content>,
+  "className" | "style"
+> & { style?: stylex.StyleXStyles };
 
 function HoverCardContent({
-  className,
+  style,
   align = "center",
   sideOffset = 4,
   ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Content>) {
+}: HoverCardContentProps) {
   return (
     <HoverCardPrimitive.Portal data-slot="hover-card-portal">
       <HoverCardPrimitive.Content
         data-slot="hover-card-content"
         align={align}
         sideOffset={sideOffset}
-        className={cn(
-          "z-50 w-64 origin-(--radix-hover-card-content-transform-origin) rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-hidden data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-          className
-        )}
         {...props}
+        {...stylex.props(s.content, style)}
       />
     </HoverCardPrimitive.Portal>
-  )
+  );
 }
 
-export { HoverCard, HoverCardTrigger, HoverCardContent }
+export { HoverCard, HoverCardTrigger, HoverCardContent };

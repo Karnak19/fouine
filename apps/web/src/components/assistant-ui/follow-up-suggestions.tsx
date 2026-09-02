@@ -2,6 +2,51 @@
 
 import { AuiIf, useAuiState, ThreadPrimitive } from "@assistant-ui/react";
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
+import * as stylex from "@stylexjs/stylex";
+import { color, radius, space, text } from "@/tokens.stylex";
+
+const s = stylex.create({
+  scroller: {
+    // overflow-x clips both axes; the vertical padding + negative margin gives
+    // focus rings room without changing the outer height.
+    marginBlock: "-0.25rem",
+    paddingBlock: space.x4,
+    width: "100%",
+    overflowX: "auto",
+    msOverflowStyle: "none",
+    scrollbarWidth: "none",
+    "::-webkit-scrollbar": { display: "none" }
+  },
+  // Dynamic: the fade edges depend on how far the row is scrolled.
+  mask: (image: string) => ({ maskImage: image }),
+  row: {
+    marginInline: "auto",
+    display: "flex",
+    minHeight: space.x32,
+    width: "max-content",
+    alignItems: "center",
+    gap: space.x8,
+    paddingInline: space.x2
+  },
+  suggestion: {
+    backgroundColor: {
+      default: color.background,
+      ":hover": `color-mix(in oklab, ${color.muted} 80%, transparent)`
+    },
+    borderRadius: radius.full,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "currentColor",
+    paddingInline: space.x12,
+    paddingBlock: space.x4,
+    fontSize: text.sm,
+    lineHeight: "calc(1.25 / 0.875)",
+    whiteSpace: "nowrap",
+    transitionProperty: "color, background-color, border-color",
+    transitionDuration: "150ms",
+    transitionTimingFunction: "cubic-bezier(0.4, 0, 1, 1)"
+  }
+});
 
 const FollowupSuggestionsRow: FC = () => {
   const suggestions = useAuiState((s) => s.thread.suggestions);
@@ -40,26 +85,31 @@ const FollowupSuggestionsRow: FC = () => {
     fades.left ? "transparent, black 2rem" : "black"
   }, ${fades.right ? "black calc(100% - 2rem), transparent" : "black"})`;
 
+  const scroller = stylex.props(s.scroller, s.mask(maskImage));
+
   return (
     <div
       ref={scrollRef}
       onScroll={updateFades}
-      // overflow-x clips both axes; py-1/-my-1 gives focus rings vertical room without changing outer height.
-      className="aui-thread-followup-suggestions -my-1 w-full overflow-x-auto py-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ maskImage, WebkitMaskImage: maskImage }}
+      {...scroller}
+      className={`aui-thread-followup-suggestions ${scroller.className ?? ""}`}
     >
-      <div className="mx-auto flex min-h-8 w-max items-center gap-2 px-0.5">
-        {suggestions.map((suggestion, idx) => (
-          <ThreadPrimitive.Suggestion
-            key={idx}
-            className="aui-thread-followup-suggestion bg-background hover:bg-muted/80 rounded-full border px-3 py-1 text-sm whitespace-nowrap transition-colors ease-in"
-            prompt={suggestion.prompt}
-            method="replace"
-            autoSend
-          >
-            {suggestion.prompt}
-          </ThreadPrimitive.Suggestion>
-        ))}
+      <div {...stylex.props(s.row)}>
+        {suggestions.map((suggestion, idx) => {
+          const item = stylex.props(s.suggestion);
+          return (
+            <ThreadPrimitive.Suggestion
+              key={idx}
+              {...item}
+              className={`aui-thread-followup-suggestion ${item.className ?? ""}`}
+              prompt={suggestion.prompt}
+              method="replace"
+              autoSend
+            >
+              {suggestion.prompt}
+            </ThreadPrimitive.Suggestion>
+          );
+        })}
       </div>
     </div>
   );

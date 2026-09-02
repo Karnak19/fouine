@@ -20,8 +20,6 @@
     "@types/react-dom": "^19.2.3",
     "ai": "^7.0.65",
     "better-auth": "^1.6.23",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.22.0",
@@ -30,11 +28,12 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.7",
     "streamdown": "^2.5.0",
-    "tailwind-merge": "^3.6.0",
     "tailwindcss": "4",
     "tw-shimmer": "^0.4.12"
   },
   "devDependencies": {
+    "@stylexjs/stylex": "0.19",
+    "@stylexjs/unplugin": "^0.19.0",
     "@tailwindcss/vite": "^4.3.2",
     "@vitejs/plugin-react": "^6.0.3",
     "vite": "^8.1.0"

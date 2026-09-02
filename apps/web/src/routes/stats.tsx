@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import * as stylex from "@stylexjs/stylex";
 import {
   api,
   type DailyStatsRow,
@@ -14,7 +15,7 @@ import {
   type SeverityStatsRow,
   type Stats,
   type StatsRange,
-  type TriggerStatsRow,
+  type TriggerStatsRow
 } from "@/lib/api";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
@@ -27,6 +28,7 @@ import { type DateRange } from "react-day-picker";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  BAR_ROUNDED_BOTTOM,
   BarChart,
   LegendDot,
   MixBar,
@@ -36,13 +38,471 @@ import {
   SEVERITY_COLORS,
   StackedBarChart,
   TRIGGER_COLORS,
-  scaleMax,
+  UNKNOWN_SEVERITY_COLOR,
+  scaleMax
 } from "@/components/charts";
+import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
 
 const RANGES = ["24h", "7d", "30d", "90d", "all"] as const;
 const DEFAULT_RANGE: StatsRange = "30d";
 const STATUSES = ["pending", "running", "completed", "failed"] as const;
 type Status = (typeof STATUSES)[number];
+
+// `transition-colors`, spelled out once. StyleX has no utility layer to inherit
+// from, so the property list and the 150ms default travel together.
+const TRANSITION_COLORS = "color, background-color, border-color";
+
+const s = stylex.create({
+  page: {
+    display: "flex",
+    flexDirection: "column",
+    // Was `space-y-7`: a margin between siblings, which a column gap expresses
+    // without touching the children.
+    gap: space.x28,
+    minWidth: 0
+  },
+  header: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: space.x16
+  },
+  h1: {
+    fontSize: text.xl2,
+    lineHeight: leading.xl2,
+    fontWeight: 700,
+    letterSpacing: tracking.tight
+  },
+  lede: {
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc500,
+    marginTop: space.x4
+  },
+
+  // --- filter bar ---------------------------------------------------------
+  filterBar: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    columnGap: space.x12,
+    rowGap: space.x8,
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`,
+    paddingInline: space.x12,
+    paddingBlock: space.x10
+  },
+  filterIcon: { color: color.zinc500, flexShrink: 0 },
+  rangeGroup: {
+    display: "flex",
+    overflow: "hidden",
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800
+  },
+  rangeButton: {
+    paddingInline: space.x10,
+    paddingBlock: space.x4,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontWeight: 500,
+    fontVariantNumeric: "tabular-nums",
+    borderWidth: 0,
+    cursor: "pointer",
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms"
+  },
+  rangeButtonOn: {
+    backgroundColor: `color-mix(in oklab, ${color.ember950} 60%, transparent)`,
+    color: color.ember300
+  },
+  rangeButtonOff: {
+    color: { default: color.zinc400, ":hover": color.zinc100 },
+    backgroundColor: {
+      default: "transparent",
+      ":hover": `color-mix(in oklab, ${color.zinc800} 60%, transparent)`
+    }
+  },
+  clearButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x4,
+    borderRadius: radius.md,
+    borderWidth: 0,
+    paddingInline: space.x8,
+    paddingBlock: space.x4,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    cursor: "pointer",
+    color: { default: color.zinc400, ":hover": color.zinc100 },
+    backgroundColor: {
+      default: "transparent",
+      ":hover": `color-mix(in oklab, ${color.zinc800} 60%, transparent)`
+    },
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms"
+  },
+  rangePickerButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x6,
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    paddingInline: space.x8,
+    paddingBlock: space.x4,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontVariantNumeric: "tabular-nums",
+    cursor: "pointer",
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms"
+  },
+  rangePickerOn: {
+    // No border colour on purpose: `border-ember-900` never generated a rule —
+    // --color-ember-900 is not in global.css's @theme block (the ramp is
+    // 200/300/400/500/600/800/950) — so this button has no border today.
+    backgroundColor: `color-mix(in oklab, ${color.ember950} 60%, transparent)`,
+    color: color.ember300
+  },
+  rangePickerOff: {
+    borderColor: { default: color.zinc800, ":hover": color.zinc700 },
+    backgroundColor: color.zinc900,
+    color: { default: color.zinc400, ":hover": color.zinc100 }
+  },
+  popoverContent: {
+    // `w-auto p-0` — the calendar sizes itself.
+    width: "auto",
+    padding: space.x0
+  },
+  select: {
+    maxWidth: space.x208,
+    borderRadius: radius.md,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: { default: color.zinc800, ":hover": color.zinc700 },
+    backgroundColor: color.zinc900,
+    paddingInline: space.x8,
+    paddingBlock: space.x4,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc300,
+    cursor: "pointer",
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms",
+    outlineStyle: { default: null, ":focus": "none" },
+    // `focus:ring-1 focus:ring-ember-500` — ring is a non-inset box-shadow.
+    boxShadow: { default: null, ":focus": `0 0 0 1px ${color.ember500}` }
+  },
+  filterButton: {
+    borderRadius: radius.base,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    padding: space.x4,
+    cursor: "pointer",
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms"
+  },
+  filterButtonOn: { color: color.ember300 },
+  filterButtonOff: {
+    color: { default: color.zinc600, ":hover": color.zinc200 },
+    backgroundColor: { default: "transparent", ":hover": color.zinc800 }
+  },
+
+  // --- KPI strip ---------------------------------------------------------
+  statStrip: {
+    display: "grid",
+    gridTemplateColumns: {
+      default: "repeat(2, minmax(0, 1fr))",
+      "@media (min-width: 640px)": "repeat(3, minmax(0, 1fr))",
+      "@media (min-width: 1024px)": "repeat(6, minmax(0, 1fr))"
+    },
+    borderRadius: radius.lg,
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: color.zinc800,
+    overflow: "hidden",
+    backgroundColor: `color-mix(in oklab, ${color.zinc900} 40%, transparent)`
+  },
+  // Was `divide-x divide-y lg:divide-y-0` on the strip — `& > :not(:last-child)`
+  // rules, which StyleX cannot reach from the parent. The border lives on the
+  // cell instead, same move as the table rows.
+  statCell: {
+    borderInlineEndWidth: { default: "1px", ":last-child": 0 },
+    borderBottomWidth: {
+      default: "1px",
+      ":last-child": 0,
+      // lg:divide-y-0 — one row at that width, so no horizontal rule.
+      "@media (min-width: 1024px)": 0
+    },
+    borderInlineEndStyle: "solid",
+    borderInlineEndColor: color.zinc800,
+    borderBottomStyle: "solid",
+    borderBottomColor: color.zinc800
+  },
+
+  // --- page grids --------------------------------------------------------
+  // `items-start` everywhere: the charts size themselves off a fixed height,
+  // and a stretched row would leave the percentage bars resolving against it.
+  grid: {
+    display: "grid",
+    gap: space.x28,
+    alignItems: "start"
+  },
+  cols2: {
+    gridTemplateColumns: {
+      default: null,
+      "@media (min-width: 1024px)": "repeat(2, minmax(0, 1fr))"
+    }
+  },
+  cols3: {
+    gridTemplateColumns: {
+      default: null,
+      "@media (min-width: 1024px)": "repeat(3, minmax(0, 1fr))"
+    }
+  },
+  cols5: {
+    gridTemplateColumns: {
+      default: null,
+      "@media (min-width: 1024px)": "repeat(5, minmax(0, 1fr))"
+    }
+  },
+  span2: {
+    gridColumn: { default: null, "@media (min-width: 1024px)": "span 2 / span 2" },
+    minWidth: 0
+  },
+  span3: {
+    gridColumn: { default: null, "@media (min-width: 1024px)": "span 3 / span 3" },
+    minWidth: 0
+  },
+  stack: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.x28,
+    minWidth: 0
+  },
+
+  // --- panel innards -----------------------------------------------------
+  chartBody: {
+    display: "flex",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    flexDirection: "column",
+    paddingInline: space.x16,
+    paddingTop: space.x16,
+    paddingBottom: space.x12
+  },
+  caption: {
+    marginTop: space.x8,
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: text.xxs,
+    color: color.zinc600,
+    fontVariantNumeric: "tabular-nums"
+  },
+  legendRow: {
+    marginTop: space.x8,
+    display: "flex",
+    flexWrap: "wrap",
+    columnGap: space.x12,
+    rowGap: space.x4,
+    fontSize: text.xxs,
+    color: color.zinc500
+  },
+  legendRowCentred: { alignItems: "center" },
+  pushRight: { marginInlineStart: "auto", fontVariantNumeric: "tabular-nums" },
+  scrollX: { overflowX: "auto" },
+
+  // --- table cells -------------------------------------------------------
+  rowActive: {
+    backgroundColor: `color-mix(in oklab, ${color.ember950} 25%, transparent)`
+  },
+  cellTight: { paddingBlock: space.x10 },
+  right: { textAlign: "right" },
+  num: { fontVariantNumeric: "tabular-nums" },
+  nowrap: { whiteSpace: "nowrap" },
+  headNarrow: { width: space.x48 },
+  mono: { fontFamily: font.mono },
+  monoLink: {
+    fontFamily: font.mono,
+    color: { default: color.zinc200, ":hover": color.ember300 }
+  },
+  modelButton: {
+    fontFamily: font.mono,
+    textAlign: "left",
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    padding: space.x0,
+    cursor: "pointer",
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms"
+  },
+  modelButtonOn: { color: color.ember300 },
+  modelButtonOff: { color: { default: color.zinc200, ":hover": color.ember300 } },
+  z200: { color: color.zinc200 },
+  z400: { color: color.zinc400 },
+  z500: { color: color.zinc500 },
+  z600: { color: color.zinc600 },
+  nameRow: { display: "flex", alignItems: "center", gap: space.x6 },
+
+  // --- lists -------------------------------------------------------------
+  // `divide-y` moved onto the item, the only place StyleX can express it.
+  listItem: {
+    borderBottomWidth: { default: "1px", ":last-child": 0 },
+    borderBottomStyle: "solid",
+    borderBottomColor: `color-mix(in oklab, ${color.zinc800} 70%, transparent)`
+  },
+  listItemFaint: {
+    borderBottomWidth: { default: "1px", ":last-child": 0 },
+    borderBottomStyle: "solid",
+    borderBottomColor: `color-mix(in oklab, ${color.zinc800} 80%, transparent)`
+  },
+  costLink: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.x12,
+    paddingInline: space.x16,
+    paddingBlock: space.x10,
+    transitionProperty: TRANSITION_COLORS,
+    transitionDuration: "150ms",
+    backgroundColor: {
+      default: null,
+      ":hover": `color-mix(in oklab, ${color.zinc800} 40%, transparent)`
+    }
+  },
+  costMain: { minWidth: 0, flexGrow: 1, flexShrink: 1, flexBasis: "0%" },
+  costRepo: {
+    fontFamily: font.mono,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc200,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  truncate: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  xs: { fontSize: text.xs, lineHeight: leading.xs },
+  costTokens: {
+    flexShrink: 0,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc500,
+    fontVariantNumeric: "tabular-nums",
+    width: space.x56,
+    textAlign: "right"
+  },
+  costValue: {
+    flexShrink: 0,
+    fontSize: text.sm,
+    lineHeight: leading.sm,
+    color: color.zinc100,
+    fontVariantNumeric: "tabular-nums",
+    width: space.x64,
+    textAlign: "right"
+  },
+
+  // --- reliability -------------------------------------------------------
+  rateRow: { display: "flex", alignItems: "baseline", gap: space.x8 },
+  rate: {
+    fontSize: text.xl2,
+    lineHeight: leading.xl2,
+    fontWeight: 600,
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc100
+  },
+  rateSub: { fontSize: text.xs, lineHeight: leading.xs, color: color.zinc500 },
+  chartGap: { marginTop: space.x12 },
+
+  // --- latency trend -----------------------------------------------------
+  latencyRow: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: space.x4,
+    // Fixed height, not a min-height: the two bars below are percentage-tall
+    // and a percentage only resolves against a definite parent height.
+    height: space.x128
+  },
+  latencyColumn: {
+    position: "relative",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "0%",
+    minWidth: 0,
+    height: "100%"
+  },
+  latencyBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderStartStartRadius: radius.base,
+    borderStartEndRadius: radius.base
+  },
+  latencyP95: { backgroundColor: `color-mix(in oklab, ${color.ember500} 25%, transparent)` },
+  latencyP50: { backgroundColor: `color-mix(in oklab, ${color.ember500} 80%, transparent)` },
+  truncatedNote: {
+    marginTop: space.x4,
+    fontSize: text.xxs,
+    color: `color-mix(in oklab, ${color.warnStrong} 80%, transparent)`
+  },
+  // Runtime-computed: each bar's share of the tallest value in the window.
+  barHeight: (pct: string) => ({ height: pct }),
+
+  // --- top files ---------------------------------------------------------
+  fileItem: { position: "relative", paddingInline: space.x16, paddingBlock: space.x8 },
+  fileBar: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: `color-mix(in oklab, ${color.ember500} 10%, transparent)`
+  },
+  // Runtime-computed: the row's share of the busiest file.
+  barWidth: (pct: string) => ({ width: pct }),
+  fileRow: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.x12
+  },
+  filePath: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontFamily: font.mono,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    color: color.zinc300
+  },
+  fileCount: {
+    flexShrink: 0,
+    fontSize: text.xs,
+    lineHeight: leading.xs,
+    fontVariantNumeric: "tabular-nums",
+    color: color.zinc400
+  }
+});
+
+// Reliability's three outcomes. Not in charts/colors.ts because they are an
+// outcome triple, not a categorical ramp — completed/failed/in-flight always
+// mean the same thing and must match the legend beneath the bars.
+const outcome = stylex.create({
+  completed: { backgroundColor: `color-mix(in oklab, ${color.okDot} 80%, transparent)` },
+  failed: { backgroundColor: color.dangerDot },
+  inFlight: { backgroundColor: color.zinc600 }
+});
+
+// The latency trend's own legend swatches — the same two ember mixes as the bars.
+const latency = stylex.create({
+  p50: { backgroundColor: `color-mix(in oklab, ${color.ember500} 80%, transparent)` },
+  p95: { backgroundColor: `color-mix(in oklab, ${color.ember500} 25%, transparent)` }
+});
 
 export interface StatsSearch {
   // `range` is absent from the URL when it's the default — a clean link for the
@@ -85,7 +545,7 @@ export function validateStatsSearch(raw: Record<string, unknown>): StatsSearch {
     to,
     repo: str(raw.repo),
     model: str(raw.model),
-    status,
+    status
   };
 }
 
@@ -106,7 +566,7 @@ export default function StatsPage() {
   const setFilters = (patch: StatsSearch) =>
     navigate({
       to: "/stats",
-      search: (prev: Record<string, unknown>) => validateStatsSearch({ ...prev, ...patch }),
+      search: (prev: Record<string, unknown>) => validateStatsSearch({ ...prev, ...patch })
     });
 
   const { status: liveStatus, resync } = useLiveEvents(null, (e) => {
@@ -126,16 +586,16 @@ export default function StatsPage() {
 
   const { data: stats } = useQuery({
     queryKey: ["stats", filters],
-    queryFn: () => api.stats.query(filters),
+    queryFn: () => api.stats.query(filters)
   });
   const { data: charts } = useQuery({
     queryKey: ["stats-charts", filters],
-    queryFn: () => api.stats.charts(filters),
+    queryFn: () => api.stats.charts(filters)
   });
   const { data: repos } = useQuery({ queryKey: ["repos"], queryFn: api.repos.list });
   const { data: reviews, isPending: reviewsPending } = useQuery({
     queryKey: ["reviews", reviewFilters],
-    queryFn: () => api.reviews.query(reviewFilters),
+    queryFn: () => api.reviews.query(reviewFilters)
   });
 
   const totals = stats?.projects.reduce(
@@ -153,11 +613,11 @@ export default function StatsPage() {
   );
 
   return (
-    <div className="space-y-7 min-w-0">
-      <div className="flex items-end justify-between gap-4">
+    <div {...stylex.props(s.page)}>
+      <div {...stylex.props(s.header)}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Stats</h1>
-          <p className="text-sm text-zinc-500 mt-1">
+          <h1 {...stylex.props(s.h1)}>Stats</h1>
+          <p {...stylex.props(s.lede)}>
             Slice fouine's activity by time, repository and model.
           </p>
         </div>
@@ -165,13 +625,9 @@ export default function StatsPage() {
       </div>
 
       {/* One compact filter bar; every control writes to the URL. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5">
-        <SlidersHorizontal size={14} className="text-zinc-500 shrink-0" />
-        <div
-          role="group"
-          aria-label="Time range"
-          className="flex overflow-hidden rounded-md border border-zinc-800"
-        >
+      <div {...stylex.props(s.filterBar)}>
+        <SlidersHorizontal size={14} {...stylex.props(s.filterIcon)} />
+        <div role="group" aria-label="Time range" {...stylex.props(s.rangeGroup)}>
           {RANGES.map((r) => (
             <button
               key={r}
@@ -183,14 +639,13 @@ export default function StatsPage() {
                 setFilters({
                   range: r === DEFAULT_RANGE ? undefined : r,
                   from: undefined,
-                  to: undefined,
+                  to: undefined
                 })
               }
-              className={`px-2.5 py-1 text-xs font-medium tabular-nums transition-colors cursor-pointer ${
-                !custom && r === range
-                  ? "bg-ember-950/60 text-ember-300"
-                  : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100"
-              }`}
+              {...stylex.props(
+                s.rangeButton,
+                !custom && r === range ? s.rangeButtonOn : s.rangeButtonOff,
+              )}
             >
               {r}
             </button>
@@ -229,7 +684,7 @@ export default function StatsPage() {
           <button
             type="button"
             onClick={() => navigate({ to: "/stats", search: {} })}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 cursor-pointer"
+            {...stylex.props(s.clearButton)}
           >
             <X size={12} />
             Clear
@@ -237,23 +692,44 @@ export default function StatsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 rounded-lg border border-zinc-800 divide-x divide-y lg:divide-y-0 divide-zinc-800 overflow-hidden bg-zinc-900/40">
-        <Stat label="Reviews" value={totals ? String(totals.reviews) : null} />
+      <div {...stylex.props(s.statStrip)}>
         <Stat
+          style={s.statCell}
+          label="Reviews"
+          value={totals ? String(totals.reviews) : null}
+        />
+        <Stat
+          style={s.statCell}
           label="Avg review"
           value={stats ? (formatSeconds(stats.latency.avg) ?? "—") : null}
           sub={stats?.latency.count ? `${stats.latency.count} done` : undefined}
         />
-        <Stat label="p95 review" value={stats ? (formatSeconds(stats.latency.p95) ?? "—") : null} />
-        <Stat label="Cost" value={totals ? (formatCost(totals.cost) ?? "—") : null} />
-        <Stat label="Avg cost / review" value={stats ? (formatCost(avgCost) ?? "—") : null} />
-        <Stat label="Tokens" value={totals ? (formatTokens(totals.tokens) ?? "—") : null} />
+        <Stat
+          style={s.statCell}
+          label="p95 review"
+          value={stats ? (formatSeconds(stats.latency.p95) ?? "—") : null}
+        />
+        <Stat
+          style={s.statCell}
+          label="Cost"
+          value={totals ? (formatCost(totals.cost) ?? "—") : null}
+        />
+        <Stat
+          style={s.statCell}
+          label="Avg cost / review"
+          value={stats ? (formatCost(avgCost) ?? "—") : null}
+        />
+        <Stat
+          style={s.statCell}
+          label="Tokens"
+          value={totals ? (formatTokens(totals.tokens) ?? "—") : null}
+        />
       </div>
 
       {/* Desktop: the trend gets two thirds of the width, the two mix bars stack
           beside it. Everything collapses to one column below `lg`. */}
-      <div className="grid gap-7 lg:grid-cols-3 items-start">
-        <div className="lg:col-span-2 min-w-0">
+      <div {...stylex.props(s.grid, s.cols3)}>
+        <div {...stylex.props(s.span2)}>
           <CostTrend
             daily={stats?.daily}
             range={range}
@@ -268,7 +744,7 @@ export default function StatsPage() {
             }
           />
         </div>
-        <div className="space-y-7 min-w-0">
+        <div {...stylex.props(s.stack)}>
           <SeverityMix severity={stats?.severity} />
           <TriggerMix triggers={stats?.triggers} />
         </div>
@@ -277,16 +753,16 @@ export default function StatsPage() {
       {/* Reliability first: "is the reviewer working" outranks what it costs.
           Paired with the latency trend, which answers "and is it getting
           slower" from the same completed reviews. */}
-      <div className="grid gap-7 lg:grid-cols-2 items-start">
+      <div {...stylex.props(s.grid, s.cols2)}>
         <Reliability rows={charts?.reliability} />
         <LatencyTrend rows={charts?.latency} truncated={charts?.latencyTruncated} />
       </div>
 
-      <div className="grid gap-7 lg:grid-cols-5 items-start">
-        <div className="lg:col-span-3 min-w-0">
+      <div {...stylex.props(s.grid, s.cols5)}>
+        <div {...stylex.props(s.span3)}>
           <FindingsTrend rows={charts?.findingsDaily} />
         </div>
-        <div className="lg:col-span-2 min-w-0">
+        <div {...stylex.props(s.span2)}>
           <TopFiles rows={charts?.topFiles} />
         </div>
       </div>
@@ -294,15 +770,15 @@ export default function StatsPage() {
       {/* Two wide tables with long identifiers in the first column. 3/5 + 2/5
           rather than 2/3 + 1/3, which clipped the model table's cost column, or
           a straight half each, which then clipped the wider project table. */}
-      <div className="grid gap-7 lg:grid-cols-5 items-start">
-        <div className="lg:col-span-3 min-w-0">
+      <div {...stylex.props(s.grid, s.cols5)}>
+        <div {...stylex.props(s.span3)}>
           <ProjectStats
             projects={stats?.projects}
             active={search.repo}
             onFilter={(repo) => setFilters({ repo })}
           />
         </div>
-        <div className="lg:col-span-2 min-w-0">
+        <div {...stylex.props(s.span2)}>
           <ModelStats
             models={stats?.models}
             active={search.model}
@@ -311,8 +787,8 @@ export default function StatsPage() {
         </div>
       </div>
 
-      <div className="grid gap-7 lg:grid-cols-3 items-start">
-        <div className="lg:col-span-2 min-w-0">
+      <div {...stylex.props(s.grid, s.cols3)}>
+        <div {...stylex.props(s.span2)}>
           <Reviews rows={reviews} pending={reviewsPending} />
         </div>
         <TopCost rows={stats?.topCost} />
@@ -341,7 +817,7 @@ function fromDayString(s: string | undefined): Date | undefined {
 function RangePicker({
   from,
   to,
-  onChange,
+  onChange
 }: {
   from?: string;
   to?: string;
@@ -357,17 +833,16 @@ function RangePicker({
         <button
           type="button"
           aria-label="Custom date range"
-          className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs tabular-nums transition-colors cursor-pointer ${
-            from || to
-              ? "border-ember-900 bg-ember-950/60 text-ember-300"
-              : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-700 hover:text-zinc-100"
-          }`}
+          {...stylex.props(
+            s.rangePickerButton,
+            from || to ? s.rangePickerOn : s.rangePickerOff,
+          )}
         >
           <CalendarIcon size={13} />
           {label}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent style={s.popoverContent} align="start">
         <Calendar
           mode="range"
           defaultMonth={fromDayString(from) ?? fromDayString(to)}
@@ -375,7 +850,7 @@ function RangePicker({
           onSelect={(r: DateRange | undefined) =>
             onChange({
               from: r?.from ? toDayString(r.from) : undefined,
-              to: r?.to ? toDayString(r.to) : undefined,
+              to: r?.to ? toDayString(r.to) : undefined
             })
           }
           numberOfMonths={2}
@@ -390,7 +865,7 @@ function Select({
   value,
   onChange,
   options,
-  placeholder,
+  placeholder
 }: {
   label: string;
   value: string;
@@ -403,7 +878,7 @@ function Select({
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="max-w-52 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 transition-colors hover:border-zinc-700 focus:outline-none focus:ring-1 focus:ring-ember-500 cursor-pointer"
+      {...stylex.props(s.select)}
     >
       <option value="">{placeholder}</option>
       {options.map((o) => (
@@ -420,7 +895,7 @@ function Select({
 function FilterButton({
   label,
   active,
-  onClick,
+  onClick
 }: {
   label: string;
   active: boolean;
@@ -432,9 +907,7 @@ function FilterButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded p-1 transition-colors cursor-pointer ${
-        active ? "text-ember-300" : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-200"
-      }`}
+      {...stylex.props(s.filterButton, active ? s.filterButtonOn : s.filterButtonOff)}
     >
       <ListFilter size={13} />
     </button>
@@ -446,13 +919,13 @@ const RANGE_LABELS: Record<StatsRange, string> = {
   "7d": "last 7d",
   "30d": "last 30d",
   "90d": "last 90d",
-  all: "all time",
+  all: "all time"
 };
 
 function CostTrend({
   daily,
   range,
-  windowLabel,
+  windowLabel
 }: {
   daily?: DailyStatsRow[];
   range: StatsRange;
@@ -466,21 +939,21 @@ function CostTrend({
       ) : daily.length === 0 ? (
         <PanelEmpty label="No spend in this window." />
       ) : (
-        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-          {/* h-40, not flex-1 + min-h-40: the bars are sized with percentage
-              heights, and a percentage only resolves against a definite parent
-              height. This row sits in an items-start grid, so the panel is not
-              stretched and a min-height alone left every bar at 0px. */}
+        <div {...stylex.props(s.chartBody)}>
+          {/* BarChart carries its own 10rem height, not flex-1 + min-height: the
+              bars are sized with percentage heights, and a percentage only
+              resolves against a definite parent height. This row sits in an
+              items-start grid, so the panel is not stretched and a min-height
+              alone left every bar at 0px. */}
           <BarChart
-            height="h-40"
             bars={daily.map((d) => ({
               key: d.day,
               value: d.cost,
-              title: `${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`,
+              title: `${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`
             }))}
           />
           {/* No axes: this caption row carries the endpoints and the peak. */}
-          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-600 tabular-nums">
+          <div {...stylex.props(s.caption)}>
             <span>{daily[0].day}</span>
             <span>{formatCost(max)} peak</span>
             <span>{daily[daily.length - 1].day}</span>
@@ -494,7 +967,7 @@ function CostTrend({
 function ProjectStats({
   projects,
   active,
-  onFilter,
+  onFilter
 }: {
   projects?: ProjectStatsRow[];
   active?: string;
@@ -507,15 +980,15 @@ function ProjectStats({
       ) : projects.length === 0 ? (
         <PanelEmpty label="No reviews for these filters." />
       ) : (
-        <div className="overflow-x-auto">
+        <div {...stylex.props(s.scrollX)}>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Project</TableHead>
-                <TableHead className="text-right">Reviews</TableHead>
-                <TableHead className="text-right">Avg time</TableHead>
-                <TableHead className="text-right">Tokens</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
+                <TableHead style={s.right}>Reviews</TableHead>
+                <TableHead style={s.right}>Avg time</TableHead>
+                <TableHead style={s.right}>Tokens</TableHead>
+                <TableHead style={s.right}>Cost</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -523,19 +996,19 @@ function ProjectStats({
                 const [owner, name] = p.repo_full_name.split("/");
                 const isActive = active === p.repo_full_name;
                 return (
-                  <TableRow key={p.repo_full_name} className={isActive ? "bg-ember-950/25" : ""}>
-                    <TableCell className="py-2.5">
-                      <div className="flex items-center gap-1.5">
+                  <TableRow key={p.repo_full_name} style={isActive ? s.rowActive : undefined}>
+                    <TableCell style={s.cellTight}>
+                      <div {...stylex.props(s.nameRow)}>
                         {owner && name ? (
                           <Link
                             to="/repos/$owner/$name"
                             params={{ owner, name }}
-                            className="font-mono text-zinc-200 hover:text-ember-300"
+                            {...stylex.props(s.monoLink)}
                           >
                             {p.repo_full_name}
                           </Link>
                         ) : (
-                          <span className="font-mono text-zinc-200">{p.repo_full_name}</span>
+                          <span {...stylex.props(s.mono, s.z200)}>{p.repo_full_name}</span>
                         )}
                         <FilterButton
                           label={
@@ -548,16 +1021,16 @@ function ProjectStats({
                         />
                       </div>
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                       {p.reviews}
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                       {formatSeconds(p.avg_duration) ?? "—"}
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                       {formatTokens(p.tokens) ?? "—"}
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
                       {formatCost(p.cost) ?? "—"}
                     </TableCell>
                   </TableRow>
@@ -574,7 +1047,7 @@ function ProjectStats({
 function ModelStats({
   models,
   active,
-  onFilter,
+  onFilter
 }: {
   models?: ModelStatsRow[];
   active?: string;
@@ -587,41 +1060,42 @@ function ModelStats({
       ) : models.length === 0 ? (
         <PanelEmpty label="No models for these filters." />
       ) : (
-        <div className="overflow-x-auto">
+        <div {...stylex.props(s.scrollX)}>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Model</TableHead>
-                <TableHead className="text-right">Reviews</TableHead>
-                <TableHead className="text-right">Tokens</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
+                <TableHead style={s.right}>Reviews</TableHead>
+                <TableHead style={s.right}>Tokens</TableHead>
+                <TableHead style={s.right}>Cost</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {models.map((m) => {
                 const isActive = active === m.model;
                 return (
-                  <TableRow key={m.model} className={isActive ? "bg-ember-950/25" : ""}>
-                    <TableCell className="py-2.5">
+                  <TableRow key={m.model} style={isActive ? s.rowActive : undefined}>
+                    <TableCell style={s.cellTight}>
                       {/* No detail page for a model, so the whole name is the filter. */}
                       <button
                         type="button"
                         aria-pressed={isActive}
                         onClick={() => onFilter(isActive ? undefined : m.model)}
-                        className={`font-mono text-left transition-colors cursor-pointer ${
-                          isActive ? "text-ember-300" : "text-zinc-200 hover:text-ember-300"
-                        }`}
+                        {...stylex.props(
+                          s.modelButton,
+                          isActive ? s.modelButtonOn : s.modelButtonOff,
+                        )}
                       >
                         {m.model}
                       </button>
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                       {m.reviews}
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                       {formatTokens(m.tokens) ?? "—"}
                     </TableCell>
-                    <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
+                    <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
                       {formatCost(m.cost) ?? "—"}
                     </TableCell>
                   </TableRow>
@@ -643,29 +1117,25 @@ function TopCost({ rows }: { rows?: Stats["topCost"] }) {
       ) : rows.length === 0 ? (
         <PanelEmpty label="Nothing costed yet." />
       ) : (
-        <ul className="divide-y divide-zinc-800/70">
+        <ul>
           {rows.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} {...stylex.props(s.listItem)}>
               <Link
                 to="/reviews/$id"
                 params={{ id: String(r.id) }}
-                className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-zinc-800/40"
+                {...stylex.props(s.costLink)}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-sm text-zinc-200 truncate">
+                <div {...stylex.props(s.costMain)}>
+                  <div {...stylex.props(s.costRepo)}>
                     {r.repo_full_name}
                     {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                   </div>
-                  {r.model && <div className="text-xs text-zinc-500 truncate">{r.model}</div>}
+                  {r.model && <div {...stylex.props(s.xs, s.z500, s.truncate)}>{r.model}</div>}
                 </div>
                 {r.tokens != null && (
-                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums w-14 text-right">
-                    {formatTokens(r.tokens)}
-                  </span>
+                  <span {...stylex.props(s.costTokens)}>{formatTokens(r.tokens)}</span>
                 )}
-                <span className="shrink-0 text-sm text-zinc-100 tabular-nums w-16 text-right">
-                  {formatCost(r.cost)}
-                </span>
+                <span {...stylex.props(s.costValue)}>{formatCost(r.cost)}</span>
               </Link>
             </li>
           ))}
@@ -680,7 +1150,7 @@ function TriggerMix({ triggers }: { triggers?: TriggerStatsRow[] }) {
     key: t.trigger,
     label: triggerLabel(t.trigger) ?? t.trigger,
     count: t.count,
-    color: TRIGGER_COLORS[i % TRIGGER_COLORS.length],
+    color: TRIGGER_COLORS[i % TRIGGER_COLORS.length]!
   }));
   return (
     <Panel title="How reviews start">
@@ -696,11 +1166,11 @@ function TriggerMix({ triggers }: { triggers?: TriggerStatsRow[] }) {
 }
 
 function SeverityMix({ severity }: { severity?: SeverityStatsRow[] }) {
-  const items = (severity ?? []).map((s) => ({
-    key: s.severity,
-    label: s.severity,
-    count: s.count,
-    color: SEVERITY_COLORS[s.severity] ?? "bg-zinc-500",
+  const items = (severity ?? []).map((row) => ({
+    key: row.severity,
+    label: row.severity,
+    count: row.count,
+    color: SEVERITY_COLORS[row.severity] ?? UNKNOWN_SEVERITY_COLOR
   }));
   return (
     <Panel title="Findings by severity">
@@ -723,50 +1193,52 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
       ) : rows.length === 0 ? (
         <PanelEmpty label="No reviews match these filters." />
       ) : (
-        <div className="overflow-x-auto">
+        <div {...stylex.props(s.scrollX)}>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12">#</TableHead>
+                <TableHead style={s.headNarrow}>#</TableHead>
                 <TableHead>Review</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Trigger</TableHead>
-                <TableHead className="text-right">Took</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Started</TableHead>
+                <TableHead style={s.right}>Took</TableHead>
+                <TableHead style={s.right}>Cost</TableHead>
+                <TableHead style={s.right}>Started</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="py-2.5 tabular-nums text-zinc-500">{r.id}</TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell style={[s.cellTight, s.num, s.z500]}>{r.id}</TableCell>
+                  <TableCell style={s.cellTight}>
                     <Link
                       to="/reviews/$id"
                       params={{ id: String(r.id) }}
-                      className="font-mono text-zinc-200 hover:text-ember-300 whitespace-nowrap"
+                      {...stylex.props(s.monoLink, s.nowrap)}
                     >
                       {r.repo_full_name}
                       {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                     </Link>
-                    {r.model && <div className="text-xs text-zinc-600 truncate">{r.model}</div>}
+                    {r.model && (
+                      <div {...stylex.props(s.xs, s.z600, s.truncate)}>{r.model}</div>
+                    )}
                   </TableCell>
-                  <TableCell className="py-2.5">
+                  <TableCell style={s.cellTight}>
                     <Badge status={r.status} />
                   </TableCell>
-                  <TableCell className="py-2.5 text-zinc-400 text-xs">
+                  <TableCell style={[s.cellTight, s.xs, s.z400]}>
                     {triggerLabel(r.trigger) ?? "—"}
                   </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
+                  <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
                     {r.completed_at
                       ? (formatSeconds(r.completed_at - r.created_at) ?? "—")
                       : "—"}
                   </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
+                  <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
                     {formatCost(r.cost) ?? "—"}
                   </TableCell>
                   <TableCell
-                    className="py-2.5 text-right tabular-nums text-zinc-500 whitespace-nowrap"
+                    style={[s.cellTight, s.right, s.num, s.z500, s.nowrap]}
                     title={new Date(r.created_at * 1000).toLocaleString()}
                   >
                     {timeAgo(r.created_at)}
@@ -810,40 +1282,43 @@ function Reliability({ rows }: { rows?: ReliabilityRow[] }) {
       ) : rows.length === 0 ? (
         <PanelEmpty label="No reviews in this window." />
       ) : (
-        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-semibold tabular-nums text-zinc-100">
+        <div {...stylex.props(s.chartBody)}>
+          <div {...stylex.props(s.rateRow)}>
+            <span {...stylex.props(s.rate)}>
               {rate === null ? "—" : `${rate.toFixed(1)}%`}
             </span>
-            <span className="text-xs text-zinc-500">
+            <span {...stylex.props(s.rateSub)}>
               {settled === 0
                 ? "nothing settled yet"
                 : `${totals.completed} of ${settled} succeeded`}
             </span>
           </div>
-          <div className="mt-3">
+          <div {...stylex.props(s.chartGap)}>
             {/* Stack order matches the legend: failed on top, so a bad day
                 reads as a red cap rather than a hidden slice. */}
             <StackedBarChart
-              height="h-32"
               bars={rows.map((r) => ({
                 key: r.day,
                 title: `${r.day} · ${r.completed} completed · ${r.failed} failed${
                   r.in_flight ? ` · ${r.in_flight} in flight` : ""
                 }`,
                 segments: [
-                  { key: "in_flight", value: r.in_flight, className: "bg-zinc-600" },
-                  { key: "failed", value: r.failed, className: "bg-red-400" },
-                  { key: "completed", value: r.completed, className: "rounded-b bg-emerald-500/80" },
-                ],
+                  { key: "in_flight", value: r.in_flight, style: outcome.inFlight },
+                  { key: "failed", value: r.failed, style: outcome.failed },
+                  {
+                    key: "completed",
+                    value: r.completed,
+                    style: [outcome.completed, BAR_ROUNDED_BOTTOM]
+                  },
+                ]
               }))}
             />
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
-            <LegendDot className="bg-emerald-500/80" label={`completed ${totals.completed}`} />
-            <LegendDot className="bg-red-400" label={`failed ${totals.failed}`} />
+          <div {...stylex.props(s.legendRow)}>
+            <LegendDot style={outcome.completed} label={`completed ${totals.completed}`} />
+            <LegendDot style={outcome.failed} label={`failed ${totals.failed}`} />
             {totals.inFlight > 0 && (
-              <LegendDot className="bg-zinc-600" label={`in flight ${totals.inFlight}`} />
+              <LegendDot style={outcome.inFlight} label={`in flight ${totals.inFlight}`} />
             )}
           </div>
         </div>
@@ -862,12 +1337,12 @@ function LatencyTrend({ rows, truncated }: { rows?: LatencyDayRow[]; truncated?:
       ) : rows.length === 0 ? (
         <PanelEmpty label="No completed reviews in this window." />
       ) : (
-        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-          <div className="flex items-end gap-1 h-32">
+        <div {...stylex.props(s.chartBody)}>
+          <div {...stylex.props(s.latencyRow)}>
             {rows.map((r) => (
               <div
                 key={r.day}
-                className="relative flex-1 min-w-0 h-full"
+                {...stylex.props(s.latencyColumn)}
                 title={`${r.day} · p50 ${formatSeconds(r.p50) ?? "—"} · p95 ${
                   formatSeconds(r.p95) ?? "—"
                 } · ${r.count} review${r.count === 1 ? "" : "s"}`}
@@ -875,25 +1350,31 @@ function LatencyTrend({ rows, truncated }: { rows?: LatencyDayRow[]; truncated?:
                 {/* p95 as the pale column, p50 as the solid one inside it —
                     two bars, no line maths, same idiom as the cost trend. */}
                 <div
-                  className="absolute inset-x-0 bottom-0 rounded-t bg-ember-500/25"
-                  style={{ height: `${Math.max(2, ((r.p95 ?? 0) / max) * 100)}%` }}
+                  {...stylex.props(
+                    s.latencyBar,
+                    s.latencyP95,
+                    s.barHeight(`${Math.max(2, ((r.p95 ?? 0) / max) * 100)}%`),
+                  )}
                 />
                 <div
-                  className="absolute inset-x-0 bottom-0 rounded-t bg-ember-500/80"
-                  style={{ height: `${Math.max(2, ((r.p50 ?? 0) / max) * 100)}%` }}
+                  {...stylex.props(
+                    s.latencyBar,
+                    s.latencyP50,
+                    s.barHeight(`${Math.max(2, ((r.p50 ?? 0) / max) * 100)}%`),
+                  )}
                 />
               </div>
             ))}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
-            <LegendDot className="bg-ember-500/80" label="p50" />
-            <LegendDot className="bg-ember-500/25" label="p95" />
-            <span className="ml-auto tabular-nums">
+          <div {...stylex.props(s.legendRow, s.legendRowCentred)}>
+            <LegendDot style={latency.p50} label="p50" />
+            <LegendDot style={latency.p95} label="p95" />
+            <span {...stylex.props(s.pushRight)}>
               {rows[0]!.day} → {rows[rows.length - 1]!.day}
             </span>
           </div>
           {truncated && (
-            <p className="mt-1 text-[0.7rem] text-amber-500/80">
+            <p {...stylex.props(s.truncatedNote)}>
               Window capped at 5000 completed reviews; trend covers the oldest of them.
             </p>
           )}
@@ -914,8 +1395,8 @@ function FindingsTrend({ rows }: { rows?: FindingsDailyRow[] }) {
     byDay.set(r.day, bucket);
   }
   const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const totalOf = (m: Record<string, number>) => Object.values(m).reduce((s, n) => s + n, 0);
-  const grand = days.reduce((s, [, m]) => s + totalOf(m), 0);
+  const totalOf = (m: Record<string, number>) => Object.values(m).reduce((sum, n) => sum + n, 0);
+  const grand = days.reduce((sum, [, m]) => sum + totalOf(m), 0);
 
   return (
     <Panel title="Findings per day">
@@ -924,28 +1405,30 @@ function FindingsTrend({ rows }: { rows?: FindingsDailyRow[] }) {
       ) : days.length === 0 ? (
         <PanelEmpty label="No findings in this window." />
       ) : (
-        <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
+        <div {...stylex.props(s.chartBody)}>
           <StackedBarChart
-            height="h-32"
             bars={days.map(([day, mix]) => ({
               key: day,
-              title: `${day} · ${SEVERITY_ORDER.filter((s) => mix[s])
-                .map((s) => `${mix[s]} ${s}`)
+              title: `${day} · ${SEVERITY_ORDER.filter((sev) => mix[sev])
+                .map((sev) => `${mix[sev]} ${sev}`)
                 .join(" · ")}`,
               // Filtered before the map so `i` indexes the slices that actually
               // render — only the last one gets the rounded bottom.
-              segments: SEVERITY_ORDER.filter((s) => mix[s]).map((s, i) => ({
-                key: s,
-                value: mix[s]!,
-                className: `${SEVERITY_COLORS[s]} ${i === SEVERITY_ORDER.length - 1 ? "rounded-b" : ""}`,
-              })),
+              segments: SEVERITY_ORDER.filter((sev) => mix[sev]).map((sev, i) => ({
+                key: sev,
+                value: mix[sev]!,
+                style:
+                  i === SEVERITY_ORDER.length - 1
+                    ? [SEVERITY_COLORS[sev]!, BAR_ROUNDED_BOTTOM]
+                    : SEVERITY_COLORS[sev]!
+              }))
             }))}
           />
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-500">
-            {SEVERITY_ORDER.map((s) => (
-              <LegendDot key={s} className={SEVERITY_COLORS[s]!} label={s} />
+          <div {...stylex.props(s.legendRow)}>
+            {SEVERITY_ORDER.map((sev) => (
+              <LegendDot key={sev} style={SEVERITY_COLORS[sev]!} label={sev} />
             ))}
-            <span className="ml-auto tabular-nums">{grand} total</span>
+            <span {...stylex.props(s.pushRight)}>{grand} total</span>
           </div>
         </div>
       )}
@@ -962,21 +1445,20 @@ function TopFiles({ rows }: { rows?: TopFileRow[] }) {
       ) : rows.length === 0 ? (
         <PanelEmpty label="No findings with a file in this window." />
       ) : (
-        <ul className="divide-y divide-zinc-800/80">
+        <ul>
           {rows.map((r) => (
-            <li key={r.path} className="relative px-4 py-2">
+            <li key={r.path} {...stylex.props(s.listItemFaint, s.fileItem)}>
               {/* Horizontal bar behind the label, so the row reads as both a
                   list entry and a magnitude. */}
               <div
                 aria-hidden
-                className="absolute inset-y-0 left-0 bg-ember-500/10"
-                style={{ width: `${(r.count / max) * 100}%` }}
+                {...stylex.props(s.fileBar, s.barWidth(`${(r.count / max) * 100}%`))}
               />
-              <div className="relative flex items-center justify-between gap-3">
-                <span className="truncate font-mono text-xs text-zinc-300" title={r.path}>
+              <div {...stylex.props(s.fileRow)}>
+                <span {...stylex.props(s.filePath)} title={r.path}>
                   {r.path}
                 </span>
-                <span className="shrink-0 text-xs tabular-nums text-zinc-400">{r.count}</span>
+                <span {...stylex.props(s.fileCount)}>{r.count}</span>
               </div>
             </li>
           ))}

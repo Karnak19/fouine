@@ -1,37 +1,83 @@
-import { cn } from "@/lib/utils";
+import * as stylex from "@stylexjs/stylex";
+import { color, leading, radius, space, text } from "@/tokens.stylex";
 
-const variants: Record<string, { dot: string; pill: string; label?: string }> = {
-  pending: { dot: "bg-zinc-500", pill: "bg-zinc-800/60 text-zinc-400 ring-zinc-700/50" },
-  running: { dot: "bg-ember-400", pill: "bg-ember-950/50 text-ember-300 ring-ember-800/40" },
-  completed: {
-    dot: "bg-emerald-400",
-    pill: "bg-emerald-950/40 text-emerald-300 ring-emerald-800/40",
-    label: "completed",
+const s = stylex.create({
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.x6,
+    borderRadius: radius.full,
+    paddingInline: space.x8,
+    paddingBlock: space.x2,
+    fontSize: text.xs, lineHeight: leading.xs,
+    fontWeight: 500,
+    fontVariantNumeric: "tabular-nums",
+    // `ring-1` was a non-inset box-shadow; outline at offset 0 paints in the
+    // same place and follows the pill radius, without a shadow token.
+    outlineWidth: "1px",
+    outlineStyle: "solid",
+    outlineOffset: "0"
   },
-  failed: { dot: "bg-red-400", pill: "bg-red-950/40 text-red-300 ring-red-800/40" },
+  dot: {
+    height: space.x6,
+    width: space.x6,
+    borderRadius: radius.full
+  },
+  pulse: {
+    animationName: "fouine-pulse",
+    animationDuration: "1.4s",
+    animationTimingFunction: "ease-in-out",
+    animationIterationCount: "infinite"
+  }
+});
+
+const pills = stylex.create({
+  pending: {
+    backgroundColor: `color-mix(in oklab, ${color.zinc800} 60%, transparent)`,
+    color: color.zinc400,
+    outlineColor: `color-mix(in oklab, ${color.zinc700} 50%, transparent)`
+  },
+  running: {
+    backgroundColor: `color-mix(in oklab, ${color.ember950} 50%, transparent)`,
+    color: color.ember300,
+    outlineColor: `color-mix(in oklab, ${color.ember800} 40%, transparent)`
+  },
+  completed: {
+    backgroundColor: `color-mix(in oklab, ${color.okSurfaceDeep} 40%, transparent)`,
+    color: color.okText,
+    outlineColor: `color-mix(in oklab, ${color.okSurface} 40%, transparent)`
+  },
+  failed: {
+    backgroundColor: `color-mix(in oklab, ${color.dangerSurfaceDeep} 40%, transparent)`,
+    color: color.dangerText,
+    outlineColor: `color-mix(in oklab, ${color.dangerSurfaceHover} 40%, transparent)`
+  },
   // Not an outcome — the push carried no diff change, so nothing ran. Muted on
   // purpose: it should read as "nothing to see", not as a result.
-  skipped: { dot: "bg-sky-400", pill: "bg-sky-950/40 text-sky-300 ring-sky-800/40" },
-};
+  skipped: {
+    backgroundColor: `color-mix(in oklab, ${color.infoSurfaceDeep} 40%, transparent)`,
+    color: color.infoText,
+    outlineColor: `color-mix(in oklab, ${color.infoSurface} 40%, transparent)`
+  }
+});
 
-export function Badge({ status, className }: { status: string; className?: string }) {
-  const v = variants[status] ?? variants.pending;
+const dots = stylex.create({
+  pending: { backgroundColor: color.zinc500 },
+  running: { backgroundColor: color.ember400 },
+  completed: { backgroundColor: color.okDot },
+  failed: { backgroundColor: color.dangerDot },
+  // cat2 is byte-identical to Tailwind sky-400; there is no infoDot token.
+  skipped: { backgroundColor: color.cat2 }
+});
+
+type Status = keyof typeof dots;
+
+export function Badge({ status, style }: { status: string; style?: stylex.StyleXStyles }) {
+  const key: Status = status in dots ? (status as Status) : "pending";
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 tabular-nums",
-        v.pill,
-        className,
-      )}
-    >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          v.dot,
-          status === "running" && "animate-[fouine-pulse_1.4s_ease-in-out_infinite]",
-        )}
-      />
-      {v.label ?? status}
+    <span {...stylex.props(s.pill, pills[key], style)}>
+      <span {...stylex.props(s.dot, dots[key], key === "running" && s.pulse)} />
+      {status}
     </span>
   );
 }
