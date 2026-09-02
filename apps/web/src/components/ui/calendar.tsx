@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { attrStyle } from "@/lib/sx";
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { DayPicker, getDefaultClassNames, type DayButton } from "react-day-picker";
 
@@ -186,6 +187,21 @@ const dayButton = stylex.create({
     gap: space.x4,
     lineHeight: 1,
     fontWeight: 400,
+    // Keyboard focus ring. `main` drew this from the ancestor <td>
+    // (`group-data-[focused=true]/day:ring-[3px] ring-ring/50 border-ring
+    // relative z-10`), which StyleX cannot reach — it has no ancestor
+    // combinator. It lands on the button itself instead: the effect below
+    // calls ref.current.focus() whenever day-picker marks a day focused, so
+    // arrow-key navigation produces real DOM focus and :focus-visible matches.
+    // position/zIndex reproduce the `relative z-10` that keeps the ring from
+    // being clipped by the neighbouring cells.
+    position: { default: null, ":focus-visible": "relative" },
+    zIndex: { default: null, ":focus-visible": 10 },
+    borderColor: { default: null, ":focus-visible": color.ring },
+    boxShadow: {
+      default: null,
+      ":focus-visible": `0 0 0 3px color-mix(in oklab, ${color.ring} 50%, transparent)`
+    },
     borderRadius: {
       default: null,
       '[data-range-end="true"]': radius.md,
@@ -326,12 +342,9 @@ function CalendarDayButton({
       data-range-start={modifiers.range_start}
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
-      // `dayButton.base` keys borderRadius/backgroundColor/color on arbitrary
-      // attribute selectors, so those properties type as `unknown` and the bare
-      // `stylex.StyleXStyles` on Button's `style` prop rejects them. The cast is
-      // the boundary fix; loosening Button's annotation is the real one, but
-      // that file is owned elsewhere.
-      style={dayButton.base as stylex.StyleXStyles}
+      // dayButton.base keys three properties on arbitrary attribute selectors,
+      // which Button's `style` annotation rejects — see lib/sx.ts.
+      style={attrStyle(dayButton.base)}
       {...props}
     />
   );

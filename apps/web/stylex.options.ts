@@ -22,4 +22,11 @@ export const stylexOptions = {
   // at runtime in dev only. Vite needs none of this — it appends StyleX's CSS
   // straight into the hashed prod bundle.
   bunDevCssOutput: resolve(root, "src", "stylex.dev.css"),
+  // Deliberately NOT setting devPersistToDisk here. It looks like the lever for
+  // the dev-mode theme problem, but persistRulesToDisk() writes rules.json
+  // without mkdir'ing its parent, so the first-run ENOENT is swallowed by an
+  // empty catch and nothing is ever persisted. It would not have helped anyway:
+  // tokens.stylex.ts is not skipped because it is cached, it is never in Bun's
+  // graph at all (StyleX strips the import from consumers). The fix is the
+  // side-effect import in src/index.tsx.
 };
