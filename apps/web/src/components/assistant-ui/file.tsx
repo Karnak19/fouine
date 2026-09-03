@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { FileMessagePartComponent } from "@assistant-ui/react";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   root: {
@@ -28,7 +29,6 @@ const s = stylex.create({
 
   icon: { color: color.mutedForeground, flexShrink: 0 },
   icon5: { height: space.x20, width: space.x20 },
-  icon4: { height: space.x16, width: space.x16 },
 
   name: {
     minWidth: 0,
@@ -270,7 +270,7 @@ function FileDownload({
       {...props}
       {...stylex.props(s.download, style)}
     >
-      {children || <DownloadIcon {...stylex.props(s.icon4)} />}
+      {children || <DownloadIcon {...stylex.props(shared.icon)} />}
     </a>
   );
 }

@@ -28,6 +28,7 @@ import {
   space,
   text
 } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import { attrStyle } from "@/lib/sx";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -247,14 +248,12 @@ const s = stylex.create({
     alignItems: "center",
     justifyContent: "flex-end"
   },
-  composerActions: { display: "flex", alignItems: "center", gap: space.x6 },
   composerButton: {
     height: space.x28,
     width: space.x28,
     borderRadius: radius.full
   },
   destructive: { color: color.destructive },
-  icon4: { height: space.x16, width: space.x16 },
   // TOKEN MISSING: 1.125rem (size-4.5)
   icon45: { height: "1.125rem", width: "1.125rem" },
   icon35: { height: space.x14, width: space.x14 },
@@ -684,7 +683,7 @@ const Composer: FC = () => {
 
 const ComposerAction: FC = () => {
   const wrapper = stylex.props(s.composerActionWrapper);
-  const dictateIcon = stylex.props(s.icon4);
+  const dictateIcon = stylex.props(shared.icon);
   const stopDictationIcon = stylex.props(s.icon35, s.pulse, s.fillCurrent);
   const sendIcon = stylex.props(s.icon45);
   const cancelIcon = stylex.props(s.icon35, s.fillCurrent);
@@ -694,7 +693,7 @@ const ComposerAction: FC = () => {
       {...wrapper}
       className={`aui-composer-action-wrapper ${wrapper.className ?? ""}`}
     >
-      <div {...stylex.props(s.composerActions)}>
+      <div {...stylex.props(shared.rowTight)}>
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
@@ -958,7 +957,7 @@ const AssistantActionBar: FC = () => {
               {...item}
               className={`aui-action-bar-more-item ${item.className ?? ""}`}
             >
-              <DownloadIcon {...stylex.props(s.icon4)} />
+              <DownloadIcon {...stylex.props(shared.icon)} />
               Export as Markdown
             </ActionBarMorePrimitive.Item>
           </ActionBarPrimitive.ExportMarkdown>

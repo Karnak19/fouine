@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 export interface MixBarItem {
   key: string;
@@ -39,11 +40,6 @@ const s = stylex.create({
     gap: space.x6,
     fontVariantNumeric: "tabular-nums"
   },
-  dot: {
-    height: space.x8,
-    width: space.x8,
-    borderRadius: radius.full
-  },
   count: { color: color.zinc600 }
 });
 
@@ -68,7 +64,7 @@ export function MixBar({ items }: { items: MixBarItem[] }) {
       <div {...stylex.props(s.legend)}>
         {items.map((i) => (
           <span key={i.key} {...stylex.props(s.entry)}>
-            <span {...stylex.props(s.dot, i.color)} />
+            <span {...stylex.props(shared.dotLarge, i.color)} />
             {i.label}
             <span {...stylex.props(s.count)}>{i.count}</span>
           </span>

@@ -10,6 +10,7 @@ import {
 import { ChartToolUI } from "@/components/assistant-ui/chart-tool-ui";
 import * as stylex from "@stylexjs/stylex";
 import { color, font, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   label: {
@@ -29,8 +30,7 @@ const s = stylex.create({
     lineHeight: "calc(1 / 0.75)",
     whiteSpace: "pre-wrap"
   },
-  mono: { fontFamily: font.mono },
-  tabular: { fontVariantNumeric: "tabular-nums" }
+  mono: { fontFamily: font.mono }
 });
 
 /**
@@ -63,7 +63,7 @@ const QueryStatsToolUI: ToolCallMessagePartComponent<{ sql?: string }, string> =
         {result !== undefined && (
           <div>
             <p {...stylex.props(s.label)}>Rows</p>
-            <pre {...stylex.props(s.block, s.tabular)}>
+            <pre {...stylex.props(s.block, shared.tabular)}>
               {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
             </pre>
           </div>

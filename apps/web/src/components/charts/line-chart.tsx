@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { color, space } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import { scaleMax } from "./scale";
 
 // The one SVG in this codebase. Everything else here is divs with percentage
@@ -30,12 +31,6 @@ const s = stylex.create({
     position: "absolute",
     inset: 0,
     display: "flex"
-  },
-  hoverColumn: {
-    minWidth: 0,
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: "0%"
   }
 });
 
@@ -96,7 +91,7 @@ export function LineChart({
           per point is an easier target than a 2px dot anyway. */}
       <div {...stylex.props(s.hoverRow)}>
         {points.map((p) => (
-          <div key={p.key} title={p.title} {...stylex.props(s.hoverColumn)} />
+          <div key={p.key} title={p.title} {...stylex.props(shared.fill)} />
         ))}
       </div>
     </div>

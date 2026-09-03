@@ -6,6 +6,7 @@ import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const RING = `0 0 0 3px color-mix(in oklab, ${color.ring} 50%, transparent)`;
 const RING_INVALID = `0 0 0 3px color-mix(in oklab, ${color.destructive} 20%, transparent)`;
@@ -128,12 +129,6 @@ const s = stylex.create({
     pointerEvents: { default: null, "[data-disabled]": "none" },
     opacity: { default: null, "[data-disabled]": 0.5 }
   },
-  // Was `*:[span]:last:*` on the item — that last span is exactly this one.
-  itemText: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8
-  },
   itemIndicator: {
     position: "absolute",
     right: space.x8,
@@ -157,12 +152,6 @@ const s = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     paddingBlock: space.x4
-  },
-  icon: {
-    height: space.x16,
-    width: space.x16,
-    pointerEvents: "none",
-    flexShrink: 0
   },
   triggerIcon: {
     height: space.x16,
@@ -274,10 +263,11 @@ function SelectItem({
     <SelectPrimitive.Item data-slot="select-item" {...props} {...stylex.props(s.item, style)}>
       <span data-slot="select-item-indicator" {...stylex.props(s.itemIndicator)}>
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon {...stylex.props(s.icon)} />
+          <CheckIcon {...stylex.props(shared.iconStatic)} />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText {...stylex.props(s.itemText)}>{children}</SelectPrimitive.ItemText>
+      {/* Was `*:[span]:last:*` on the item — that last span is exactly this one. */}
+      <SelectPrimitive.ItemText {...stylex.props(shared.row)}>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }
@@ -309,7 +299,7 @@ function SelectScrollUpButton({
       {...props}
       {...stylex.props(s.scrollButton, style)}
     >
-      <ChevronUpIcon {...stylex.props(s.icon)} />
+      <ChevronUpIcon {...stylex.props(shared.iconStatic)} />
     </SelectPrimitive.ScrollUpButton>
   );
 }
@@ -326,7 +316,7 @@ function SelectScrollDownButton({
       {...props}
       {...stylex.props(s.scrollButton, style)}
     >
-      <ChevronDownIcon {...stylex.props(s.icon)} />
+      <ChevronDownIcon {...stylex.props(shared.iconStatic)} />
     </SelectPrimitive.ScrollDownButton>
   );
 }

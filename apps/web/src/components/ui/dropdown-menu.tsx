@@ -6,6 +6,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   content: {
@@ -129,12 +130,6 @@ const s = stylex.create({
     alignItems: "center",
     justifyContent: "center"
   },
-  icon: {
-    height: space.x16,
-    width: space.x16,
-    pointerEvents: "none",
-    flexShrink: 0
-  },
   radioDot: {
     height: space.x8,
     width: space.x8,
@@ -247,7 +242,7 @@ function DropdownMenuCheckboxItem({
     >
       <span {...stylex.props(s.indicatorSlot)}>
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon {...stylex.props(s.icon)} />
+          <CheckIcon {...stylex.props(shared.iconStatic)} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}

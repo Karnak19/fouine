@@ -8,6 +8,7 @@ import { DayPicker, getDefaultClassNames, type DayButton } from "react-day-picke
 
 import { Button } from "@/components/ui/button";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 // react-day-picker takes a `classNames` map of slot -> class string, so every
 // StyleX rule for a slot has to be flattened back into a class name here. The
@@ -163,8 +164,7 @@ const s = stylex.create({
   },
   outside: { color: color.mutedForeground },
   disabled: { color: color.mutedForeground, opacity: 0.5 },
-  hidden: { visibility: "hidden" },
-  chevron: { width: space.x16, height: space.x16 }
+  hidden: { visibility: "hidden" }
 });
 
 const navVariants = stylex.create({
@@ -291,14 +291,14 @@ function Calendar({
         },
         Chevron: ({ className, orientation, ...props }) => {
           if (orientation === "left") {
-            return <ChevronLeftIcon className={rdp(className ?? "", s.chevron)} {...props} />;
+            return <ChevronLeftIcon className={rdp(className ?? "", shared.icon)} {...props} />;
           }
 
           if (orientation === "right") {
-            return <ChevronRightIcon className={rdp(className ?? "", s.chevron)} {...props} />;
+            return <ChevronRightIcon className={rdp(className ?? "", shared.icon)} {...props} />;
           }
 
-          return <ChevronDownIcon className={rdp(className ?? "", s.chevron)} {...props} />;
+          return <ChevronDownIcon className={rdp(className ?? "", shared.icon)} {...props} />;
         },
         DayButton: CalendarDayButton,
         WeekNumber: ({ children, ...props }) => {

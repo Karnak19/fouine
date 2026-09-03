@@ -16,6 +16,7 @@ import {
   scaleMax
 } from "@/components/charts";
 import { color, leading, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   // max-w and min-w-0 together: the chart fills the message column but never
@@ -68,11 +69,6 @@ const s = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     textAlign: "center"
-  },
-  truncate: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
   },
   noShrink: { flexShrink: 0 },
 
@@ -205,11 +201,11 @@ function CategoryAxis({ cats, peak }: { cats: string[]; peak?: number }) {
   }
   return (
     <div {...stylex.props(s.caption, s.endpoints)}>
-      <span {...stylex.props(s.truncate)}>{cats[0]}</span>
+      <span {...stylex.props(shared.truncate)}>{cats[0]}</span>
       {peak !== undefined && (
         <span {...stylex.props(s.noShrink)}>{formatValue(peak)} peak</span>
       )}
-      <span {...stylex.props(s.truncate)}>{cats[cats.length - 1]}</span>
+      <span {...stylex.props(shared.truncate)}>{cats[cats.length - 1]}</span>
     </div>
   );
 }

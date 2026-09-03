@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { Button } from "@/components/ui/button";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   overlay: {
@@ -50,12 +51,6 @@ const s = stylex.create({
     outlineColor: color.ring,
     outlineOffset: "2px",
     pointerEvents: { default: null, ":disabled": "none" }
-  },
-  closeIcon: {
-    pointerEvents: "none",
-    flexShrink: 0,
-    width: space.x16,
-    height: space.x16
   },
   srOnly: {
     position: "absolute",
@@ -146,7 +141,7 @@ function DialogContent({
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" {...stylex.props(s.close)}>
-            <XIcon {...stylex.props(s.closeIcon)} />
+            <XIcon {...stylex.props(shared.iconStatic)} />
             <span {...stylex.props(s.srOnly)}>Close</span>
           </DialogPrimitive.Close>
         )}

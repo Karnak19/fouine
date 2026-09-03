@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { color, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const ANIMATION_DURATION = 200;
 
@@ -191,7 +192,6 @@ const s = stylex.create({
     fontSize: text.xs,
     lineHeight: 1.33333
   },
-  buttonRow: { display: "flex", alignItems: "center", gap: space.x8 },
   approvalRow: {
     display: "flex",
     alignItems: "center",
@@ -654,7 +654,7 @@ function ToolFallbackApproval({
             ))}
           </ul>
         )}
-        <div {...stylex.props(s.buttonRow)}>
+        <div {...stylex.props(shared.row)}>
           <Button
             size="sm"
             sx={s.pressable}

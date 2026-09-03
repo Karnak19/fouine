@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   pill: {
@@ -17,11 +18,6 @@ const s = stylex.create({
     outlineWidth: "1px",
     outlineStyle: "solid",
     outlineOffset: "0"
-  },
-  dot: {
-    height: space.x6,
-    width: space.x6,
-    borderRadius: radius.full
   },
   pulse: {
     animationName: "fouine-pulse",
@@ -76,7 +72,7 @@ export function Badge({ status, style }: { status: string; style?: stylex.StyleX
   const key: Status = status in dots ? (status as Status) : "pending";
   return (
     <span {...stylex.props(s.pill, pills[key], style)}>
-      <span {...stylex.props(s.dot, dots[key], key === "running" && s.pulse)} />
+      <span {...stylex.props(shared.dot, dots[key], key === "running" && s.pulse)} />
       {status}
     </span>
   );

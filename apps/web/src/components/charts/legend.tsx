@@ -1,16 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
-import { radius, space } from "@/tokens.stylex";
+import { space } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const s = stylex.create({
   root: {
     display: "inline-flex",
     alignItems: "center",
     gap: space.x6
-  },
-  dot: {
-    height: space.x8,
-    width: space.x8,
-    borderRadius: radius.full
   }
 });
 
@@ -20,7 +16,7 @@ const s = stylex.create({
 export function LegendDot({ style, label }: { style: stylex.StyleXStyles; label: string }) {
   return (
     <span {...stylex.props(s.root)}>
-      <span {...stylex.props(s.dot, style)} />
+      <span {...stylex.props(shared.dotLarge, style)} />
       {label}
     </span>
   );

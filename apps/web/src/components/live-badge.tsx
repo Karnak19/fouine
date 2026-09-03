@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { color, leading, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import type { LiveStatus } from "@/lib/live";
 
 const s = stylex.create({
@@ -10,11 +11,6 @@ const s = stylex.create({
     fontSize: text.xs,
     lineHeight: leading.xs,
     fontVariantNumeric: "tabular-nums"
-  },
-  dot: {
-    height: space.x6,
-    width: space.x6,
-    borderRadius: radius.full
   },
   warnText: { color: color.warnText },
   warnDot: { backgroundColor: color.warnDot },
@@ -44,7 +40,7 @@ export function LiveBadge({ status }: { status: LiveStatus }) {
   const m = META[status];
   return (
     <span {...stylex.props(s.root, m.text)} title={`Live events: ${m.label}`}>
-      <span {...stylex.props(s.dot, m.dot)} />
+      <span {...stylex.props(shared.dot, m.dot)} />
       {m.label}
     </span>
   );

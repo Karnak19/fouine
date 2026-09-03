@@ -23,6 +23,7 @@ import type {
   ImageMessagePartComponent
 } from "@assistant-ui/react";
 import { color, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const extensionForMimeType = (mimeType?: string): string => {
   switch (mimeType) {
@@ -216,7 +217,6 @@ const s = stylex.create({
   },
 
   icon8: { height: space.x32, width: space.x32, color: color.mutedForeground },
-  icon4: { height: space.x16, width: space.x16 },
   pulsing: {
     animationName: pulse,
     animationDuration: "2s",
@@ -531,7 +531,7 @@ function RegenerateButton({
       {...stylex.props(s.actionButton)}
     >
       <RefreshCwIcon
-        {...stylex.props(s.icon4, isRegenerating && s.spinning)}
+        {...stylex.props(shared.icon, isRegenerating && s.spinning)}
       />
     </button>
   );
@@ -547,7 +547,7 @@ function ImageActions({ part, onRegenerate, style }: ImageActionsProps) {
         aria-label="Download image"
         {...stylex.props(s.actionButton)}
       >
-        <DownloadIcon {...stylex.props(s.icon4)} />
+        <DownloadIcon {...stylex.props(shared.icon)} />
       </button>
       <button
         type="button"
@@ -558,7 +558,7 @@ function ImageActions({ part, onRegenerate, style }: ImageActionsProps) {
         aria-label="Copy image"
         {...stylex.props(s.actionButton)}
       >
-        <CopyIcon {...stylex.props(s.icon4)} />
+        <CopyIcon {...stylex.props(shared.icon)} />
       </button>
       {onRegenerate && <RegenerateButton onRegenerate={onRegenerate} />}
     </div>
