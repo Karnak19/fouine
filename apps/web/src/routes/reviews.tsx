@@ -16,7 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, GitPullRequest, SlidersHorizontal, X } from "lucide-react";
-import { RANGES, STATUSES } from "@/lib/stats-search";
+import { RANGES } from "@/lib/stats-search";
+import { REVIEW_STATUSES } from "@/lib/reviews-search";
 import { validateReviewsSearch, type ReviewsSearch } from "@/lib/reviews-search";
 
 // The server caps limit at 1000; we ask for a generous-but-bounded page and
@@ -72,7 +73,7 @@ export default function ReviewsPage() {
           label="Review status"
           value={search.status ?? ""}
           onChange={(v) => setFilters({ status: (v || undefined) as ReviewsSearch["status"] })}
-          options={[...STATUSES]}
+          options={[...REVIEW_STATUSES]}
           placeholder="Any status"
         />
         <Select

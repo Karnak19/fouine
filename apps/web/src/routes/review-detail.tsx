@@ -97,10 +97,7 @@ export default function ReviewDetailPage() {
     // The retry route is fire-and-forget and doesn't hand back the new
     // review's id (it queues an async re-run), so there's nothing to
     // navigate to — stay on this page and just invalidate.
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
-      queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews"] }),
     onError: (e: Error) => toast.error("Couldn't retry review", { description: e.message }),
   });
 

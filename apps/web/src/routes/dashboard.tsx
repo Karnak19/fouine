@@ -41,14 +41,10 @@ export default function DashboardPage() {
     if (e.type === "review:findings") {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
-    if (e.type === "review:created" || e.type === "review:updated") {
-      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
-    }
   });
   useEffect(() => {
     if (resync > 0) {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
-      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
   }, [resync, queryClient]);
@@ -567,10 +563,7 @@ function NeedsYouRow({ r }: { r: ReviewRow }) {
   const queryClient = useQueryClient();
   const retryMut = useMutation({
     mutationFn: () => api.reviews.retry(r.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
-      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews"] }),
     onError: (e: Error) => toast.error("Couldn't retry review", { description: e.message }),
   });
   const errorLine = r.error?.split("\n")[0];

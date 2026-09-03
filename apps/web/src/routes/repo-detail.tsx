@@ -126,6 +126,7 @@ export default function RepoDetailPage() {
   const [enabled, setEnabled] = useState(true);
   // null = inherit the global default; 1 = deny; 0 = explicitly allow.
   const [denyTestCommands, setDenyTestCommands] = useState<number | null>(null);
+  const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
     prompt: "",
@@ -182,7 +183,12 @@ export default function RepoDetailPage() {
     proceed: proceedNav,
     reset: cancelNavBlock,
     status: navBlockStatus,
-  } = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: false, withResolver: true });
+  } = useBlocker({
+    // A confirmed delete leaves on purpose; the dirty form must not intercept it.
+    shouldBlockFn: () => dirty && !leaving.current,
+    enableBeforeUnload: false,
+    withResolver: true,
+  });
 
   const updateMut = useMutation({
     mutationFn: () =>
@@ -209,6 +215,7 @@ export default function RepoDetailPage() {
     mutationFn: () => api.repos.delete(owner, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos"] });
+      leaving.current = true;
       navigate({ to: "/repos" });
     },
     onError: (e: Error) => toast.error("Couldn't delete repository", { description: e.message }),
