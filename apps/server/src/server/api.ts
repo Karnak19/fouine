@@ -569,3 +569,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       return { ok: false, error: String((err as Error)?.message ?? err) };
     }
   });
+
+// Eden Treaty consumes this on the web side for end-to-end type safety
+// (apps/web/src/lib/api.ts). Every route above is chained off the same
+// `apiRoutes` instance, which is what Eden needs to infer the whole tree.
+export type App = typeof apiRoutes;
