@@ -73,17 +73,12 @@ export default function PRDetailPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="space-y-4 max-w-3xl">
-        <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
-        <div className="h-32 rounded-lg bg-zinc-900/60 animate-pulse" />
-      </div>
-    );
+    return <PRDetailSkeleton />;
   }
 
   if (isError) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center max-w-3xl">
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center max-w-5xl">
         <p className="text-sm text-zinc-500">Couldn't load this PR's reviews.</p>
         <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
           Retry
@@ -93,7 +88,7 @@ export default function PRDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="mx-auto space-y-6 max-w-5xl">
       <Link
         to="/repos/$owner/$name"
         params={{ owner, name }}
@@ -128,7 +123,7 @@ export default function PRDetailPage() {
               <span className="tabular-nums">
                 {formatCost(totals!.cost)}
                 {totals!.tokens > 0 && (
-                  <span className="text-zinc-600"> · {formatTokens(totals!.tokens)}</span>
+                  <span className="text-zinc-500"> · {formatTokens(totals!.tokens)}</span>
                 )}
               </span>
             )}
@@ -179,6 +174,36 @@ export default function PRDetailPage() {
   );
 }
 
+// Mirrors the real page: back-link, title/badge header, then a divide-y list
+// of timeline rows at the same height as TimelineRow — so loading → loaded
+// doesn't jump.
+function PRDetailSkeleton() {
+  return (
+    <div className="mx-auto space-y-6 max-w-5xl">
+      <div className="h-4 w-40 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-2">
+          <div className="h-6 w-64 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+          <div className="h-4 w-48 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+        </div>
+        <div className="h-6 w-20 shrink-0 rounded-full bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+      </div>
+      <ul className="rounded-lg border border-zinc-800 divide-y divide-zinc-900 overflow-hidden">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <li key={i} className="flex items-center gap-3 px-4 py-3">
+            <div className="h-5 w-16 rounded-full bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="h-3.5 w-24 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+              <div className="h-3 w-32 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+            </div>
+            <div className="h-4 w-4 shrink-0 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function TimelineRow({ r }: { r: ReviewRow }) {
   const label = triggerLabel(r.trigger);
   return (
@@ -205,10 +230,10 @@ function TimelineRow({ r }: { r: ReviewRow }) {
             {timeAgo(r.created_at)}
             {/* A skip has no meaningful duration — say why it exists instead. */}
             {r.status === "skipped" ? (
-              <span className="text-zinc-600"> · unchanged diff — nothing new to review</span>
+              <span className="text-zinc-500"> · unchanged diff — nothing new to review</span>
             ) : (
               r.completed_at && (
-                <span className="text-zinc-600"> · {duration(r.created_at, r.completed_at)}</span>
+                <span className="text-zinc-500"> · {duration(r.created_at, r.completed_at)}</span>
               )
             )}
           </div>
@@ -217,7 +242,7 @@ function TimelineRow({ r }: { r: ReviewRow }) {
           <span className="text-xs text-zinc-500 tabular-nums shrink-0">
             {formatCost(r.cost)}
             {r.tokens != null && r.tokens > 0 && (
-              <span className="text-zinc-600"> · {formatTokens(r.tokens)}</span>
+              <span className="text-zinc-500"> · {formatTokens(r.tokens)}</span>
             )}
           </span>
         )}

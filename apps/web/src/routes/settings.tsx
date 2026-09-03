@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useBlocker } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { api, type Settings } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModelInput } from "@/components/model-input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -23,14 +32,59 @@ export default function SettingsPage() {
   const [improverModel, setImproverModel] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
 
+  // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
+  // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
+  // they aren't part of the baseline — any non-empty value in them is dirty.
+  const [baseline, setBaseline] = useState({ model: "", prompt: "", improverModel: "", denyTestCommands: false });
+
+  // Hydrate once per fetched settings object, not on every refetch — a ref
+  // guard instead of keying a child component, since this page has no natural
+  // stable id to key on and the guard is a one-line fix.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (settings) {
-      setModel(settings.opencode_model ?? "");
-      setPrompt(settings.default_prompt ?? "");
-      setImproverModel(settings.improver_model ?? "");
-      setDenyTestCommands(settings.deny_test_commands === "1");
+    if (settings && !hydrated.current) {
+      hydrated.current = true;
+      const m = settings.opencode_model ?? "";
+      const p = settings.default_prompt ?? "";
+      const im = settings.improver_model ?? "";
+      const d = settings.deny_test_commands === "1";
+      setModel(m);
+      setPrompt(p);
+      setImproverModel(im);
+      setDenyTestCommands(d);
+      setBaseline({ model: m, prompt: p, improverModel: im, denyTestCommands: d });
     }
   }, [settings]);
+
+  const dirty =
+    apiKey.trim() !== "" ||
+    zaiApiKey.trim() !== "" ||
+    model !== baseline.model ||
+    prompt !== baseline.prompt ||
+    improverModel !== baseline.improverModel ||
+    denyTestCommands !== baseline.denyTestCommands;
+
+  const reset = () => {
+    setApiKey("");
+    setZaiApiKey("");
+    setModel(baseline.model);
+    setPrompt(baseline.prompt);
+    setImproverModel(baseline.improverModel);
+    setDenyTestCommands(baseline.denyTestCommands);
+  };
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const { proceed, reset: cancelBlock, status } = useBlocker({
+    shouldBlockFn: () => dirty,
+    enableBeforeUnload: false,
+    withResolver: true,
+  });
 
   const updateMut = useMutation({
     mutationFn: () => {
@@ -49,6 +103,7 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
+      setBaseline({ model, prompt, improverModel, denyTestCommands });
       toast.success("Settings saved");
     },
     onError: (e: Error) => toast.error("Couldn't save settings", { description: e.message }),
@@ -60,8 +115,27 @@ export default function SettingsPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="mx-auto space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold">Settings</h1>
+
+      <Dialog open={status === "blocked"} onOpenChange={(open) => !open && cancelBlock?.()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              You have unsaved settings. Leaving now will discard them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => cancelBlock?.()}>
+              Keep editing
+            </Button>
+            <Button variant="destructive" onClick={() => proceed?.()}>
+              Discard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -84,7 +158,7 @@ export default function SettingsPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
-              <p className="text-xs text-zinc-500">Leave blank to keep current value.</p>
+              <p className="text-xs text-zinc-500">Leave blank to keep the current value.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
@@ -97,7 +171,8 @@ export default function SettingsPage() {
               />
               <p className="text-xs text-zinc-500">
                 Only used when a model spec starts with <code>zai-coding-plan/</code>. When unset,
-                opencode uses whatever credential it already has for that provider.
+                opencode uses whatever credential it already has for that provider. Leave blank to
+                keep the current value.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -162,9 +237,16 @@ export default function SettingsPage() {
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={updateMut.isPending}>
-              Save settings
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="submit" disabled={!dirty || updateMut.isPending}>
+                Save settings
+              </Button>
+              {dirty && (
+                <Button type="button" variant="ghost" size="sm" onClick={reset}>
+                  Reset
+                </Button>
+              )}
+            </div>
           </form>
           <div className="border-t border-zinc-800 pt-4">
             <div className="flex items-center gap-2">

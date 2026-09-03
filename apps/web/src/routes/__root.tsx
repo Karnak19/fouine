@@ -25,6 +25,7 @@ import { useTitle } from "../lib/title";
 import { Button } from "../components/ui/button";
 import { validateStatsSearch } from "../lib/stats-search";
 import { validateReviewsSearch } from "../lib/reviews-search";
+import { CommandPalette } from "../components/command-palette";
 
 // `staticData.title` per route below, resolved with that match's params so
 // detail pages can fold in the id/owner/name without a route file needing to
@@ -51,17 +52,17 @@ function InstallButton() {
   }, []);
   if (!prompt) return null;
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       onClick={() => {
         void prompt.prompt();
         setPrompt(null);
       }}
-      className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
+      className="m-2 h-auto w-auto justify-start gap-2.5 rounded-md px-3 py-2 text-sm font-normal text-zinc-400 hover:text-zinc-100"
     >
       <Download size={16} />
       Install app
-    </button>
+    </Button>
   );
 }
 
@@ -78,16 +79,16 @@ function UserMenu() {
   const { enabled, user } = useAuth();
   if (!enabled || !user) return null;
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       onClick={() => void signOut()}
       title={`Sign out${user.name ? ` (${user.name})` : ""}`}
-      className="m-2 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 hover:bg-zinc-800/60"
+      className="m-2 h-auto w-auto justify-start gap-2.5 rounded-md px-3 py-2 text-sm font-normal text-zinc-400 hover:text-zinc-100"
     >
       {user.image && <img src={user.image} alt="" className="h-4 w-4 rounded-full" />}
       <span className="truncate">{user.name ?? "Sign out"}</span>
       <LogOut size={14} className="ml-auto" />
-    </button>
+    </Button>
   );
 }
 
@@ -133,6 +134,7 @@ function contentClass(fullHeight: boolean) {
 function RootLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isFullHeight = FULL_HEIGHT_ROUTES.includes(pathname);
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
 
   const matches = useMatches();
   const leaf = matches[matches.length - 1];
@@ -140,10 +142,17 @@ function RootLayout() {
 
   return (
     <div className="flex h-screen">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus-ring rounded-md bg-zinc-900 px-3 py-2 text-sm"
+      >
+        Skip to content
+      </a>
       {/* Desktop: left sidebar. Hidden on mobile in favour of the bottom tab bar. */}
       <aside className="hidden md:flex w-56 shrink-0 border-r border-zinc-800/80 bg-zinc-950 flex-col">
-        <div className="px-4 h-14 flex items-center border-b border-zinc-800/80">
+        <div className="px-4 h-14 flex items-center justify-between border-b border-zinc-800/80">
           <Logo />
+          <CommandPaletteTrigger onClick={() => setPaletteOpen(true)} />
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           {NAV.map((n) => (
@@ -153,11 +162,14 @@ function RootLayout() {
         <InstallButton />
         <UserMenu />
       </aside>
-      <main className="flex-1 overflow-auto flex flex-col">
+      <main id="main" className="flex-1 overflow-auto flex flex-col">
         {/* Mobile: top header with brand + install action. */}
         <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-zinc-800/80 bg-zinc-950 shrink-0">
           <Logo />
-          <InstallButton />
+          <div className="flex items-center gap-1">
+            <CommandPaletteTrigger onClick={() => setPaletteOpen(true)} />
+            <InstallButton />
+          </div>
         </header>
         <div className={contentClass(isFullHeight)}>
           <Outlet />
@@ -169,7 +181,17 @@ function RootLayout() {
           <TabLink key={n.to} {...n} />
         ))}
       </nav>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
+  );
+}
+
+function CommandPaletteTrigger({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" onClick={onClick} className="gap-1.5 text-zinc-400">
+      <Search size={14} />
+      <kbd className="hidden sm:inline text-xs text-zinc-500">⌘K</kbd>
+    </Button>
   );
 }
 

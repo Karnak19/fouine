@@ -14,8 +14,36 @@ const variants: Record<string, { dot: string; pill: string; label?: string }> = 
   skipped: { dot: "bg-sky-400", pill: "bg-sky-950/40 text-sky-300 ring-sky-800/40" },
 };
 
-export function Badge({ status, className }: { status: string; className?: string }) {
-  const v = variants[status] ?? variants.pending;
+// Finding severity, same pill shape as the status Badge but without the dot —
+// the color alone carries blocking/question/nit, matching the chips that used
+// to be hand-rolled in review-detail.tsx.
+const SEVERITY_VARIANTS: Record<string, { pill: string; label: string }> = {
+  blocking: { pill: "border-red-900/60 bg-red-950/40 text-red-300", label: "blocking" },
+  question: { pill: "border-amber-900/60 bg-amber-950/40 text-amber-300", label: "question" },
+  nit: { pill: "border-zinc-700 bg-zinc-900 text-zinc-400", label: "nit" },
+};
+
+type BadgeProps =
+  | { status: string; severity?: never; className?: string }
+  | { severity: string; status?: never; className?: string };
+
+export function Badge({ status, severity, className }: BadgeProps) {
+  if (severity != null) {
+    const v = SEVERITY_VARIANTS[severity] ?? { pill: "border-zinc-700 text-zinc-400", label: severity };
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium",
+          v.pill,
+          className,
+        )}
+      >
+        {v.label}
+      </span>
+    );
+  }
+
+  const v = variants[status ?? "pending"] ?? variants.pending;
   return (
     <span
       className={cn(

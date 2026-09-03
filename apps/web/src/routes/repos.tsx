@@ -57,7 +57,7 @@ export default function ReposPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="mx-auto space-y-6 max-w-4xl">
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>
@@ -76,7 +76,7 @@ export default function ReposPage() {
               e.preventDefault();
               createMut.mutate();
             }}
-            className="flex items-end gap-4"
+            className="flex flex-col sm:flex-row sm:items-end gap-4"
           >
             <div className="flex-1 space-y-1.5">
               <Label htmlFor="full_name">Full name (owner/repo)</Label>
@@ -89,7 +89,7 @@ export default function ReposPage() {
                 pattern="[^/]+/[^/]+"
               />
             </div>
-            <div className="w-40 space-y-1.5">
+            <div className="sm:w-40 space-y-1.5">
               <Label htmlFor="installation_id">Installation ID</Label>
               <Input
                 id="installation_id"
@@ -129,7 +129,7 @@ export default function ReposPage() {
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
           <FolderGit2 size={28} className="text-zinc-700" />
           <p className="mt-3 text-sm text-zinc-400">No repositories registered</p>
-          <p className="text-xs text-zinc-600 mt-1">Add one above to get started.</p>
+          <p className="text-xs text-zinc-500 mt-1">Add one above to get started.</p>
         </div>
       ) : (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
@@ -212,7 +212,7 @@ function RepoRow({ repo }: { repo: RepoRow }) {
       <TableCell className="text-zinc-500 text-sm text-right tabular-nums">
         {timeAgo(repo.created_at)}
       </TableCell>
-      <TableCell className="text-zinc-600">
+      <TableCell className="text-zinc-500">
         <Link
           to="/repos/$owner/$name"
           params={{ owner, name }}

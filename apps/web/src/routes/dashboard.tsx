@@ -286,7 +286,7 @@ function CostTrend({ daily }: { daily: DailyStatsRow[] }) {
           ))}
         </div>
         {daily.length > 0 && (
-          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-600 tabular-nums">
+          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-500 tabular-nums">
             <span>{daily[0].day}</span>
             <span>{daily[daily.length - 1].day}</span>
           </div>
@@ -479,7 +479,7 @@ function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
                 className={`h-2 w-2 rounded-full ${TRIGGER_COLORS[i % TRIGGER_COLORS.length]}`}
               />
               {triggerLabel(t.trigger) ?? t.trigger}
-              <span className="text-zinc-600">{t.count}</span>
+              <span className="text-zinc-500">{t.count}</span>
             </span>
           ))}
         </div>
@@ -519,7 +519,7 @@ function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
             <span key={x.severity} className="flex items-center gap-1.5 tabular-nums">
               <span className={`h-2 w-2 rounded-full ${SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}`} />
               {SEVERITY_META[x.severity]?.label ?? x.severity}
-              <span className="text-zinc-600">{x.count}</span>
+              <span className="text-zinc-500">{x.count}</span>
             </span>
           ))}
         </div>
@@ -632,7 +632,7 @@ function Empty() {
     <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
       <Inbox size={20} className="text-zinc-700" />
       <p className="text-sm text-zinc-400">No reviews yet.</p>
-      <p className="text-xs text-zinc-600 max-w-xs">
+      <p className="text-xs text-zinc-500 max-w-xs">
         Enable a repo, then open a PR or comment <span className="font-mono text-zinc-500">/fouine</span> to
         kick off the first one.
       </p>

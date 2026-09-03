@@ -256,7 +256,7 @@ export default function ReviewDetailPage() {
   const messages = session?.messages ?? [];
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="mx-auto space-y-6 max-w-5xl">
       <Link
         to="/reviews"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
@@ -359,16 +359,20 @@ export default function ReviewDetailPage() {
       <div>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div
+            role="tablist"
             className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
               isImprover ? "hidden" : ""
             }`}
           >
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "review"}
               onClick={() => setTab("review")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+              className={`h-auto rounded px-2.5 py-1 text-xs font-medium ${
                 tab === "review"
-                  ? "bg-zinc-800 text-zinc-100"
+                  ? "bg-zinc-800 text-zinc-100 hover:bg-zinc-800"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
@@ -376,18 +380,21 @@ export default function ReviewDetailPage() {
               {findings && findings.length > 0 && (
                 <span className="tabular-nums text-zinc-500">{findings.length}</span>
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "transcript"}
               onClick={() => setTab("transcript")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+              className={`h-auto rounded px-2.5 py-1 text-xs font-medium ${
                 tab === "transcript"
-                  ? "bg-zinc-800 text-zinc-100"
+                  ? "bg-zinc-800 text-zinc-100 hover:bg-zinc-800"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               <ScrollText size={13} /> Transcript
-            </button>
+            </Button>
           </div>
           {inProgress && (
             <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
@@ -418,9 +425,9 @@ export default function ReviewDetailPage() {
             </Button>
           </div>
         ) : session == null ? (
-          <p className="text-sm text-zinc-600">Loading transcript…</p>
+          <p className="text-sm text-zinc-500">Loading transcript…</p>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-zinc-600">No transcript available for this review.</p>
+          <p className="text-sm text-zinc-500">No transcript available for this review.</p>
         ) : (
           <div className="space-y-4">
             {messages.map((m, i) => (
@@ -433,11 +440,6 @@ export default function ReviewDetailPage() {
   );
 }
 
-const SEVERITY: Record<string, { label: string; cls: string }> = {
-  blocking: { label: "blocking", cls: "border-red-900/60 bg-red-950/40 text-red-300" },
-  question: { label: "question", cls: "border-amber-900/60 bg-amber-950/40 text-amber-300" },
-  nit: { label: "nit", cls: "border-zinc-700 bg-zinc-900 text-zinc-400" },
-};
 const EVENT: Record<string, string> = {
   REQUEST_CHANGES: "text-red-300",
   APPROVE: "text-emerald-300",
@@ -478,10 +480,10 @@ function ReviewView({
         </Button>
       </div>
     );
-  if (findings == null) return <p className="text-sm text-zinc-600">Loading review…</p>;
+  if (findings == null) return <p className="text-sm text-zinc-500">Loading review…</p>;
   if (findings.length === 0)
     return (
-      <p className="text-sm text-zinc-600">
+      <p className="text-sm text-zinc-500">
         {pending ? "No findings posted yet." : "This review posted no findings."}
       </p>
     );
@@ -520,15 +522,7 @@ function ReviewView({
           {inline.map((f) => (
             <div key={f.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
-                {f.severity && (
-                  <span
-                    className={`rounded border px-1.5 py-0.5 font-medium ${
-                      SEVERITY[f.severity]?.cls ?? "border-zinc-700 text-zinc-400"
-                    }`}
-                  >
-                    {SEVERITY[f.severity]?.label ?? f.severity}
-                  </span>
-                )}
+                {f.severity && <Badge severity={f.severity} />}
                 <a
                   href={
                     f.github_comment_id != null
@@ -599,7 +593,7 @@ function PartView({ p }: { p: Part }) {
             <Terminal size={12} className="text-zinc-500" />
             <span className="font-mono text-zinc-300">{p.tool}</span>
             {p.state?.title && <span className="text-zinc-500">— {p.state.title}</span>}
-            {p.state?.status && <span className="ml-auto text-zinc-600">{p.state.status}</span>}
+            {p.state?.status && <span className="ml-auto text-zinc-500">{p.state.status}</span>}
           </summary>
           {p.state?.output && (
             <pre className="overflow-auto max-h-60 px-3 pb-2 text-xs text-zinc-400">

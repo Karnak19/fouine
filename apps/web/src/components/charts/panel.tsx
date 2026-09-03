@@ -50,7 +50,7 @@ export function PanelEmpty({ label }: { label: string }) {
     <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
       <Inbox size={18} className="text-zinc-700" />
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-xs text-zinc-600">Try a wider range or fewer filters.</p>
+      <p className="text-xs text-zinc-500">Try a wider range or fewer filters.</p>
     </div>
   );
 }

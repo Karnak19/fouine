@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useParams, useNavigate, useBlocker } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
@@ -9,6 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ModelInput } from "@/components/model-input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -118,19 +126,63 @@ export default function RepoDetailPage() {
   const [enabled, setEnabled] = useState(true);
   // null = inherit the global default; 1 = deny; 0 = explicitly allow.
   const [denyTestCommands, setDenyTestCommands] = useState<number | null>(null);
+  const [baseline, setBaseline] = useState({
+    model: "",
+    prompt: "",
+    enabled: true,
+    denyTestCommands: null as number | null,
+  });
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Only to show which way "inherit" currently resolves. Same query key as the
   // settings page, so it's usually already cached.
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
 
+  // Hydrate once per repo, not on every refetch (SSE invalidation, polling)
+  // — otherwise those clobber whatever the user is typing. Keyed on full_name
+  // rather than a mount-only guard because this component instance persists
+  // across repos when navigating between them.
+  const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (repo) {
-      setModel(repo.model ?? "");
-      setPrompt(repo.prompt ?? "");
-      setEnabled(repo.enabled !== 0);
-      setDenyTestCommands(repo.deny_test_commands ?? null);
+    if (repo && hydratedFor.current !== repo.full_name) {
+      hydratedFor.current = repo.full_name;
+      const m = repo.model ?? "";
+      const p = repo.prompt ?? "";
+      const e = repo.enabled !== 0;
+      const d = repo.deny_test_commands ?? null;
+      setModel(m);
+      setPrompt(p);
+      setEnabled(e);
+      setDenyTestCommands(d);
+      setBaseline({ model: m, prompt: p, enabled: e, denyTestCommands: d });
     }
   }, [repo]);
+
+  const dirty =
+    model !== baseline.model ||
+    prompt !== baseline.prompt ||
+    enabled !== baseline.enabled ||
+    denyTestCommands !== baseline.denyTestCommands;
+
+  const resetForm = () => {
+    setModel(baseline.model);
+    setPrompt(baseline.prompt);
+    setEnabled(baseline.enabled);
+    setDenyTestCommands(baseline.denyTestCommands);
+  };
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const {
+    proceed: proceedNav,
+    reset: cancelNavBlock,
+    status: navBlockStatus,
+  } = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: false, withResolver: true });
 
   const updateMut = useMutation({
     mutationFn: () =>
@@ -141,7 +193,10 @@ export default function RepoDetailPage() {
         // Explicit null clears the override — absent would mean "unchanged".
         deny_test_commands: denyTestCommands,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
+      setBaseline({ model, prompt, enabled, denyTestCommands });
+    },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
   });
 
@@ -180,7 +235,7 @@ export default function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="space-y-6 max-w-5xl">
+      <div className="mx-auto space-y-6 max-w-5xl">
         <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-8 w-64 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-64 rounded-lg bg-zinc-900/60 animate-pulse" />
@@ -189,7 +244,50 @@ export default function RepoDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="mx-auto space-y-6 max-w-5xl">
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {owner}/{name}?</DialogTitle>
+            <DialogDescription>
+              Removes the repository from fouine. Its reviews are kept, and this does not touch
+              GitHub.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMut.isPending}
+              onClick={() => deleteMut.mutate()}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={navBlockStatus === "blocked"} onOpenChange={(open) => !open && cancelNavBlock?.()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              This repo's configuration has unsaved changes. Leaving now will discard them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => cancelNavBlock?.()}>
+              Keep editing
+            </Button>
+            <Button variant="destructive" onClick={() => proceedNav?.()}>
+              Discard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Link
         to="/repos"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
@@ -305,9 +403,14 @@ export default function RepoDetailPage() {
               Auto-review new PRs on this repo
             </label>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={updateMut.isPending}>
+              <Button type="submit" disabled={!dirty || updateMut.isPending}>
                 Save
               </Button>
+              {dirty && (
+                <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
+                  Reset
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -318,13 +421,7 @@ export default function RepoDetailPage() {
                 <Sparkles size={14} />
                 {improveMut.isSuccess ? "Improver queued" : "Run improver"}
               </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  if (confirm("Delete this repository?")) deleteMut.mutate();
-                }}
-              >
+              <Button type="button" variant="destructive" onClick={() => setDeleteOpen(true)}>
                 <Trash2 size={14} />
                 Delete
               </Button>
@@ -375,7 +472,7 @@ export default function RepoDetailPage() {
                     >
                       {timeAgo(r.created_at)}
                     </TableCell>
-                    <TableCell className="text-zinc-600">
+                    <TableCell className="text-zinc-500">
                       <Link to="/reviews/$id" params={{ id: String(r.id) }}>
                         <ChevronRight size={16} />
                       </Link>
@@ -454,7 +551,7 @@ export default function RepoDetailPage() {
                       >
                         {timeAgo(latest.created_at)}
                       </TableCell>
-                      <TableCell className="text-zinc-600">
+                      <TableCell className="text-zinc-500">
                         <Link
                           to="/repos/$owner/$name/pr/$number"
                           params={{ owner, name, number: String(latest.pr_number) }}

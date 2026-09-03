@@ -57,7 +57,7 @@ export default function ReviewsPage() {
   const { data: repos } = useQuery({ queryKey: ["repos"], queryFn: api.repos.list });
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="mx-auto space-y-6 max-w-5xl">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Reviews</h1>
@@ -126,7 +126,7 @@ export default function ReviewsPage() {
               ))}
             </TableBody>
           </Table>
-          <p className="text-xs text-zinc-600 px-1">
+          <p className="text-xs text-zinc-500 px-1">
             {reviews.length === LIMIT
               ? `Showing the ${LIMIT} most recent — narrow with filters.`
               : `${reviews.length} review${reviews.length === 1 ? "" : "s"}`}
@@ -230,13 +230,47 @@ function ReviewTableRow({ r }: { r: ReviewRow }) {
   );
 }
 
+// Mirrors the real table's column count and header so loading → loaded
+// doesn't jump: same Table/TableRow/TableCell padding, just pulsing bars
+// standing in for text.
 function ReviewSkeleton() {
   return (
-    <div className="space-y-2">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-10 rounded-md bg-zinc-900/60 animate-pulse" />
-      ))}
-    </div>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-12">#</TableHead>
+          <TableHead>Repository</TableHead>
+          <TableHead>PR</TableHead>
+          <TableHead>Title</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead className="text-right">Started</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <TableRow key={i}>
+            <TableCell>
+              <div className="h-4 w-4 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+            <TableCell>
+              <div className="h-4 w-32 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+            <TableCell>
+              <div className="h-4 w-10 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+            <TableCell>
+              <div className="h-4 w-56 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+            <TableCell>
+              <div className="h-5 w-20 rounded-full bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+            <TableCell className="text-right">
+              <div className="ml-auto h-4 w-16 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -273,7 +307,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
       <GitPullRequest size={28} className="text-zinc-700" />
       <p className="mt-3 text-sm text-zinc-400">No reviews yet</p>
-      <p className="text-xs text-zinc-600 mt-1">
+      <p className="text-xs text-zinc-500 mt-1">
         Comment <code className="text-zinc-500">/fouine</code> on a PR to kick one off.
       </p>
     </div>
