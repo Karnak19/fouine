@@ -586,7 +586,7 @@ const ThreadScrollToBottom: FC = () => {
         tooltip="Scroll to bottom"
         variant="outline"
         className="aui-thread-scroll-to-bottom"
-        style={s.scrollToBottom}
+        sx={s.scrollToBottom}
       >
         <ArrowDownIcon />
       </TooltipIconButton>
@@ -641,7 +641,7 @@ const ThreadSuggestionItem: FC = () => {
         <Button
           variant="ghost"
           className="aui-thread-welcome-suggestion"
-          style={s.suggestion}
+          sx={s.suggestion}
         >
           <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
           <SuggestionPrimitive.Description
@@ -705,7 +705,7 @@ const ComposerAction: FC = () => {
                 variant="ghost"
                 size="icon"
                 className="aui-composer-dictate"
-                style={s.composerButton}
+                sx={s.composerButton}
                 aria-label="Start voice input"
               >
                 <MicIcon
@@ -724,7 +724,7 @@ const ComposerAction: FC = () => {
                 variant="ghost"
                 size="icon"
                 className="aui-composer-stop-dictation"
-                style={[s.composerButton, s.destructive]}
+                sx={[s.composerButton, s.destructive]}
                 aria-label="Stop voice input"
               >
                 <SquareIcon
@@ -744,7 +744,7 @@ const ComposerAction: FC = () => {
               variant="default"
               size="icon"
               className="aui-composer-send"
-              style={s.composerButton}
+              sx={s.composerButton}
               aria-label="Send message"
             >
               <ArrowUpIcon
@@ -761,7 +761,7 @@ const ComposerAction: FC = () => {
               variant="default"
               size="icon"
               className="aui-composer-cancel"
-              style={s.composerButton}
+              sx={s.composerButton}
               aria-label="Stop generating"
             >
               <SquareIcon
@@ -941,7 +941,7 @@ const AssistantActionBar: FC = () => {
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
             tooltip="More"
-            style={attrStyle(s.moreOpen)}
+            sx={attrStyle(s.moreOpen)}
           >
             <MoreHorizontalIcon />
           </TooltipIconButton>
@@ -1065,12 +1065,12 @@ const EditComposer: FC = () => {
           className={`aui-edit-composer-footer ${footer.className ?? ""}`}
         >
           <ComposerPrimitive.Cancel asChild>
-            <Button variant="ghost" size="sm" style={s.editComposerButton}>
+            <Button variant="ghost" size="sm" sx={s.editComposerButton}>
               Cancel
             </Button>
           </ComposerPrimitive.Cancel>
           <ComposerPrimitive.Send asChild>
-            <Button size="sm" style={s.editComposerButton}>
+            <Button size="sm" sx={s.editComposerButton}>
               Update
             </Button>
           </ComposerPrimitive.Send>

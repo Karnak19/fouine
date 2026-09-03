@@ -343,8 +343,8 @@ function CalendarDayButton({
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
       // dayButton.base keys three properties on arbitrary attribute selectors,
-      // which Button's `style` annotation rejects — see lib/sx.ts.
-      style={attrStyle(dayButton.base)}
+      // which Button's `sx` annotation rejects — see lib/sx.ts.
+      sx={attrStyle(dayButton.base)}
       {...props}
     />
   );

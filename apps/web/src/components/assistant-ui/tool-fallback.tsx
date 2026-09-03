@@ -657,7 +657,7 @@ function ToolFallbackApproval({
         <div {...stylex.props(s.buttonRow)}>
           <Button
             size="sm"
-            style={s.pressable}
+            sx={s.pressable}
             onClick={() => respondWithOption(confirming)}
             disabled={submitted}
           >
@@ -666,7 +666,7 @@ function ToolFallbackApproval({
           <Button
             size="sm"
             variant="outline"
-            style={s.pressable}
+            sx={s.pressable}
             onClick={() => setConfirmingId(null)}
             disabled={submitted}
           >
@@ -693,7 +693,7 @@ function ToolFallbackApproval({
             key={option.id}
             size="sm"
             variant={option === allowOptions[0] ? "default" : "outline"}
-            style={s.pressable}
+            sx={s.pressable}
             onClick={() => handleOption(option)}
             disabled={submitted}
           >
@@ -704,7 +704,7 @@ function ToolFallbackApproval({
           <Button
             size="sm"
             variant="outline"
-            style={s.pressable}
+            sx={s.pressable}
             onClick={() => respond(false)}
             disabled={submitted}
           >
@@ -726,7 +726,7 @@ function ToolFallbackApproval({
     >
       <Button
         size="sm"
-        style={s.pressable}
+        sx={s.pressable}
         onClick={() => respond(true)}
         disabled={submitted}
       >
@@ -735,7 +735,7 @@ function ToolFallbackApproval({
       <Button
         size="sm"
         variant="outline"
-        style={s.pressable}
+        sx={s.pressable}
         onClick={() => respond(false)}
         disabled={submitted}
       >

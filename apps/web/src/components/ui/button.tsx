@@ -6,10 +6,13 @@ export interface ButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
   variant?: "default" | "destructive" | "outline" | "ghost";
   size?: "default" | "sm" | "lg" | "icon";
-  style?: stylex.StyleXStyles;
+  // NOT named `style`: Radix's Slot (`asChild`) special-cases `style` and
+  // merges it by object spread, which mangles StyleX values. Any other prop
+  // name passes through untouched.
+  sx?: stylex.StyleXStyles;
   // Semantic hooks ONLY — the `aui-*` names that the @assistant-ui registry
   // treats as a public styling contract, and vendored classes like `shimmer`.
-  // Not for styling: pass `style` for that. Merged ahead of the compiled
+  // Not for styling: pass `sx` for that. Merged ahead of the compiled
   // StyleX class so StyleX still wins on any property it sets.
   className?: string;
 }
@@ -61,16 +64,16 @@ const sizes = stylex.create({
 });
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = "default", size = "default", style, className, ...props }, ref) => {
-    const sx = stylex.props(s.base, variants[variant], sizes[size], style);
+  ({ variant = "default", size = "default", sx, className, ...props }, ref) => {
+    const attrs = stylex.props(s.base, variants[variant], sizes[size], sx);
     return (
       // props spread FIRST: a stray style from a caller must not clobber the
       // compiled StyleX output. className is merged explicitly, not spread.
       <button
         {...props}
         ref={ref}
-        {...sx}
-        className={className ? `${className} ${sx.className ?? ""}`.trim() : sx.className}
+        {...attrs}
+        className={className ? `${className} ${attrs.className ?? ""}`.trim() : attrs.className}
       />
     );
   },

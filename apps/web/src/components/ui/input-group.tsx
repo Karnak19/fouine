@@ -208,7 +208,7 @@ function InputGroupButton({
       data-size={size}
       variant={variant}
       {...props}
-      style={[s.button, buttonSizes[size], style]}
+      sx={[s.button, buttonSizes[size], style]}
     />
   );
 }

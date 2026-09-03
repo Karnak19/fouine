@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { space } from "@/tokens.stylex";
 
-// `style` here is already `stylex.StyleXStyles` — it comes from ButtonProps,
+// `sx` here is already `stylex.StyleXStyles` — it comes from ButtonProps,
 // which dropped `className` when it moved to StyleX.
 export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {
   tooltip: string;
@@ -45,7 +45,7 @@ const s = stylex.create({
 export const TooltipIconButton = forwardRef<
   HTMLButtonElement,
   TooltipIconButtonProps
->(({ children, tooltip, side = "bottom", style, className, ...rest }, ref) => {
+>(({ children, tooltip, side = "bottom", sx, className, ...rest }, ref) => {
   const srOnly = stylex.props(s.srOnly);
 
   return (
@@ -58,7 +58,7 @@ export const TooltipIconButton = forwardRef<
             {...rest}
             // Semantic hooks only, per Button's contract.
             className={className ? `aui-button-icon ${className}` : "aui-button-icon"}
-            style={[s.icon, style]}
+            sx={[s.icon, sx]}
             ref={ref}
           >
             <Slot.Slottable>{children}</Slot.Slottable>
