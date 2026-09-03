@@ -120,10 +120,13 @@ h1, h2, h3 {
   50% { opacity: 0.35; }
 }
 
-@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
-
-@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
-
+/* Kept inside `@theme inline`, which means Tailwind tree-shakes them: nothing
+   it can see references these, so they never reach the bundle. reasoning.tsx
+   and tool-group.tsx do name them through StyleX's animationName, so moving
+   them to the top level would switch the collapsible height animation on —
+   motion the app has never had. That is a deliberate product decision, not a
+   migration one, so it stays dead here. Same family as the animate-in classes
+   this migration dropped. */
 @theme inline {
   @keyframes collapsible-down {
   from {
