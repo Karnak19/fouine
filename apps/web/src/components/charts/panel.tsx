@@ -39,7 +39,7 @@ export function PanelSkeleton({ rows = 4 }: { rows?: number }) {
   return (
     <div className="space-y-2.5 px-4 py-3.5">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-4 rounded bg-muted/70 animate-pulse" />
+        <div key={i} className="h-4 rounded bg-muted/70 animate-pulse motion-reduce:animate-none" />
       ))}
     </div>
   );

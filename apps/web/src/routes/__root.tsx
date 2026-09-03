@@ -2,9 +2,12 @@ import * as React from "react";
 import {
   createRootRoute,
   createRoute,
+  lazyRouteComponent,
   Link,
   Outlet,
+  useMatches,
   useRouterState,
+  type ErrorComponentProps,
 } from "@tanstack/react-router";
 import {
   GitPullRequest,
@@ -18,6 +21,19 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { useAuth, signOut } from "../lib/auth";
+import { useTitle } from "../lib/title";
+import { Button } from "../components/ui/button";
+import { validateStatsSearch } from "../lib/stats-search";
+import { validateReviewsSearch } from "../lib/reviews-search";
+
+// `staticData.title` per route below, resolved with that match's params so
+// detail pages can fold in the id/owner/name without a route file needing to
+// know about <title>.
+declare module "@tanstack/react-router" {
+  interface StaticDataRouteOption {
+    title?: (params: Record<string, string>) => string;
+  }
+}
 
 // Captured beforeinstallprompt event, so we can trigger the install from our own button.
 type InstallPrompt = Event & { prompt: () => Promise<void> };
@@ -118,6 +134,10 @@ function RootLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isFullHeight = FULL_HEIGHT_ROUTES.includes(pathname);
 
+  const matches = useMatches();
+  const leaf = matches[matches.length - 1];
+  useTitle(leaf?.staticData.title?.(leaf.params as Record<string, string>));
+
   return (
     <div className="flex h-screen">
       {/* Desktop: left sidebar. Hidden on mobile in favour of the bottom tab bar. */}
@@ -178,64 +198,120 @@ function TabLink({ to, label, icon }: { to: string; label: string; icon: React.R
   );
 }
 
-const rootRoute = createRootRoute({ component: RootLayout });
+// Skeleton shown while a lazy route chunk loads — same grey pulse blocks as
+// the existing per-page skeletons (see reviews.tsx's ReviewSkeleton), kept
+// generic since it has to fit under any route.
+function RoutePending() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="h-10 rounded-md bg-zinc-800/60 animate-pulse" />
+      ))}
+    </div>
+  );
+}
 
-import ReposPage from "./repos";
-import RepoDetailPage from "./repo-detail";
-import PRDetailPage from "./pr-detail";
-import ReviewsPage from "./reviews";
-import ReviewDetailPage from "./review-detail";
-import SettingsPage from "./settings";
+function RouteNotFound() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
+      <h1 className="text-lg font-semibold text-zinc-200">Page not found</h1>
+      <p className="text-sm text-zinc-500">There's nothing here.</p>
+      <Link
+        to="/"
+        className="mt-2 text-sm text-zinc-400 hover:text-zinc-100 focus-ring rounded"
+      >
+        ← Dashboard
+      </Link>
+    </div>
+  );
+}
+
+function RouteError({ error, reset }: ErrorComponentProps) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
+      <h1 className="text-lg font-semibold text-zinc-200">Something went wrong</h1>
+      <p className="text-sm text-zinc-500">This page hit an unexpected error.</p>
+      <pre className="mt-2 max-w-full overflow-auto text-xs text-zinc-500">{error.message}</pre>
+      <div className="mt-2 flex items-center gap-3">
+        <Button size="sm" onClick={reset}>
+          Reload
+        </Button>
+        <Link to="/" className="text-sm text-zinc-400 hover:text-zinc-100 focus-ring rounded">
+          ← Dashboard
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+const rootRoute = createRootRoute({
+  component: RootLayout,
+  pendingComponent: RoutePending,
+  notFoundComponent: RouteNotFound,
+  errorComponent: RouteError,
+});
+
+// Only the dashboard (the initial landing route) is imported eagerly — every
+// other route lazy-loads its component so the first load doesn't pull in
+// chat's streamdown/shiki or stats' charts/day-picker.
 import DashboardPage from "./dashboard";
-import StatsPage, { validateStatsSearch } from "./stats";
-import ChatPage from "./chat";
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: DashboardPage,
+  staticData: { title: () => "Dashboard" },
 });
 const reposRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos",
-  component: ReposPage,
+  component: lazyRouteComponent(() => import("./repos")),
+  staticData: { title: () => "Repositories" },
 });
 const repoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos/$owner/$name",
-  component: RepoDetailPage,
+  component: lazyRouteComponent(() => import("./repo-detail")),
+  staticData: { title: (p) => `${p.owner}/${p.name}` },
 });
 const prRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos/$owner/$name/pr/$number",
-  component: PRDetailPage,
+  component: lazyRouteComponent(() => import("./pr-detail")),
+  staticData: { title: (p) => `${p.owner}/${p.name} #${p.number}` },
 });
 const reviewsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reviews",
-  component: ReviewsPage,
+  component: lazyRouteComponent(() => import("./reviews")),
+  validateSearch: validateReviewsSearch,
+  staticData: { title: () => "Reviews" },
 });
 const reviewDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reviews/$id",
-  component: ReviewDetailPage,
+  component: lazyRouteComponent(() => import("./review-detail")),
+  staticData: { title: (p) => `Review #${p.id}` },
 });
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
-  component: StatsPage,
+  component: lazyRouteComponent(() => import("./stats")),
   validateSearch: validateStatsSearch,
+  staticData: { title: () => "Stats" },
 });
 // No validateSearch: this page is deliberately not filter-driven.
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/chat",
-  component: ChatPage,
+  component: lazyRouteComponent(() => import("./chat")),
+  staticData: { title: () => "Chat" },
 });
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  component: SettingsPage,
+  component: lazyRouteComponent(() => import("./settings")),
+  staticData: { title: () => "Settings" },
 });
 
 export const routeTree = rootRoute.addChildren([

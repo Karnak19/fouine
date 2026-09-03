@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
 import { timeAgo, duration, triggerLabel, formatCost, formatTokens } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,12 @@ export default function PRDetailPage() {
   const queryClient = useQueryClient();
   const queryKey = ["repos", owner, name, "pr", prNumber];
 
-  const { data: reviews, isLoading } = useQuery({
+  const {
+    data: reviews,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey,
     queryFn: () => api.repos.prReviews(owner, name, prNumber),
     refetchInterval: (q) => {
@@ -55,6 +61,7 @@ export default function PRDetailPage() {
       return api.reviews.retry(latest.id);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (e: Error) => toast.error("Couldn't retry review", { description: e.message }),
   });
   const stopMut = useMutation({
     mutationFn: () => {
@@ -62,6 +69,7 @@ export default function PRDetailPage() {
       return api.reviews.stop(latest.id);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (e: Error) => toast.error("Couldn't stop review", { description: e.message }),
   });
 
   if (isLoading) {
@@ -69,6 +77,17 @@ export default function PRDetailPage() {
       <div className="space-y-4 max-w-3xl">
         <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-32 rounded-lg bg-zinc-900/60 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center max-w-3xl">
+        <p className="text-sm text-zinc-500">Couldn't load this PR's reviews.</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+          Retry
+        </Button>
       </div>
     );
   }

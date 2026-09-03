@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, type Settings } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,11 +49,14 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
+      toast.success("Settings saved");
     },
+    onError: (e: Error) => toast.error("Couldn't save settings", { description: e.message }),
   });
 
   const testMut = useMutation({
     mutationFn: api.settings.test,
+    onError: (e: Error) => toast.error("Couldn't test connection", { description: e.message }),
   });
 
   return (
@@ -212,15 +216,18 @@ function SkillsCard() {
       invalidate();
       setUrl("");
     },
+    onError: (e: Error) => toast.error("Couldn't install skill", { description: e.message }),
   });
   const toggleMut = useMutation({
     mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
       api.skills.setEnabled(name, enabled),
     onSuccess: invalidate,
+    onError: (e: Error) => toast.error("Couldn't update skill", { description: e.message }),
   });
   const removeMut = useMutation({
     mutationFn: (name: string) => api.skills.remove(name),
     onSuccess: invalidate,
+    onError: (e: Error) => toast.error("Couldn't remove skill", { description: e.message }),
   });
 
   return (

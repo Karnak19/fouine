@@ -42,7 +42,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${res.status}: ${body}`);
+    // Server errors are `{ ok: false, error }`; surface the message, not the JSON.
+    let message = body;
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+      const m = parsed.error ?? parsed.message;
+      if (typeof m === "string" && m) message = m;
+    } catch {}
+    throw new Error(message || `HTTP ${res.status}`);
   }
   return res.json();
 }

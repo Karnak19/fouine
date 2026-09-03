@@ -64,7 +64,7 @@ export function ModelInput({ id, value, onChange, placeholder }: Props) {
           : `${data?.providers.join(", ") || "No provider configured"} — ${data?.total ?? 0} models.`}{" "}
         <button
           type="button"
-          className="underline hover:text-zinc-300"
+          className="underline hover:text-zinc-300 focus-ring rounded-sm"
           onClick={() => setAll(!all)}
         >
           {all ? "Only configured providers" : "Show all providers"}

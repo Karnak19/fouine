@@ -1,6 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   api,
   type DailyStatsRow,
@@ -14,12 +15,17 @@ import {
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
+import { TRIGGER_COLORS } from "@/components/charts/colors";
 import { Inbox } from "lucide-react";
 
 const DAY_S = 24 * 60 * 60;
+// Below this, the 24h success rate reads as a problem, not just noise from a
+// small sample — the stat turns the same red as a failed badge.
+const SUCCESS_RATE_DANGER_THRESHOLD = 80;
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
@@ -35,10 +41,14 @@ export default function DashboardPage() {
     if (e.type === "review:findings") {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
+    if (e.type === "review:created" || e.type === "review:updated") {
+      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
+    }
   });
   useEffect(() => {
     if (resync > 0) {
       queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
   }, [resync, queryClient]);
@@ -51,6 +61,15 @@ export default function DashboardPage() {
       if (!list) return false;
       return list.some((r) => r.status === "running" || r.status === "pending") ? 5000 : false;
     },
+  });
+
+  // Every review of the last 24h (any status), so "needs you" can tell a failed
+  // review that already got a later run (superseded) from one that didn't. The
+  // plain "reviews" list above is capped at 100 rows and isn't time-bounded, so
+  // it can't be trusted to contain every review in the window.
+  const { data: reviews24h } = useQuery({
+    queryKey: ["reviews", "24h"],
+    queryFn: () => api.reviews.query({ range: "24h", limit: 1000 }),
   });
 
   const { data: stats } = useQuery({
@@ -69,6 +88,20 @@ export default function DashboardPage() {
   const cost24 = last24h.length ? last24h.reduce((sum, r) => sum + (r.cost ?? 0), 0) : null;
   // In-flight already has its own panel above; keep the feed to finished work.
   const recent = all.filter((r) => r.status !== "running" && r.status !== "pending").slice(0, 25);
+
+  // Superseded = a later review exists for the same PR (ids are assigned in
+  // order, so a higher id is a later run). Those don't need attention anymore.
+  const needsYou = useMemo(() => {
+    const list = reviews24h ?? [];
+    return list
+      .filter((r) => r.status === "failed")
+      .filter(
+        (r) =>
+          !list.some(
+            (o) => o.repo_full_name === r.repo_full_name && o.pr_number === r.pr_number && o.id > r.id,
+          ),
+      );
+  }, [reviews24h]);
 
   // The two distribution bars: stacked in one column beside "Running now" when
   // something's in flight, else laid out as two side-by-side grid cells.
@@ -108,6 +141,7 @@ export default function DashboardPage() {
               label="Success · 24h"
               value={isPending ? null : successRate == null ? "—" : `${successRate}%`}
               sub={failed24.length ? `${failed24.length} failed` : finished24 ? "all clean" : undefined}
+              danger={successRate != null && successRate < SUCCESS_RATE_DANGER_THRESHOLD}
             />
             <Stat label="Cost · 24h" value={isPending ? null : formatCost(cost24) ?? "—"} />
             <Stat label="Reviews · 24h" value={isPending ? null : String(last24h.length)} />
@@ -149,6 +183,19 @@ export default function DashboardPage() {
               </>
             ))}
         </div>
+      )}
+
+      {needsYou.length > 0 && (
+        <section className="rounded-lg border border-red-900/50 bg-red-950/20 overflow-hidden">
+          <h2 className="px-4 pt-3 pb-2.5 text-xs font-medium uppercase tracking-wide text-red-400/90">
+            Needs you · {needsYou.length}
+          </h2>
+          <ul className="divide-y divide-red-900/25">
+            {needsYou.map((r) => (
+              <NeedsYouRow key={r.id} r={r} />
+            ))}
+          </ul>
+        </section>
       )}
 
       {stats && (stats.projects.length > 0 || stats.models.length > 0 || stats.topCost.length > 0) && (
@@ -408,8 +455,6 @@ function TopCost({ rows }: { rows: Stats["topCost"] }) {
   );
 }
 
-const TRIGGER_COLORS = ["bg-ember-400", "bg-sky-400", "bg-violet-400", "bg-amber-400", "bg-zinc-500"];
-
 function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
   const total = triggers.reduce((s, t) => s + t.count, 0);
   if (!total) return null;
@@ -518,14 +563,64 @@ function ActivityRow({ r }: { r: ReviewRow }) {
   );
 }
 
+function NeedsYouRow({ r }: { r: ReviewRow }) {
+  const queryClient = useQueryClient();
+  const retryMut = useMutation({
+    mutationFn: () => api.reviews.retry(r.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["reviews", "24h"] });
+    },
+    onError: (e: Error) => toast.error("Couldn't retry review", { description: e.message }),
+  });
+  const errorLine = r.error?.split("\n")[0];
+
+  return (
+    <li className="flex items-center gap-3 px-4 py-2.5">
+      <Link
+        to="/reviews/$id"
+        params={{ id: String(r.id) }}
+        className="flex min-w-0 flex-1 items-center gap-3"
+      >
+        <Badge status="failed" />
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-sm text-zinc-200 truncate">
+            {r.repo_full_name}
+            {r.pr_number > 0 ? `#${r.pr_number}` : ""}
+          </div>
+          {r.title && <div className="text-xs text-zinc-400 truncate">{r.title}</div>}
+          {errorLine && <div className="text-xs text-zinc-500 truncate">{errorLine}</div>}
+        </div>
+        <span
+          className="shrink-0 text-xs text-zinc-500 tabular-nums"
+          title={new Date(r.created_at * 1000).toLocaleString()}
+        >
+          {timeAgo(r.created_at)}
+        </span>
+      </Link>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={retryMut.isPending}
+        onClick={(e) => {
+          e.preventDefault();
+          retryMut.mutate();
+        }}
+      >
+        Retry
+      </Button>
+    </li>
+  );
+}
+
 function SkeletonRows() {
   return (
     <ul className="divide-y divide-zinc-800/70">
       {Array.from({ length: 5 }).map((_, i) => (
         <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-          <div className="h-5 w-16 rounded-full bg-zinc-800/70 animate-pulse" />
-          <div className="h-4 flex-1 max-w-64 rounded bg-zinc-800/70 animate-pulse" />
-          <div className="h-4 w-12 rounded bg-zinc-800/70 animate-pulse" />
+          <div className="h-5 w-16 rounded-full bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+          <div className="h-4 flex-1 max-w-64 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
+          <div className="h-4 w-12 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
         </li>
       ))}
     </ul>

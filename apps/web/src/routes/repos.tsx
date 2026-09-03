@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { api, type RepoRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,12 @@ import { cn } from "@/lib/utils";
 
 export default function ReposPage() {
   const queryClient = useQueryClient();
-  const { data: repos, isLoading } = useQuery({
+  const {
+    data: repos,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["repos"],
     queryFn: api.repos.list,
   });
@@ -47,6 +53,7 @@ export default function ReposPage() {
       setFullName("");
       setInstallId("");
     },
+    onError: (e: Error) => toast.error("Couldn't register repository", { description: e.message }),
   });
 
   return (
@@ -92,6 +99,10 @@ export default function ReposPage() {
                 onChange={(e) => setInstallId(e.target.value)}
                 required
               />
+              <p className="text-xs text-zinc-500">
+                From the GitHub App's install page — the number at the end of
+                github.com/settings/installations/&lt;id&gt;.
+              </p>
             </div>
             <Button type="submit" disabled={createMut.isPending}>
               <Plus size={16} />
@@ -106,6 +117,13 @@ export default function ReposPage() {
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="h-12 rounded-md bg-zinc-900/60 animate-pulse" />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
+          <p className="text-sm text-zinc-500">Couldn't load repositories.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       ) : !repos?.length ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
@@ -160,8 +178,9 @@ function RepoRow({ repo }: { repo: RepoRow }) {
       );
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e: Error, _v, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(["repos"], ctx.prev);
+      toast.error("Couldn't update repository", { description: e.message });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["repos"] }),
   });

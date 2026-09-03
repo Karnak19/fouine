@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,14 +28,23 @@ import { Stat } from "@/components/stat";
 export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
-  const { data: repo, isError } = useQuery({
+  const {
+    data: repo,
+    isError,
+    refetch: refetchRepo,
+  } = useQuery({
     queryKey: ["repos", owner, name],
     queryFn: () => api.repos.get(owner, name),
     retry: false,
   });
 
-  const { data: reviews = [] as ReviewRow[] } = useQuery({
+  const {
+    data: reviews = [] as ReviewRow[],
+    isError: reviewsError,
+    refetch: refetchReviews,
+  } = useQuery({
     queryKey: ["repos", owner, name, "reviews"],
     queryFn: () => api.repos.reviews(owner, name),
     // Fallback polling while a review runs, in case the SSE stream is down.
@@ -132,18 +142,21 @@ export default function RepoDetailPage() {
         deny_test_commands: denyTestCommands,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repos", owner, name] }),
+    onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
   });
 
   const improveMut = useMutation({
     mutationFn: () => api.repos.improve(owner, name),
+    onError: (e: Error) => toast.error("Couldn't queue improver", { description: e.message }),
   });
 
   const deleteMut = useMutation({
     mutationFn: () => api.repos.delete(owner, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos"] });
-      window.location.href = "/";
+      navigate({ to: "/repos" });
     },
+    onError: (e: Error) => toast.error("Couldn't delete repository", { description: e.message }),
   });
 
   // A repo:removed refetch 404s, so distinguish gone from still-loading —
@@ -158,6 +171,9 @@ export default function RepoDetailPage() {
         <Link to="/repos" className="mt-3 text-xs text-zinc-500 hover:text-zinc-300">
           Back to repositories
         </Link>
+        <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchRepo()}>
+          Retry
+        </Button>
       </div>
     );
   }
@@ -209,6 +225,10 @@ export default function RepoDetailPage() {
           <LiveBadge status={status} />
         </div>
         <p className="text-sm text-zinc-400 mt-1">Installation ID: {repo.installation_id}</p>
+        <p className="text-xs text-zinc-500 mt-1">
+          Reviews run when a PR is opened, pushed to, reopened, or marked ready for review, and on a{" "}
+          <span className="font-mono">/fouine</span> comment.
+        </p>
       </div>
 
       {insight.count > 0 && (
@@ -257,7 +277,7 @@ export default function RepoDetailPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="deny_test_commands">Tests, lint, typecheck, build</Label>
+              <Label htmlFor="deny_test_commands">Let the reviewer run tests, lint, typecheck, build</Label>
               <select
                 id="deny_test_commands"
                 className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
@@ -284,7 +304,7 @@ export default function RepoDetailPage() {
               />
               Auto-review new PRs on this repo
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={updateMut.isPending}>
                 Save
               </Button>
@@ -309,6 +329,10 @@ export default function RepoDetailPage() {
                 Delete
               </Button>
             </div>
+            <p className="text-xs text-zinc-500">
+              Run improver rereads recent reviews on this repo and opens a PR updating REVIEW.md to fix
+              issues it keeps missing.
+            </p>
           </form>
         </CardContent>
       </Card>
@@ -369,7 +393,19 @@ export default function RepoDetailPage() {
           <CardTitle>Reviews by PR</CardTitle>
         </CardHeader>
         <CardContent>
-          {prGroups.length === 0 ? (
+          {reviewsError ? (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-8 text-center">
+              <p className="text-sm text-zinc-500">Couldn't load reviews.</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => refetchReviews()}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : prGroups.length === 0 ? (
             <p className="text-sm text-zinc-500">No reviews yet.</p>
           ) : (
             <Table>
