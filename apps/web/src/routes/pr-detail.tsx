@@ -88,7 +88,7 @@ export default function PRDetailPage() {
   }
 
   return (
-    <div className="mx-auto space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <Link
         to="/repos/$owner/$name"
         params={{ owner, name }}
@@ -179,7 +179,7 @@ export default function PRDetailPage() {
 // doesn't jump.
 function PRDetailSkeleton() {
   return (
-    <div className="mx-auto space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <div className="h-4 w-40 rounded bg-zinc-900/60 animate-pulse motion-reduce:animate-none" />
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-2">

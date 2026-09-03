@@ -85,6 +85,10 @@ h1, h2, h3 {
 /* Fallback for every raw <a>/<button> that doesn't carry `focus-ring`:
    same ember, same 2px, so the browser's blue outline never shows. */
 @layer base {
+  /* Tailwind 4 defaults border-color to currentColor; bare `border` must be
+     the warm zinc token, not text-white. */
+  *, ::before, ::after { border-color: var(--color-border); }
+
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;

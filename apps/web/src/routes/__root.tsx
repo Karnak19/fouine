@@ -125,7 +125,7 @@ const FULL_HEIGHT_ROUTES = ["/chat"];
 // long pages: their overflow escapes the box, so `pb-24` would end up floating
 // mid-page and content would run under the tab bar.
 function contentClass(fullHeight: boolean) {
-  const base = "mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8";
+  const base = "w-full px-4 py-6 md:px-8 md:py-8";
   return fullHeight
     ? `${base} flex min-h-0 flex-1 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-8`
     : `${base} pb-24 md:pb-8`;

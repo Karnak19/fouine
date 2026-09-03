@@ -57,7 +57,7 @@ export default function ReposPage() {
   });
 
   return (
-    <div className="mx-auto space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight">Repositories</h1>

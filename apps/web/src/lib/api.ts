@@ -40,7 +40,13 @@ export type {
 
 // Same origin, relative — matches the previous `fetch("/api/...")` wrapper.
 // Cookies ride along automatically for a same-origin request, same as before.
-const client = treaty<App>(window.location.origin);
+// parseDate: false — Eden's JSON reviver otherwise sniffs any string shaped
+// like a date (including our plain "YYYY-MM-DD" day buckets, e.g.
+// DailyStatsRow.day) and silently swaps it for a real Date object. Nothing
+// here wants that: `day` is a label used as a map key and rendered as text,
+// and a stray Date crashes any of those spots with "Objects are not valid as
+// a React child".
+const client = treaty<App>(window.location.origin, { parseDate: false });
 const c = client.api;
 
 // Server errors are `{ error }` JSON (typed error statuses via Elysia's

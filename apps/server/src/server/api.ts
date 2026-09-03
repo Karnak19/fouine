@@ -210,7 +210,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     "/chat",
     async ({ body, set, request }) => {
       try {
-        return await streamChat(body.messages as UIMessage[], request.signal);
+        return await streamChat(body.messages as UIMessage[], request.signal, body.id);
       } catch (err) {
         // Config problems (no API key) surface as a readable message rather
         // than an opaque 500 the UI would render as a blank bubble.
@@ -225,6 +225,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       // to measure. Elysia rejects anything outside these bounds with a 422
       // before a single token is spent.
       body: t.Object({
+        // useChat's thread id — forwarded upstream as x-opencode-session.
+        id: t.Optional(t.String({ maxLength: 128 })),
         messages: t.Array(
           t.Object({
             id: t.Optional(t.String({ maxLength: 128 })),

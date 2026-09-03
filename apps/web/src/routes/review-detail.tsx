@@ -256,7 +256,7 @@ export default function ReviewDetailPage() {
   const messages = session?.messages ?? [];
 
   return (
-    <div className="mx-auto space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <Link
         to="/reviews"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"

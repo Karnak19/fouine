@@ -235,7 +235,7 @@ export default function RepoDetailPage() {
 
   if (!repo) {
     return (
-      <div className="mx-auto space-y-6 max-w-5xl">
+      <div className="space-y-6">
         <div className="h-4 w-32 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-8 w-64 rounded bg-zinc-900/60 animate-pulse" />
         <div className="h-64 rounded-lg bg-zinc-900/60 animate-pulse" />
@@ -244,7 +244,7 @@ export default function RepoDetailPage() {
   }
 
   return (
-    <div className="mx-auto space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
