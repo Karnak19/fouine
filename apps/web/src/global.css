@@ -72,6 +72,29 @@ h1, h2, h3 {
   50% { opacity: 0.35; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .fouine-pulse, [class*="animate-[fouine-pulse"] {
+    animation: none;
+  }
+}
+
+@utility focus-ring {
+  @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950;
+}
+
+/* Fallback for every raw <a>/<button> that doesn't carry `focus-ring`:
+   same ember, same 2px, so the browser's blue outline never shows. */
+@layer base {
+  /* Tailwind 4 defaults border-color to currentColor; bare `border` must be
+     the warm zinc token, not text-white. */
+  *, ::before, ::after { border-color: var(--color-border); }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));

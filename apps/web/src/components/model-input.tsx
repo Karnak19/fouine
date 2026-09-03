@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   id: string;
@@ -62,13 +63,14 @@ export function ModelInput({ id, value, onChange, placeholder }: Props) {
         {all
           ? `Every provider on models.dev (${data?.total ?? 0} models).`
           : `${data?.providers.join(", ") || "No provider configured"} — ${data?.total ?? 0} models.`}{" "}
-        <button
+        <Button
           type="button"
-          className="underline hover:text-zinc-300"
+          variant="ghost"
+          className="h-auto p-0 underline hover:bg-transparent hover:text-zinc-300"
           onClick={() => setAll(!all)}
         >
           {all ? "Only configured providers" : "Show all providers"}
-        </button>
+        </Button>
       </p>
     </>
   );

@@ -39,7 +39,7 @@ export function PanelSkeleton({ rows = 4 }: { rows?: number }) {
   return (
     <div className="space-y-2.5 px-4 py-3.5">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-4 rounded bg-muted/70 animate-pulse" />
+        <div key={i} className="h-4 rounded bg-muted/70 animate-pulse motion-reduce:animate-none" />
       ))}
     </div>
   );
@@ -50,7 +50,7 @@ export function PanelEmpty({ label }: { label: string }) {
     <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
       <Inbox size={18} className="text-zinc-700" />
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-xs text-zinc-600">Try a wider range or fewer filters.</p>
+      <p className="text-xs text-zinc-500">Try a wider range or fewer filters.</p>
     </div>
   );
 }

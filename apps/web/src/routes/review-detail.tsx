@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useNavigate } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { api, type FindingRow } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/markdown";
 import { useLiveEvents, type TranscriptDelta } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { timeAgo, duration } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   ExternalLink,
@@ -81,7 +83,6 @@ export default function ReviewDetailPage() {
   const { id } = useParams({ from: "/reviews/$id" });
   const numId = Number(id);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
 
   const retryMut = useMutation({
     // Improver runs aren't bound to a PR — retrying one re-runs the improver
@@ -93,15 +94,17 @@ export default function ReviewDetailPage() {
       }
       return api.reviews.retry(numId);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reviews"] });
-      navigate({ to: "/reviews" });
-    },
+    // The retry route is fire-and-forget and doesn't hand back the new
+    // review's id (it queues an async re-run), so there's nothing to
+    // navigate to — stay on this page and just invalidate.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews"] }),
+    onError: (e: Error) => toast.error("Couldn't retry review", { description: e.message }),
   });
 
   const stopMut = useMutation({
     mutationFn: () => api.reviews.stop(numId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reviews", numId] }),
+    onError: (e: Error) => toast.error("Couldn't stop review", { description: e.message }),
   });
 
   // SSE: the instant the row, its findings, or its transcript change, react.
@@ -143,7 +146,11 @@ export default function ReviewDetailPage() {
   });
   const streaming = status === "live";
 
-  const { data: review } = useQuery({
+  const {
+    data: review,
+    isError: reviewError,
+    refetch: refetchReview,
+  } = useQuery({
     queryKey: ["reviews", numId],
     queryFn: () => api.reviews.get(numId),
     refetchOnWindowFocus: false,
@@ -161,7 +168,11 @@ export default function ReviewDetailPage() {
   const inProgress = review?.status === "running" || review?.status === "pending";
   const [tab, setTab] = useState<"review" | "transcript">("review");
 
-  const { data: session } = useQuery({
+  const {
+    data: session,
+    isError: sessionError,
+    refetch: refetchSession,
+  } = useQuery({
     queryKey: ["reviews", numId, "session"],
     // The server returns 503 when the session can't be read; the api helper
     // throws on non-2xx, and retry:false keeps react-query showing the last
@@ -177,7 +188,11 @@ export default function ReviewDetailPage() {
     // fallback for a dead stream, at 20s rather than the old 2s.
     refetchInterval: inProgress && tab === "transcript" && !streaming ? 20000 : false,
   });
-  const { data: findings } = useQuery({
+  const {
+    data: findings,
+    isError: findingsError,
+    refetch: refetchFindings,
+  } = useQuery({
     queryKey: ["reviews", numId, "findings"],
     queryFn: () => api.reviews.findings(numId),
     refetchOnWindowFocus: false,
@@ -213,6 +228,17 @@ export default function ReviewDetailPage() {
     wasInProgress.current = inProgress;
   }, [inProgress, review?.id]);
 
+  if (reviewError) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-16 text-center">
+        <p className="text-sm text-zinc-500">Couldn't load this review.</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchReview()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!review) {
     return (
       <div className="space-y-4">
@@ -227,7 +253,7 @@ export default function ReviewDetailPage() {
   const messages = session?.messages ?? [];
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <Link
         to="/reviews"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
@@ -330,16 +356,20 @@ export default function ReviewDetailPage() {
       <div>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div
+            role="tablist"
             className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
               isImprover ? "hidden" : ""
             }`}
           >
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "review"}
               onClick={() => setTab("review")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+              className={`h-auto rounded px-2.5 py-1 text-xs font-medium ${
                 tab === "review"
-                  ? "bg-zinc-800 text-zinc-100"
+                  ? "bg-zinc-800 text-zinc-100 hover:bg-zinc-800"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
@@ -347,18 +377,21 @@ export default function ReviewDetailPage() {
               {findings && findings.length > 0 && (
                 <span className="tabular-nums text-zinc-500">{findings.length}</span>
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              role="tab"
+              aria-selected={tab === "transcript"}
               onClick={() => setTab("transcript")}
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium transition-colors ${
+              className={`h-auto rounded px-2.5 py-1 text-xs font-medium ${
                 tab === "transcript"
-                  ? "bg-zinc-800 text-zinc-100"
+                  ? "bg-zinc-800 text-zinc-100 hover:bg-zinc-800"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
               <ScrollText size={13} /> Transcript
-            </button>
+            </Button>
           </div>
           {inProgress && (
             <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
@@ -374,15 +407,24 @@ export default function ReviewDetailPage() {
         {tab === "review" ? (
           <ReviewView
             findings={findings}
+            isError={findingsError}
+            onRetry={refetchFindings}
             owner={owner}
             name={name}
             pr={review.pr_number}
             pending={inProgress}
           />
+        ) : sessionError ? (
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-8 text-center">
+            <p className="text-sm text-zinc-500">Couldn't load transcript.</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchSession()}>
+              Retry
+            </Button>
+          </div>
         ) : session == null ? (
-          <p className="text-sm text-zinc-600">Loading transcript…</p>
+          <p className="text-sm text-zinc-500">Loading transcript…</p>
         ) : messages.length === 0 ? (
-          <p className="text-sm text-zinc-600">No transcript available for this review.</p>
+          <p className="text-sm text-zinc-500">No transcript available for this review.</p>
         ) : (
           <div className="space-y-4">
             {messages.map((m, i) => (
@@ -395,40 +437,56 @@ export default function ReviewDetailPage() {
   );
 }
 
-const SEVERITY: Record<string, { label: string; cls: string }> = {
-  blocking: { label: "blocking", cls: "border-red-900/60 bg-red-950/40 text-red-300" },
-  question: { label: "question", cls: "border-amber-900/60 bg-amber-950/40 text-amber-300" },
-  nit: { label: "nit", cls: "border-zinc-700 bg-zinc-900 text-zinc-400" },
-};
 const EVENT: Record<string, string> = {
   REQUEST_CHANGES: "text-red-300",
   APPROVE: "text-emerald-300",
   COMMENT: "text-zinc-300",
 };
+const SEVERITY_RANK: Record<string, number> = { blocking: 0, question: 1, nit: 2 };
+function bySeverity(a: FindingRow, b: FindingRow): number {
+  const r = (SEVERITY_RANK[a.severity ?? ""] ?? 3) - (SEVERITY_RANK[b.severity ?? ""] ?? 3);
+  if (r !== 0) return r;
+  const p = (a.path ?? "").localeCompare(b.path ?? "");
+  if (p !== 0) return p;
+  return (a.line ?? 0) - (b.line ?? 0);
+}
 
 function ReviewView({
   findings,
+  isError,
+  onRetry,
   owner,
   name,
   pr,
   pending,
 }: {
   findings?: FindingRow[];
+  isError?: boolean;
+  onRetry: () => void;
   owner: string;
   name: string;
   pr: number;
   pending: boolean;
 }) {
-  if (findings == null) return <p className="text-sm text-zinc-600">Loading review…</p>;
+  if (isError)
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-8 text-center">
+        <p className="text-sm text-zinc-500">Couldn't load findings.</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    );
+  if (findings == null) return <p className="text-sm text-zinc-500">Loading review…</p>;
   if (findings.length === 0)
     return (
-      <p className="text-sm text-zinc-600">
+      <p className="text-sm text-zinc-500">
         {pending ? "No findings posted yet." : "This review posted no findings."}
       </p>
     );
 
   const summary = findings.find((f) => f.kind === "summary");
-  const inline = findings.filter((f) => f.kind === "inline");
+  const inline = findings.filter((f) => f.kind === "inline").sort(bySeverity);
   const comments = findings.filter((f) => f.kind === "comment");
   const prUrl = `https://github.com/${owner}/${name}/pull/${pr}`;
 
@@ -445,13 +503,14 @@ function ReviewView({
                 href={`${prUrl}#pullrequestreview-${summary.github_review_id}`}
                 target="_blank"
                 rel="noreferrer"
+                title="Open review on GitHub"
                 className="ml-auto inline-flex items-center gap-1 text-zinc-500 hover:text-zinc-300"
               >
                 view on GitHub <ExternalLink size={11} className="opacity-60" />
               </a>
             )}
           </div>
-          <div className="whitespace-pre-wrap text-sm text-zinc-200">{summary.body}</div>
+          <Markdown>{summary.body}</Markdown>
         </div>
       )}
 
@@ -460,26 +519,23 @@ function ReviewView({
           {inline.map((f) => (
             <div key={f.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
-                {f.severity && (
-                  <span
-                    className={`rounded border px-1.5 py-0.5 font-medium ${
-                      SEVERITY[f.severity]?.cls ?? "border-zinc-700 text-zinc-400"
-                    }`}
-                  >
-                    {SEVERITY[f.severity]?.label ?? f.severity}
-                  </span>
-                )}
+                {f.severity && <Badge severity={f.severity} />}
                 <a
-                  href={`${prUrl}/files`}
+                  href={
+                    f.github_comment_id != null
+                      ? `${prUrl}#discussion_r${f.github_comment_id}`
+                      : `${prUrl}/files`
+                  }
                   target="_blank"
                   rel="noreferrer"
+                  title={f.github_comment_id != null ? "Open comment on GitHub" : undefined}
                   className="font-mono text-zinc-400 hover:text-zinc-200"
                 >
                   {f.path}
                   {f.line != null ? `:${f.line}` : ""}
                 </a>
               </div>
-              <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+              <Markdown>{f.body}</Markdown>
             </div>
           ))}
         </div>
@@ -488,7 +544,7 @@ function ReviewView({
       {comments.map((f) => (
         <div key={f.id} className="rounded-md border border-zinc-800/70 bg-zinc-950 p-3">
           <div className="mb-1 text-xs font-medium text-zinc-500">PR comment</div>
-          <div className="whitespace-pre-wrap text-sm text-zinc-200">{f.body}</div>
+          <Markdown>{f.body}</Markdown>
         </div>
       ))}
     </div>
@@ -534,7 +590,7 @@ function PartView({ p }: { p: Part }) {
             <Terminal size={12} className="text-zinc-500" />
             <span className="font-mono text-zinc-300">{p.tool}</span>
             {p.state?.title && <span className="text-zinc-500">— {p.state.title}</span>}
-            {p.state?.status && <span className="ml-auto text-zinc-600">{p.state.status}</span>}
+            {p.state?.status && <span className="ml-auto text-zinc-500">{p.state.status}</span>}
           </summary>
           {p.state?.output && (
             <pre className="overflow-auto max-h-60 px-3 pb-2 text-xs text-zinc-400">

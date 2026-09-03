@@ -29,7 +29,7 @@ export function MixBar({ items }: { items: MixBarItem[] }) {
           <span key={i.key} className="flex items-center gap-1.5 tabular-nums">
             <span className={`h-2 w-2 rounded-full ${i.color}`} />
             {i.label}
-            <span className="text-zinc-600">{i.count}</span>
+            <span className="text-zinc-500">{i.count}</span>
           </span>
         ))}
       </div>

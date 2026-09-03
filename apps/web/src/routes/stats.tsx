@@ -19,6 +19,7 @@ import {
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
@@ -39,55 +40,18 @@ import {
   scaleMax,
 } from "@/components/charts";
 
-const RANGES = ["24h", "7d", "30d", "90d", "all"] as const;
-const DEFAULT_RANGE: StatsRange = "30d";
-const STATUSES = ["pending", "running", "completed", "failed"] as const;
-type Status = (typeof STATUSES)[number];
-
-export interface StatsSearch {
-  // `range` is absent from the URL when it's the default — a clean link for the
-  // default view. Everything reads it through `search.range ?? DEFAULT_RANGE`.
-  range?: StatsRange;
-  // Custom window, YYYY-MM-DD. Either bound alone is valid. When either is set
-  // it wins and `range` is ignored, so the UI can never show a custom window
-  // while a preset still looks selected.
-  from?: string;
-  to?: string;
-  repo?: string;
-  model?: string;
-  status?: Status;
-}
-
-const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
-
-// Same shape of validation as the server's dayEpoch: a real UTC calendar day or
-// nothing. Keeps `from=lol` out of the URL instead of round-tripping garbage.
-// The NaN check is load-bearing: "2026-13-45" passes the regex, and calling
-// toISOString() on the resulting Invalid Date throws a RangeError that takes
-// the whole page down rather than falling back to the preset.
-const isDay = (v: unknown): v is string => {
-  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
-  const ms = Date.parse(`${v}T00:00:00Z`);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === v;
-};
-
-const day = (v: unknown) => (isDay(v) ? v : undefined);
-
-export function validateStatsSearch(raw: Record<string, unknown>): StatsSearch {
-  const range = RANGES.find((r) => r === raw.range && r !== DEFAULT_RANGE);
-  const status = STATUSES.find((s) => s === raw.status);
-  const from = day(raw.from);
-  const to = day(raw.to);
-  return {
-    // A custom window owns the time axis; drop range so the two can't disagree.
-    range: from || to ? undefined : range,
-    from,
-    to,
-    repo: str(raw.repo),
-    model: str(raw.model),
-    status,
-  };
-}
+// The search-param schema and its validator live in lib/stats-search.ts (not
+// here): __root.tsx needs validateSearch synchronously, and importing them
+// from this module would statically drag stats' charts/day-picker into the
+// eager bundle — defeating the point of lazy-loading this route's component.
+import {
+  RANGES,
+  DEFAULT_RANGE,
+  STATUSES,
+  validateStatsSearch,
+  type StatsSearch,
+  type Status,
+} from "../lib/stats-search";
 
 export default function StatsPage() {
   const search = useSearch({ strict: false }) as StatsSearch;
@@ -173,9 +137,10 @@ export default function StatsPage() {
           className="flex overflow-hidden rounded-md border border-zinc-800"
         >
           {RANGES.map((r) => (
-            <button
+            <Button
               key={r}
               type="button"
+              variant="ghost"
               // Deselected while a custom window is active: the presets must
               // never claim "30d" over a view that isn't 30 days.
               aria-pressed={!custom && r === range}
@@ -186,14 +151,14 @@ export default function StatsPage() {
                   to: undefined,
                 })
               }
-              className={`px-2.5 py-1 text-xs font-medium tabular-nums transition-colors cursor-pointer ${
+              className={`h-auto rounded-none px-2.5 py-1 text-xs font-medium tabular-nums ${
                 !custom && r === range
-                  ? "bg-ember-950/60 text-ember-300"
+                  ? "bg-ember-950/60 text-ember-300 hover:bg-ember-950/60"
                   : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100"
               }`}
             >
               {r}
-            </button>
+            </Button>
           ))}
         </div>
         {/* The presets stay; this sits beside them for an arbitrary window.
@@ -226,14 +191,15 @@ export default function StatsPage() {
           placeholder="Any status"
         />
         {filtered && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => navigate({ to: "/stats", search: {} })}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 cursor-pointer"
+            className="h-auto gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-100"
           >
             <X size={12} />
             Clear
-          </button>
+          </Button>
         )}
       </div>
 
@@ -354,18 +320,19 @@ function RangePicker({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
+          variant="outline"
           aria-label="Custom date range"
-          className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs tabular-nums transition-colors cursor-pointer ${
+          className={`h-auto gap-1.5 rounded-md px-2 py-1 text-xs tabular-nums ${
             from || to
-              ? "border-ember-900 bg-ember-950/60 text-ember-300"
+              ? "border-ember-900 bg-ember-950/60 text-ember-300 hover:bg-ember-950/60"
               : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-700 hover:text-zinc-100"
           }`}
         >
           <CalendarIcon size={13} />
           {label}
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
@@ -427,17 +394,19 @@ function FilterButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded p-1 transition-colors cursor-pointer ${
-        active ? "text-ember-300" : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-200"
+      className={`h-auto w-auto rounded p-1 ${
+        active ? "text-ember-300 hover:bg-transparent" : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-200"
       }`}
     >
       <ListFilter size={13} />
-    </button>
+    </Button>
   );
 }
 
@@ -480,7 +449,7 @@ function CostTrend({
             }))}
           />
           {/* No axes: this caption row carries the endpoints and the peak. */}
-          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-600 tabular-nums">
+          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-500 tabular-nums">
             <span>{daily[0].day}</span>
             <span>{formatCost(max)} peak</span>
             <span>{daily[daily.length - 1].day}</span>
@@ -604,16 +573,17 @@ function ModelStats({
                   <TableRow key={m.model} className={isActive ? "bg-ember-950/25" : ""}>
                     <TableCell className="py-2.5">
                       {/* No detail page for a model, so the whole name is the filter. */}
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
                         aria-pressed={isActive}
                         onClick={() => onFilter(isActive ? undefined : m.model)}
-                        className={`font-mono text-left transition-colors cursor-pointer ${
+                        className={`h-auto justify-start p-0 font-mono hover:bg-transparent ${
                           isActive ? "text-ember-300" : "text-zinc-200 hover:text-ember-300"
                         }`}
                       >
                         {m.model}
-                      </button>
+                      </Button>
                     </TableCell>
                     <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
                       {m.reviews}
@@ -749,7 +719,7 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
                       {r.repo_full_name}
                       {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                     </Link>
-                    {r.model && <div className="text-xs text-zinc-600 truncate">{r.model}</div>}
+                    {r.model && <div className="text-xs text-zinc-500 truncate">{r.model}</div>}
                   </TableCell>
                   <TableCell className="py-2.5">
                     <Badge status={r.status} />

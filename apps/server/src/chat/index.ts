@@ -142,6 +142,7 @@ export const MAX_PARTS_PER_MESSAGE = 64;
 export async function streamChat(
   rawMessages: UIMessage[],
   signal?: AbortSignal,
+  chatId?: string,
 ): Promise<Response> {
   if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     throw new Error("No question to answer.");
@@ -172,10 +173,15 @@ export async function streamChat(
     throw new Error("No opencode API key configured — set one in Settings.");
   }
 
+  // OpenCode Go requires one stable x-opencode-session per conversation
+  // (requests without it may error from 2026-09-06). useChat's thread id is
+  // exactly that; the first message id is the fallback for older clients.
+  const session = chatId ?? rawMessages[0]?.id ?? crypto.randomUUID();
   const gateway = createOpenAICompatible({
     name: "opencode-go",
     baseURL: OPENCODE_GO_BASE_URL,
     apiKey,
+    headers: { "x-opencode-session": session },
   });
 
   const result = streamText({
