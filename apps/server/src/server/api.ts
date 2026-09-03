@@ -1,4 +1,4 @@
-import { Elysia, t, sse } from "elysia";
+import { Elysia, t, sse, status } from "elysia";
 import { repos, reviews, settings, findings } from "~/db";
 import {
   publishRepoRemoved,
@@ -117,6 +117,35 @@ export function statsFilter(query: Record<string, unknown>) {
   };
 }
 
+// Shared by every filterable GET below. `statsFilter` still does the calendar
+// validity check on from/to (a schema pattern can't reject 2026-02-30) — this
+// just rejects garbage shapes before the handler runs.
+const statsQuery = t.Object({
+  range: t.Optional(
+    t.Union([t.Literal("24h"), t.Literal("7d"), t.Literal("30d"), t.Literal("90d"), t.Literal("all")]),
+  ),
+  from: t.Optional(t.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+  to: t.Optional(t.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+  repo: t.Optional(t.String()),
+  model: t.Optional(t.String()),
+});
+
+const reviewsQuery = t.Composite([
+  statsQuery,
+  t.Object({
+    status: t.Optional(
+      t.Union([
+        t.Literal("pending"),
+        t.Literal("running"),
+        t.Literal("completed"),
+        t.Literal("failed"),
+        t.Literal("skipped"),
+      ]),
+    ),
+    limit: t.Optional(t.Numeric({ minimum: 1, maximum: 1000 })),
+  }),
+]);
+
 export const apiRoutes = new Elysia({ prefix: "/api" })
   // Server-Sent Events stream. Scope = ?repo=owner/name (server-side filter,
   // so a client can only subscribe to the repo it's viewing); no scope = all
@@ -125,8 +154,10 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   // Last-Event-ID, which we ignore — clients refetch their REST queries on
   // reconnect, so there are no duplicate events and no missed final state).
   // Under the /api OAuth gate like the rest of the dashboard.
-  .get("/events", async function* ({ query, request }) {
-    const repo = (query.repo as string | undefined) ?? null;
+  .get(
+    "/events",
+    async function* ({ query, request }) {
+    const repo = query.repo ?? null;
 
     // The hub pushes; a generator pulls. Bridge with a queue the subscriber
     // fills and a `wake` the idle loop parks on.
@@ -168,7 +199,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     } finally {
       unsubscribe();
     }
-  })
+    },
+    { query: t.Object({ repo: t.Optional(t.String()) }) },
+  )
 
   // Chat over the review data. The AI SDK produces a UI message stream and
   // Elysia can return that Response as-is, so there is no second transport and
@@ -221,7 +254,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .get("/repos/:owner/:name", ({ params }) => {
     const full = `${params.owner}/${params.name}`;
     const repo = repos.get.get({ $full_name: full });
-    if (!repo) return new Response("Not found", { status: 404 });
+    if (!repo) return status(404, { error: "Not found" });
     return repo;
   })
 
@@ -238,7 +271,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     ({ params, body }) => {
       const full = `${params.owner}/${params.name}`;
       const existing = repos.get.get({ $full_name: full });
-      if (!existing) return new Response("Not found", { status: 404 });
+      if (!existing) return status(404, { error: "Not found" });
       repos.update.run({
         $full_name: full,
         $prompt: body.prompt ?? null,
@@ -301,16 +334,21 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     });
   })
 
-  .get("/reviews", ({ query }) => {
-    const limit = Number(str(query.limit));
-    return reviews.recent.all({
-      ...statsFilter(query),
-      $status: str(query.status),
-      $limit: Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 1000) : 100,
-    });
-  })
+  .get(
+    "/reviews",
+    ({ query }) => {
+      return reviews.recent.all({
+        ...statsFilter(query),
+        $status: query.status ?? null,
+        $limit: query.limit ?? 100,
+      });
+    },
+    { query: reviewsQuery },
+  )
 
-  .get("/stats", ({ query }) => {
+  .get(
+    "/stats",
+    ({ query }) => {
     const f = statsFilter(query);
     const agg = reviews.latencyAgg.get(f);
     return {
@@ -328,13 +366,17 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       // Unfiltered on purpose — the dropdown must keep every option.
       allModels: reviews.allModels.all().map((r) => r.model),
     };
-  })
+    },
+    { query: statsQuery },
+  )
 
   // The chart panels live on their own route rather than being folded into
   // /stats: the latency trend ships one row per completed review, and the
   // dashboard — which calls /stats on every load and renders none of this —
   // would pay for thousands of samples it never reads.
-  .get("/stats/charts", ({ query }) => {
+  .get(
+    "/stats/charts",
+    ({ query }) => {
     const f = statsFilter(query);
     const samples = reviews.latencySamples.all(f);
 
@@ -362,13 +404,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       findingsDaily: findings.dailyBySeverity.all(f),
       topFiles: findings.topFiles.all(f),
     };
-  })
+    },
+    { query: statsQuery },
+  )
 
   .get("/reviews/:id/findings", ({ params }) => findings.byReview.all({ $review: Number(params.id) }))
 
   .get("/reviews/:id", ({ params }) => {
     const r = reviews.byId.get({ $id: Number(params.id) });
-    if (!r) return new Response("Not found", { status: 404 });
+    if (!r) return status(404, { error: "Not found" });
     return r;
   })
 
@@ -524,12 +568,11 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .post(
     "/skills",
-    async ({ body, set }) => {
+    async ({ body }) => {
       try {
         return await installSkill(body.url);
       } catch (err) {
-        set.status = 422;
-        return { error: String((err as Error)?.message ?? err) };
+        return status(422, { error: String((err as Error)?.message ?? err) });
       }
     },
     { body: t.Object({ url: t.String() }) },
@@ -537,12 +580,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .put(
     "/skills/:name",
-    ({ params, body, set }) => {
+    ({ params, body }) => {
       const row = setSkillEnabled(params.name, body.enabled);
-      if (!row) {
-        set.status = 404;
-        return { error: "not found" };
-      }
+      if (!row) return status(404, { error: "not found" });
       return row;
     },
     { body: t.Object({ enabled: t.Boolean() }) },

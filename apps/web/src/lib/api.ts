@@ -43,13 +43,18 @@ export type {
 const client = treaty<App>(window.location.origin);
 const c = client.api;
 
-// Server errors are `{ error }` (sometimes `{ message }`) JSON, or a plain
-// text body (e.g. the 404 routes' `new Response("Not found", ...)`). Preserve
-// the exact message shape the old wrapper produced: toasts show `e.message`.
+// Server errors are `{ error }` JSON (typed error statuses via Elysia's
+// `status()`) or Elysia's own 422 validation body — `{ type, on, summary,
+// message, ... }` — for a query/body that fails its schema. `summary` is the
+// human-readable one-liner ("Expected string on 'status'"); `message` is
+// there too but as a JSON-stringified detail blob, so prefer `summary`.
 function toError(error: { status: number; value: unknown }): Error {
   const v = error.value;
   if (v && typeof v === "object") {
-    const m = (v as Record<string, unknown>).error ?? (v as Record<string, unknown>).message;
+    const m =
+      (v as Record<string, unknown>).error ??
+      (v as Record<string, unknown>).summary ??
+      (v as Record<string, unknown>).message;
     if (typeof m === "string" && m) return new Error(m);
   }
   if (typeof v === "string" && v) return new Error(v);
@@ -61,17 +66,9 @@ function unwrap<T>({ data, error }: { data: T | null; error: unknown }): T {
   return data as T;
 }
 
-// A handful of routes 404 via a raw `new Response(...)` (or return a `{error}`
-// object on a non-200 status) instead of a declared error status — no
-// `response` schema on those handlers — so Eden folds that branch into the
-// success type instead of `error`. Runtime behavior is still correct (Eden
-// keys off the real status code), so this is a deliberate cast at the
-// boundary for exactly those routes, same as the old wrapper's `res.json()`
-// cast, rather than a route-file schema change (out of scope for this pass —
-// see the schema-less-route count in the report).
-function unwrapLoose<T>({ data, error }: { data: unknown; error: unknown }): T {
+// For 204 routes: nothing to return, only an error to surface.
+function ok({ error }: { error: unknown }): void {
   if (error) throw toError(error as { status: number; value: unknown });
-  return data as T;
 }
 
 export interface Stats {
@@ -98,8 +95,10 @@ export interface StatsQuery {
   model?: string;
 }
 
+export type ReviewStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
 export interface ReviewsQuery extends StatsQuery {
-  status?: string;
+  status?: ReviewStatus;
   limit?: number;
 }
 
@@ -148,7 +147,7 @@ export const api = {
   repos: {
     list: async () => unwrap<RepoRow[]>(await c.repos.get()),
     get: async (owner: string, name: string) =>
-      unwrapLoose<RepoRow>(await c.repos({ owner })({ name }).get()),
+      unwrap<RepoRow>(await c.repos({ owner })({ name }).get()),
     create: async (data: { full_name: string; installation_id: number }) =>
       unwrap<RepoRow>(await c.repos.post(data)),
     update: async (
@@ -163,9 +162,9 @@ export const api = {
         enabled?: number;
         deny_test_commands?: number | null;
       },
-    ) => unwrapLoose<RepoRow>(await c.repos({ owner })({ name }).put(data)),
+    ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>
-      unwrapLoose<void>(await c.repos({ owner })({ name }).delete()),
+      ok(await c.repos({ owner })({ name }).delete()),
     reviews: async (owner: string, name: string) =>
       unwrap<ReviewRow[]>(await c.repos({ owner })({ name }).reviews.get()),
     prReviews: async (owner: string, name: string, number: number) =>
@@ -181,7 +180,7 @@ export const api = {
       unwrap<ReviewRow[]>(
         await c.reviews.get({ query: { ...statsQuery(q), status: q.status, limit: q.limit } }),
       ),
-    get: async (id: number) => unwrapLoose<ReviewRow>(await c.reviews({ id }).get()),
+    get: async (id: number) => unwrap<ReviewRow>(await c.reviews({ id }).get()),
     findings: async (id: number) =>
       unwrap<FindingRow[]>(await c.reviews({ id }).findings.get()),
     session: async (id: number) => unwrap<unknown>(await c.reviews({ id }).session.get()),
@@ -214,9 +213,9 @@ export const api = {
   },
   skills: {
     list: async () => unwrap<SkillMetaRow[]>(await c.skills.get()),
-    install: async (url: string) => unwrapLoose<SkillMetaRow>(await c.skills.post({ url })),
+    install: async (url: string) => unwrap<SkillMetaRow>(await c.skills.post({ url })),
     setEnabled: async (name: string, enabled: boolean) =>
-      unwrapLoose<SkillMetaRow>(await c.skills({ name }).put({ enabled })),
-    remove: async (name: string) => unwrapLoose<void>(await c.skills({ name }).delete()),
+      unwrap<SkillMetaRow>(await c.skills({ name }).put({ enabled })),
+    remove: async (name: string) => ok(await c.skills({ name }).delete()),
   },
 };
