@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
 import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import {
   api,
   type DailyStatsRow,
@@ -41,26 +42,13 @@ const s = stylex.create({
     justifyContent: "space-between",
     gap: space.x16
   },
-  h1: {
-    fontSize: text.xl2,
-    lineHeight: leading.xl2,
-    fontWeight: 700,
-    letterSpacing: tracking.tight
-  },
-  tagline: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500, marginTop: space.x4 },
   runningPill: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8,
     fontSize: text.xs,
     lineHeight: leading.xs,
     color: color.ember300,
     fontVariantNumeric: "tabular-nums"
   },
   runningDot: {
-    height: space.x6,
-    width: space.x6,
-    borderRadius: radius.full,
     backgroundColor: color.ember400,
     // fouine-pulse lives in global.css — referenced by name so the two stay
     // in sync.
@@ -202,12 +190,12 @@ export default function DashboardPage() {
     <div {...stylex.props(s.page)}>
       <div {...stylex.props(s.header)}>
         <div>
-          <h1 {...stylex.props(s.h1)}>Dashboard</h1>
-          <p {...stylex.props(s.tagline)}>What fouine is doing, latest first.</p>
+          <h1 {...stylex.props(shared.pageTitle)}>Dashboard</h1>
+          <p {...stylex.props(shared.lede)}>What fouine is doing, latest first.</p>
         </div>
         {inFlight.length > 0 && (
-          <span {...stylex.props(s.runningPill)}>
-            <span {...stylex.props(s.runningDot)} />
+          <span {...stylex.props(shared.row, s.runningPill)}>
+            <span {...stylex.props(shared.dot, s.runningDot)} />
             {inFlight.length} running
           </span>
         )}
@@ -592,23 +580,16 @@ const row = stylex.create({
       ":hover": `color-mix(in oklab, ${color.zinc800} 40%, transparent)`
     }
   },
-  main: { minWidth: 0, flexGrow: 1, flexShrink: 1, flexBasis: "0%" },
   title: {
     fontFamily: font.mono,
     fontSize: text.sm,
     lineHeight: leading.sm,
-    color: color.zinc200,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    color: color.zinc200
   },
   sub: {
     fontSize: text.xs,
     lineHeight: leading.xs,
-    color: color.zinc500,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    color: color.zinc500
   },
   trigger: {
     display: { default: "none", "@media (min-width: 640px)": "inline" },
@@ -658,12 +639,12 @@ function TopCost({ rows }: { rows: Stats["topCost"] }) {
           {rows.map((r) => (
             <li key={r.id} {...stylex.props(row.divider)}>
               <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(row.link)}>
-                <div {...stylex.props(row.main)}>
-                  <div {...stylex.props(row.title)}>
+                <div {...stylex.props(shared.fill)}>
+                  <div {...stylex.props(shared.truncate, row.title)}>
                     {r.repo_full_name}
                     {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                   </div>
-                  {r.model && <div {...stylex.props(row.sub)}>{r.model}</div>}
+                  {r.model && <div {...stylex.props(shared.truncate, row.sub)}>{r.model}</div>}
                 </div>
                 {r.tokens != null && (
                   <span {...stylex.props(row.metaSm)}>{formatTokens(r.tokens)}</span>
@@ -722,13 +703,6 @@ const mix = stylex.create({
     lineHeight: leading.xs,
     color: color.zinc400
   },
-  entry: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x6,
-    fontVariantNumeric: "tabular-nums"
-  },
-  dot: { height: space.x8, width: space.x8, borderRadius: radius.full },
   count: { color: color.zinc600 }
 });
 
@@ -753,8 +727,8 @@ function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
         </div>
         <div {...stylex.props(mix.legend)}>
           {triggers.map((t, i) => (
-            <span key={t.trigger} {...stylex.props(mix.entry)}>
-              <span {...stylex.props(mix.dot, TRIGGER_COLORS[i % TRIGGER_COLORS.length])} />
+            <span key={t.trigger} {...stylex.props(shared.rowTight, shared.tabular)}>
+              <span {...stylex.props(shared.dotLarge, TRIGGER_COLORS[i % TRIGGER_COLORS.length])} />
               {triggerLabel(t.trigger) ?? t.trigger}
               <span {...stylex.props(mix.count)}>{t.count}</span>
             </span>
@@ -799,8 +773,8 @@ function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
         </div>
         <div {...stylex.props(mix.legend)}>
           {severity.map((x) => (
-            <span key={x.severity} {...stylex.props(mix.entry)}>
-              <span {...stylex.props(mix.dot, SEVERITY_META[x.severity]?.dot ?? sev.nit)} />
+            <span key={x.severity} {...stylex.props(shared.rowTight, shared.tabular)}>
+              <span {...stylex.props(shared.dotLarge, SEVERITY_META[x.severity]?.dot ?? sev.nit)} />
               {SEVERITY_META[x.severity]?.label ?? x.severity}
               <span {...stylex.props(mix.count)}>{x.count}</span>
             </span>
@@ -818,12 +792,12 @@ function ActivityRow({ r, ember }: { r: ReviewRow; ember?: boolean }) {
     <li {...stylex.props(row.divider, ember && row.dividerEmber)}>
       <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(row.link)}>
         <Badge status={r.status} />
-        <div {...stylex.props(row.main)}>
-          <div {...stylex.props(row.title)}>
+        <div {...stylex.props(shared.fill)}>
+          <div {...stylex.props(shared.truncate, row.title)}>
             {r.repo_full_name}
             {r.pr_number > 0 ? `#${r.pr_number}` : ""}
           </div>
-          {r.title && <div {...stylex.props(row.sub)}>{r.title}</div>}
+          {r.title && <div {...stylex.props(shared.truncate, row.sub)}>{r.title}</div>}
         </div>
         {trigger && <span {...stylex.props(row.trigger)}>{trigger}</span>}
         {cost && <span {...stylex.props(row.metaSm)}>{cost}</span>}
@@ -890,7 +864,6 @@ const empty = stylex.create({
     textAlign: "center"
   },
   icon: { color: color.zinc700 },
-  label: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
   hint: {
     fontSize: text.xs,
     lineHeight: leading.xs,
@@ -907,7 +880,7 @@ function Empty() {
   return (
     <div {...stylex.props(empty.root)}>
       <Inbox size={20} {...stylex.props(empty.icon)} />
-      <p {...stylex.props(empty.label)}>No reviews yet.</p>
+      <p {...stylex.props(shared.meta)}>No reviews yet.</p>
       <p {...stylex.props(empty.hint)}>
         Enable a repo, then open a PR or comment <span {...stylex.props(empty.code)}>/fouine</span> to
         kick off the first one.

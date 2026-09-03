@@ -22,6 +22,7 @@ import {
   ScrollText,
   ClipboardCheck
 } from "lucide-react";
+import { shared } from "@/styles";
 
 // Tailwind's `animate-pulse` (skeleton) and `animate-ping` (live dot).
 // Restated locally because the @keyframes only exist while a className
@@ -30,8 +31,6 @@ const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
 const ping = stylex.keyframes({ "75%, 100%": { transform: "scale(2)", opacity: 0 } });
 
 const s = stylex.create({
-  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x896 },
-  stack2: { display: "flex", flexDirection: "column", gap: space.x8 },
   stack4: { display: "flex", flexDirection: "column", gap: space.x16 },
 
   skeletonBar: {
@@ -54,25 +53,13 @@ const s = stylex.create({
     animationIterationCount: "infinite"
   },
 
-  backLink: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x4,
-    fontSize: text.sm,
-    lineHeight: leading.sm,
-    color: { default: color.zinc400, ":hover": color.zinc100 }
-  },
-
   header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: space.x16 },
   headerMain: { minWidth: 0 },
   title: {
     fontSize: text.xl,
     lineHeight: leading.xl,
     fontWeight: 700,
-    letterSpacing: tracking.tight,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    letterSpacing: tracking.tight
   },
   meta: {
     marginTop: space.x4,
@@ -98,8 +85,6 @@ const s = stylex.create({
   },
   dim50: { opacity: 0.5 },
   dim60: { opacity: 0.6 },
-  tabular: { fontVariantNumeric: "tabular-nums" },
-  badges: { display: "flex", alignItems: "center", gap: space.x8 },
 
   sessionBar: {
     display: "flex",
@@ -115,8 +100,7 @@ const s = stylex.create({
     paddingBlock: space.x8,
     fontSize: text.xs,
     lineHeight: leading.xs,
-    color: color.zinc500,
-    fontVariantNumeric: "tabular-nums"
+    color: color.zinc500
   },
   value: { color: color.zinc300 },
 
@@ -175,8 +159,7 @@ const s = stylex.create({
     transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)"
   },
   tabActive: { backgroundColor: color.zinc800, color: color.zinc100 },
-  tabIdle: { color: { default: color.zinc500, ":hover": color.zinc300 } },
-  tabCount: { fontVariantNumeric: "tabular-nums", color: color.zinc500 },
+  tabCount: { color: color.zinc500 },
 
   liveRow: {
     display: "inline-flex",
@@ -210,9 +193,6 @@ const s = stylex.create({
   },
   summaryHead: {
     marginBottom: space.x8,
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8,
     fontSize: text.xs,
     lineHeight: leading.xs,
     fontWeight: 500
@@ -221,8 +201,7 @@ const s = stylex.create({
     marginLeft: "auto",
     display: "inline-flex",
     alignItems: "center",
-    gap: space.x4,
-    color: { default: color.zinc500, ":hover": color.zinc300 }
+    gap: space.x4
   },
   body: {
     whiteSpace: "pre-wrap",
@@ -241,10 +220,7 @@ const s = stylex.create({
   },
   findingHead: {
     marginBottom: space.x6,
-    display: "flex",
     flexWrap: "wrap",
-    alignItems: "center",
-    gap: space.x8,
     fontSize: text.xs,
     lineHeight: leading.xs
   },
@@ -275,9 +251,6 @@ const s = stylex.create({
   },
 
   messageHead: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x6,
     fontSize: text.xs,
     lineHeight: leading.xs,
     fontWeight: 500,
@@ -314,13 +287,11 @@ const s = stylex.create({
     lineHeight: leading.xs,
     color: color.zinc500
   },
-  // `display: flex` is what drops the disclosure triangle here — the original
-  // markup relied on the same thing, so it has to stay flex, not list-item.
+  // The `display: flex` it picks up from `shared.row` is what drops the
+  // disclosure triangle here — the original markup relied on the same thing,
+  // so it has to stay flex, not list-item.
   toolSummary: {
     cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8,
     paddingInline: space.x12,
     paddingBlock: space.x6,
     fontSize: text.xs,
@@ -562,14 +533,14 @@ export default function ReviewDetailPage() {
   const messages = session?.messages ?? [];
 
   return (
-    <div {...stylex.props(s.page)}>
-      <Link to="/reviews" {...stylex.props(s.backLink)}>
+    <div {...stylex.props(shared.page)}>
+      <Link to="/reviews" {...stylex.props(shared.backLink)}>
         <ArrowLeft size={14} /> Reviews
       </Link>
 
       <div {...stylex.props(s.header)}>
         <div {...stylex.props(s.headerMain)}>
-          <h1 {...stylex.props(s.title)}>{review.title ?? `Review #${review.id}`}</h1>
+          <h1 {...stylex.props(shared.truncate, s.title)}>{review.title ?? `Review #${review.id}`}</h1>
           <div {...stylex.props(s.meta)}>
             {isImprover ? (
               <Link
@@ -594,13 +565,13 @@ export default function ReviewDetailPage() {
               started {timeAgo(review.created_at)}
             </span>
             {review.completed_at && (
-              <span {...stylex.props(s.tabular)}>
+              <span {...stylex.props(shared.tabular)}>
                 · {duration(review.created_at, review.completed_at)}
               </span>
             )}
           </div>
         </div>
-        <div {...stylex.props(s.badges)}>
+        <div {...stylex.props(shared.row)}>
           <LiveBadge status={status} />
           <Badge status={review.status} />
         </div>
@@ -627,7 +598,7 @@ export default function ReviewDetailPage() {
       </div>
 
       {session?.info && (
-        <div {...stylex.props(s.sessionBar)}>
+        <div {...stylex.props(shared.tabular, s.sessionBar)}>
           {session.info.model?.id && (
             <span>
               model: <span {...stylex.props(s.value)}>{session.info.model.id}</span>
@@ -663,17 +634,17 @@ export default function ReviewDetailPage() {
             <button
               type="button"
               onClick={() => setTab("review")}
-              {...stylex.props(s.tab, tab === "review" ? s.tabActive : s.tabIdle)}
+              {...stylex.props(s.tab, tab === "review" ? s.tabActive : shared.ghostLink)}
             >
               <ClipboardCheck size={13} /> Review
               {findings && findings.length > 0 && (
-                <span {...stylex.props(s.tabCount)}>{findings.length}</span>
+                <span {...stylex.props(shared.tabular, s.tabCount)}>{findings.length}</span>
               )}
             </button>
             <button
               type="button"
               onClick={() => setTab("transcript")}
-              {...stylex.props(s.tab, tab === "transcript" ? s.tabActive : s.tabIdle)}
+              {...stylex.props(s.tab, tab === "transcript" ? s.tabActive : shared.ghostLink)}
             >
               <ScrollText size={13} /> Transcript
             </button>
@@ -789,7 +760,7 @@ function ReviewView({
     <div {...stylex.props(s.stack4)}>
       {summary && (
         <div {...stylex.props(s.summaryCard)}>
-          <div {...stylex.props(s.summaryHead)}>
+          <div {...stylex.props(shared.row, s.summaryHead)}>
             <span {...stylex.props(EVENT[summary.event ?? "COMMENT"] ?? event.COMMENT)}>
               {summary.event ?? "COMMENT"}
             </span>
@@ -798,7 +769,7 @@ function ReviewView({
                 href={`${prUrl}#pullrequestreview-${summary.github_review_id}`}
                 target="_blank"
                 rel="noreferrer"
-                {...stylex.props(s.githubLink)}
+                {...stylex.props(shared.ghostLink, s.githubLink)}
               >
                 view on GitHub <ExternalLink size={11} {...stylex.props(s.dim60)} />
               </a>
@@ -809,10 +780,10 @@ function ReviewView({
       )}
 
       {inline.length > 0 && (
-        <div {...stylex.props(s.stack2)}>
+        <div {...stylex.props(shared.stack)}>
           {inline.map((f) => (
             <div key={f.id} {...stylex.props(s.findingCard)}>
-              <div {...stylex.props(s.findingHead)}>
+              <div {...stylex.props(shared.row, s.findingHead)}>
                 {f.severity && (
                   <span
                     {...stylex.props(
@@ -852,12 +823,12 @@ function ReviewView({
 function MessageView({ m }: { m: Message }) {
   const isUser = m.info?.role === "user";
   return (
-    <div {...stylex.props(s.stack2)}>
-      <div {...stylex.props(s.messageHead)}>
+    <div {...stylex.props(shared.stack)}>
+      <div {...stylex.props(shared.rowTight, s.messageHead)}>
         {isUser ? <User size={12} /> : <Bot size={12} />}
         {isUser ? "You" : "Assistant"}
       </div>
-      <div {...stylex.props(s.stack2)}>
+      <div {...stylex.props(shared.stack)}>
         {(m.parts ?? []).map((p, i) => (
           <PartView key={p.id ?? `${m.info?.id}-p-${i}`} p={p} />
         ))}
@@ -882,7 +853,7 @@ function PartView({ p }: { p: Part }) {
     case "tool":
       return (
         <details {...stylex.props(s.details)}>
-          <summary {...stylex.props(s.toolSummary)}>
+          <summary {...stylex.props(shared.row, s.toolSummary)}>
             <Terminal size={12} {...stylex.props(s.toolIcon)} />
             <span {...stylex.props(s.toolName)}>{p.tool}</span>
             {p.state?.title && <span {...stylex.props(s.toolTitle)}>— {p.state.title}</span>}

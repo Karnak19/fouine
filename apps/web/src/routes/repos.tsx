@@ -19,7 +19,8 @@ import { Plus, ChevronRight, FolderGit2 } from "lucide-react";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { timeAgo } from "@/lib/format";
-import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { color, font, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 // Tailwind's `animate-pulse`. Restated locally because the @keyframes only
 // exist while a className references the utility.
@@ -28,13 +29,8 @@ const pulse = stylex.keyframes({ "50%": { opacity: 0.5 } });
 const s = stylex.create({
   // `space-y-*` is a margin-bottom-on-all-but-last rule StyleX cannot express;
   // a column flex with the same gap renders identically for these block-level
-  // children. NOT so when a child is inline (see `field`): a flex item is
-  // blockified.
-  page: { display: "flex", flexDirection: "column", gap: space.x24, maxWidth: space.x896 },
-  titleRow: { display: "flex", alignItems: "center", gap: space.x8 },
-  title: { fontSize: text.xl2, lineHeight: leading.xl2, fontWeight: 700, letterSpacing: tracking.tight },
-  subtitle: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500, marginTop: space.x4 },
-
+  // children (that is what `shared.page` is). NOT so when a child is inline
+  // (see `field`): a flex item is blockified.
   form: { display: "flex", alignItems: "flex-end", gap: space.x16 },
   // Plain block, not a column flex: blockifying the inline <label> would make
   // it full-width and 3px shorter. The label + control need no gap between
@@ -47,7 +43,6 @@ const s = stylex.create({
   },
   fieldNarrow: { display: "block", width: space.x160 },
 
-  skeletonList: { display: "flex", flexDirection: "column", gap: space.x8 },
   skeletonRow: {
     height: space.x48,
     borderRadius: radius.md,
@@ -58,20 +53,7 @@ const s = stylex.create({
     animationIterationCount: "infinite"
   },
 
-  empty: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    borderWidth: "1px",
-    borderStyle: "dashed",
-    borderColor: color.zinc800,
-    paddingBlock: space.x64,
-    textAlign: "center"
-  },
   emptyIcon: { color: color.zinc700 },
-  emptyTitle: { marginTop: space.x12, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
   emptyHint: { fontSize: text.xs, lineHeight: leading.xs, color: color.zinc600, marginTop: space.x4 },
 
   tableWrap: {
@@ -96,8 +78,7 @@ const s = stylex.create({
   repoLinkOn: { color: { default: color.zinc100, ":hover": color.ember300 } },
   repoLinkOff: { color: { default: color.zinc500, ":hover": color.ember300 } },
 
-  numCell: { color: color.zinc400, fontSize: text.sm, lineHeight: leading.sm, fontVariantNumeric: "tabular-nums" },
-  monoCell: { color: color.zinc400, fontSize: text.sm, lineHeight: leading.sm, fontFamily: font.mono },
+  monoCell: { fontFamily: font.mono },
   timeCell: {
     color: color.zinc500,
     fontSize: text.sm, lineHeight: leading.sm,
@@ -177,13 +158,13 @@ export default function ReposPage() {
   });
 
   return (
-    <div {...stylex.props(s.page)}>
+    <div {...stylex.props(shared.page)}>
       <div>
-        <div {...stylex.props(s.titleRow)}>
-          <h1 {...stylex.props(s.title)}>Repositories</h1>
+        <div {...stylex.props(shared.row)}>
+          <h1 {...stylex.props(shared.pageTitle)}>Repositories</h1>
           <LiveBadge status={status} />
         </div>
-        <p {...stylex.props(s.subtitle)}>Repos fouine watches for pull requests.</p>
+        <p {...stylex.props(shared.lede)}>Repos fouine watches for pull requests.</p>
       </div>
 
       <Card>
@@ -229,15 +210,15 @@ export default function ReposPage() {
       </Card>
 
       {isLoading ? (
-        <div {...stylex.props(s.skeletonList)}>
+        <div {...stylex.props(shared.stack)}>
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} {...stylex.props(s.skeletonRow)} />
           ))}
         </div>
       ) : !repos?.length ? (
-        <div {...stylex.props(s.empty)}>
+        <div {...stylex.props(shared.emptyBox)}>
           <FolderGit2 size={28} {...stylex.props(s.emptyIcon)} />
-          <p {...stylex.props(s.emptyTitle)}>No repositories registered</p>
+          <p {...stylex.props(shared.emptyTitle)}>No repositories registered</p>
           <p {...stylex.props(s.emptyHint)}>Add one above to get started.</p>
         </div>
       ) : (
@@ -312,8 +293,8 @@ function RepoRow({ repo }: { repo: RepoRow }) {
           label={`Auto-review ${repo.full_name}`}
         />
       </TableCell>
-      <TableCell style={s.numCell}>{repo.installation_id}</TableCell>
-      <TableCell style={s.monoCell}>{repo.model ?? "default"}</TableCell>
+      <TableCell style={[shared.meta, shared.tabular]}>{repo.installation_id}</TableCell>
+      <TableCell style={[shared.meta, s.monoCell]}>{repo.model ?? "default"}</TableCell>
       <TableCell style={s.timeCell}>{timeAgo(repo.created_at)}</TableCell>
       <TableCell style={s.chevronCell}>
         <Link

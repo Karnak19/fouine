@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { color, font, leading, radius, space, text } from "@/tokens.stylex";
+import { color, font, leading, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import { api, type Settings } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,16 +30,14 @@ const s = stylex.create({
   hint: { fontSize: text.xs, lineHeight: leading.xs, color: color.zinc500 },
   error: { fontSize: text.xs, lineHeight: leading.xs, color: color.dangerDot },
 
+  // Composed onto `shared.row`; only the extras live here.
   checkboxLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8,
     fontSize: text.sm,
     lineHeight: leading.sm,
     color: color.zinc300,
     userSelect: "none"
   },
-  checkbox: { height: space.x16, width: space.x16, accentColor: color.zinc200 },
+  checkbox: { accentColor: color.zinc200 },
 
   testBlock: {
     borderTopWidth: "1px",
@@ -46,7 +45,6 @@ const s = stylex.create({
     borderTopColor: color.zinc800,
     paddingTop: space.x16
   },
-  row: { display: "flex", alignItems: "center", gap: space.x8 },
   testResult: {
     marginTop: space.x8,
     fontSize: text.xs,
@@ -76,18 +74,10 @@ const s = stylex.create({
     paddingBlock: space.x12
   },
   skillMain: { minWidth: 0 },
-  dot: { height: space.x6, width: space.x6, borderRadius: radius.full },
   dotOn: { backgroundColor: color.okDot },
   dotOff: { backgroundColor: color.zinc600 },
   skillName: { fontFamily: font.mono, fontSize: text.sm, lineHeight: leading.sm },
-  sourceLink: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: text.xs,
-    lineHeight: leading.xs,
-    color: { default: color.zinc500, ":hover": color.zinc300 }
-  },
+  sourceLink: { fontSize: text.xs, lineHeight: leading.xs },
   description: {
     marginTop: space.x4,
     display: "-webkit-box",
@@ -98,7 +88,7 @@ const s = stylex.create({
     lineHeight: leading.xs,
     color: color.zinc400
   },
-  actions: { display: "flex", flexShrink: 0, alignItems: "center", gap: space.x8 }
+  actions: { flexShrink: 0 }
 });
 
 export default function SettingsPage() {
@@ -225,11 +215,11 @@ export default function SettingsPage() {
               </p>
             </div>
             <div {...stylex.props(s.field)}>
-              <label {...stylex.props(s.checkboxLabel)}>
+              <label {...stylex.props(shared.row, s.checkboxLabel)}>
                 <input
                   id="deny_test_commands"
                   type="checkbox"
-                  {...stylex.props(s.checkbox)}
+                  {...stylex.props(shared.icon, s.checkbox)}
                   checked={denyTestCommands}
                   onChange={(e) => setDenyTestCommands(e.target.checked)}
                 />
@@ -256,7 +246,7 @@ export default function SettingsPage() {
             </Button>
           </form>
           <div {...stylex.props(s.testBlock)}>
-            <div {...stylex.props(s.row)}>
+            <div {...stylex.props(shared.row)}>
               <Button
                 type="button"
                 variant="outline"
@@ -356,14 +346,14 @@ function SkillsCard() {
           {skills?.map((skill, i) => (
             <div key={skill.name} {...stylex.props(s.skillRow, i > 0 && s.divider)}>
               <div {...stylex.props(s.skillMain)}>
-                <div {...stylex.props(s.row)}>
-                  <span {...stylex.props(s.dot, skill.enabled ? s.dotOn : s.dotOff)} />
+                <div {...stylex.props(shared.row)}>
+                  <span {...stylex.props(shared.dot, skill.enabled ? s.dotOn : s.dotOff)} />
                   <span {...stylex.props(s.skillName)}>{skill.name}</span>
                   <a
                     href={skill.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    {...stylex.props(s.sourceLink)}
+                    {...stylex.props(shared.truncate, shared.ghostLink, s.sourceLink)}
                   >
                     {skill.owner}/{skill.repo}@{skill.ref.slice(0, 7)}
                   </a>
@@ -372,7 +362,7 @@ function SkillsCard() {
                   <p {...stylex.props(s.description)}>{skill.description}</p>
                 )}
               </div>
-              <div {...stylex.props(s.actions)}>
+              <div {...stylex.props(shared.row, s.actions)}>
                 <Button
                   type="button"
                   variant="outline"

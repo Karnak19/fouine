@@ -3,6 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as stylex from "@stylexjs/stylex";
 import { color, font, leading, radius, shadow, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,14 +41,6 @@ const s = stylex.create({
     gap: space.x24,
     maxWidth: space.x1024
   },
-  back: {
-    fontSize: text.sm,
-    lineHeight: leading.sm,
-    color: { default: color.zinc400, ":hover": color.zinc100 },
-    display: "flex",
-    alignItems: "center",
-    gap: space.x4
-  },
   titleRow: { display: "flex", alignItems: "center", gap: space.x12 },
   h1: {
     fontSize: text.xl2,
@@ -82,16 +75,13 @@ const s = stylex.create({
     color: color.zinc400,
     outlineColor: `color-mix(in oklab, ${color.zinc700} 50%, transparent)`
   },
-  pillDot: { height: space.x6, width: space.x6, borderRadius: radius.full },
   pillDotOn: { backgroundColor: color.ember400 },
   pillDotOff: { backgroundColor: color.zinc500 },
   ghostLink: {
-    color: { default: color.zinc500, ":hover": color.zinc300 },
     transitionProperty: "color, background-color",
     transitionDuration: "150ms"
   },
-  ghostLinkPlain: { color: { default: color.zinc500, ":hover": color.zinc300 } },
-  subtle: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400, marginTop: space.x4 },
+  subtle: { marginTop: space.x4 },
   // KPI strip. `divide-x divide-y sm:divide-y-0` was a `& > :not(:last-child)`
   // rule on this container; StyleX can't reach children, so the hairline moves
   // onto each cell via <Stat style> (see `cell` below).
@@ -168,35 +158,18 @@ const s = stylex.create({
     }
   },
   checkRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x8,
     fontSize: text.sm,
     lineHeight: leading.sm,
     color: color.zinc300,
     userSelect: "none"
   },
-  checkbox: { height: space.x16, width: space.x16, accentColor: color.zinc200 },
+  checkbox: { accentColor: color.zinc200 },
   actions: { display: "flex", flexWrap: "wrap", gap: space.x8 },
-  gone: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    borderWidth: "1px",
-    borderStyle: "dashed",
-    borderColor: color.zinc800,
-    paddingBlock: space.x64,
-    textAlign: "center"
-  },
   goneIcon: { color: color.zinc700 },
-  goneLabel: { marginTop: space.x12, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
   goneLink: {
     marginTop: space.x12,
     fontSize: text.xs,
-    lineHeight: leading.xs,
-    color: { default: color.zinc500, ":hover": color.zinc300 }
+    lineHeight: leading.xs
   },
   skeleton: {
     borderRadius: radius.base,
@@ -215,18 +188,11 @@ const s = stylex.create({
     color: { default: color.zinc300, ":hover": color.zinc100 },
     fontVariantNumeric: "tabular-nums"
   },
-  prCell: { display: "flex", alignItems: "center", gap: space.x6 },
   headRight: { textAlign: "right" },
   headNarrow: { width: space.x32 },
   cellTime: { color: color.zinc500, fontSize: text.sm, lineHeight: leading.sm, textAlign: "right" },
   cellChevron: { color: color.zinc600 },
-  cellCount: {
-    color: color.zinc400,
-    fontSize: text.sm,
-    lineHeight: leading.sm,
-    textAlign: "right",
-    fontVariantNumeric: "tabular-nums"
-  },
+  cellCount: { textAlign: "right" },
   emptyNote: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500 }
 });
 
@@ -356,12 +322,12 @@ export default function RepoDetailPage() {
   // otherwise a deleted repo shimmers forever.
   if (isError) {
     return (
-      <div {...stylex.props(s.gone)}>
+      <div {...stylex.props(shared.emptyBox)}>
         <FolderX size={28} {...stylex.props(s.goneIcon)} />
-        <p {...stylex.props(s.goneLabel)}>
+        <p {...stylex.props(shared.emptyTitle)}>
           {owner}/{name} is no longer registered
         </p>
-        <Link to="/repos" {...stylex.props(s.goneLink)}>
+        <Link to="/repos" {...stylex.props(shared.ghostLink, s.goneLink)}>
           Back to repositories
         </Link>
       </div>
@@ -380,7 +346,7 @@ export default function RepoDetailPage() {
 
   return (
     <div {...stylex.props(s.page)}>
-      <Link to="/repos" {...stylex.props(s.back)}>
+      <Link to="/repos" {...stylex.props(shared.backLink)}>
         <ArrowLeft size={14} /> Repositories
       </Link>
 
@@ -389,7 +355,7 @@ export default function RepoDetailPage() {
           <h1 {...stylex.props(s.h1)}>{repo.full_name}</h1>
           <span {...stylex.props(s.pill, repo.enabled ? s.pillOn : s.pillOff)}>
             <span
-              {...stylex.props(s.pillDot, repo.enabled ? s.pillDotOn : s.pillDotOff)}
+              {...stylex.props(shared.dot, repo.enabled ? s.pillDotOn : s.pillDotOff)}
             />
             {repo.enabled ? "auto-review on" : "paused"}
           </span>
@@ -398,13 +364,13 @@ export default function RepoDetailPage() {
             target="_blank"
             rel="noreferrer"
             aria-label="Open on GitHub"
-            {...stylex.props(s.ghostLink)}
+            {...stylex.props(shared.ghostLink, s.ghostLink)}
           >
             <ExternalLink size={14} />
           </a>
           <LiveBadge status={status} />
         </div>
-        <p {...stylex.props(s.subtle)}>Installation ID: {repo.installation_id}</p>
+        <p {...stylex.props(shared.meta, s.subtle)}>Installation ID: {repo.installation_id}</p>
       </div>
 
       {insight.count > 0 && (
@@ -471,13 +437,13 @@ export default function RepoDetailPage() {
                     <option value="0">Run them on this repo</option>
                   </select>
                 </div>
-                <label {...stylex.props(s.checkRow)}>
+                <label {...stylex.props(shared.row, s.checkRow)}>
                   <input
                     id="enabled"
                     type="checkbox"
                     checked={enabled}
                     onChange={(e) => setEnabled(e.target.checked)}
-                    {...stylex.props(s.checkbox)}
+                    {...stylex.props(shared.icon, s.checkbox)}
                   />
                   Auto-review new PRs on this repo
                 </label>
@@ -585,7 +551,7 @@ export default function RepoDetailPage() {
                       return (
                         <TableRow key={latest.pr_number}>
                           <TableCell>
-                            <div {...stylex.props(s.prCell)}>
+                            <div {...stylex.props(shared.rowTight)}>
                               <Link
                                 to="/repos/$owner/$name/pr/$number"
                                 params={{ owner, name, number: String(latest.pr_number) }}
@@ -597,13 +563,13 @@ export default function RepoDetailPage() {
                                 href={`https://github.com/${owner}/${name}/pull/${latest.pr_number}`}
                                 target="_blank"
                                 rel="noreferrer"
-                                {...stylex.props(s.ghostLinkPlain)}
+                                {...stylex.props(shared.ghostLink)}
                               >
                                 <ExternalLink size={12} />
                               </a>
                             </div>
                           </TableCell>
-                          <TableCell style={s.cellCount}>{group.length}</TableCell>
+                          <TableCell style={[shared.meta, shared.tabular, s.cellCount]}>{group.length}</TableCell>
                           <TableCell>
                             <Badge status={latest.status} />
                           </TableCell>

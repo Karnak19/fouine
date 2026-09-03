@@ -41,7 +41,8 @@ import {
   UNKNOWN_SEVERITY_COLOR,
   scaleMax
 } from "@/components/charts";
-import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { color, font, leading, radius, space, text } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 const RANGES = ["24h", "7d", "30d", "90d", "all"] as const;
 const DEFAULT_RANGE: StatsRange = "30d";
@@ -66,18 +67,6 @@ const s = stylex.create({
     alignItems: "flex-end",
     justifyContent: "space-between",
     gap: space.x16
-  },
-  h1: {
-    fontSize: text.xl2,
-    lineHeight: leading.xl2,
-    fontWeight: 700,
-    letterSpacing: tracking.tight
-  },
-  lede: {
-    fontSize: text.sm,
-    lineHeight: leading.sm,
-    color: color.zinc500,
-    marginTop: space.x4
   },
 
   // --- filter bar ---------------------------------------------------------
@@ -147,9 +136,6 @@ const s = stylex.create({
     transitionDuration: "150ms"
   },
   rangePickerButton: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.x6,
     borderRadius: radius.md,
     borderWidth: "1px",
     borderStyle: "solid",
@@ -324,7 +310,6 @@ const s = stylex.create({
   },
   cellTight: { paddingBlock: space.x10 },
   right: { textAlign: "right" },
-  num: { fontVariantNumeric: "tabular-nums" },
   nowrap: { whiteSpace: "nowrap" },
   headNarrow: { width: space.x48 },
   mono: { fontFamily: font.mono },
@@ -348,7 +333,6 @@ const s = stylex.create({
   z400: { color: color.zinc400 },
   z500: { color: color.zinc500 },
   z600: { color: color.zinc600 },
-  nameRow: { display: "flex", alignItems: "center", gap: space.x6 },
 
   // --- lists -------------------------------------------------------------
   // `divide-y` moved onto the item, the only place StyleX can express it.
@@ -375,17 +359,12 @@ const s = stylex.create({
       ":hover": `color-mix(in oklab, ${color.zinc800} 40%, transparent)`
     }
   },
-  costMain: { minWidth: 0, flexGrow: 1, flexShrink: 1, flexBasis: "0%" },
   costRepo: {
     fontFamily: font.mono,
     fontSize: text.sm,
     lineHeight: leading.sm,
-    color: color.zinc200,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    color: color.zinc200
   },
-  truncate: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   xs: { fontSize: text.xs, lineHeight: leading.xs },
   costTokens: {
     flexShrink: 0,
@@ -429,10 +408,6 @@ const s = stylex.create({
   },
   latencyColumn: {
     position: "relative",
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: "0%",
-    minWidth: 0,
     height: "100%"
   },
   latencyBar: {
@@ -472,9 +447,6 @@ const s = stylex.create({
     gap: space.x12
   },
   filePath: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
     fontFamily: font.mono,
     fontSize: text.xs,
     lineHeight: leading.xs,
@@ -616,8 +588,8 @@ export default function StatsPage() {
     <div {...stylex.props(s.page)}>
       <div {...stylex.props(s.header)}>
         <div>
-          <h1 {...stylex.props(s.h1)}>Stats</h1>
-          <p {...stylex.props(s.lede)}>
+          <h1 {...stylex.props(shared.pageTitle)}>Stats</h1>
+          <p {...stylex.props(shared.lede)}>
             Slice fouine's activity by time, repository and model.
           </p>
         </div>
@@ -834,6 +806,7 @@ function RangePicker({
           type="button"
           aria-label="Custom date range"
           {...stylex.props(
+            shared.rowTight,
             s.rangePickerButton,
             from || to ? s.rangePickerOn : s.rangePickerOff,
           )}
@@ -998,7 +971,7 @@ function ProjectStats({
                 return (
                   <TableRow key={p.repo_full_name} style={isActive ? s.rowActive : undefined}>
                     <TableCell style={s.cellTight}>
-                      <div {...stylex.props(s.nameRow)}>
+                      <div {...stylex.props(shared.rowTight)}>
                         {owner && name ? (
                           <Link
                             to="/repos/$owner/$name"
@@ -1021,16 +994,16 @@ function ProjectStats({
                         />
                       </div>
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                       {p.reviews}
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                       {formatSeconds(p.avg_duration) ?? "—"}
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                       {formatTokens(p.tokens) ?? "—"}
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z200]}>
                       {formatCost(p.cost) ?? "—"}
                     </TableCell>
                   </TableRow>
@@ -1089,13 +1062,13 @@ function ModelStats({
                         {m.model}
                       </button>
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                       {m.reviews}
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                       {formatTokens(m.tokens) ?? "—"}
                     </TableCell>
-                    <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
+                    <TableCell style={[s.cellTight, s.right, shared.tabular, s.z200]}>
                       {formatCost(m.cost) ?? "—"}
                     </TableCell>
                   </TableRow>
@@ -1125,12 +1098,12 @@ function TopCost({ rows }: { rows?: Stats["topCost"] }) {
                 params={{ id: String(r.id) }}
                 {...stylex.props(s.costLink)}
               >
-                <div {...stylex.props(s.costMain)}>
-                  <div {...stylex.props(s.costRepo)}>
+                <div {...stylex.props(shared.fill)}>
+                  <div {...stylex.props(shared.truncate, s.costRepo)}>
                     {r.repo_full_name}
                     {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                   </div>
-                  {r.model && <div {...stylex.props(s.xs, s.z500, s.truncate)}>{r.model}</div>}
+                  {r.model && <div {...stylex.props(s.xs, s.z500, shared.truncate)}>{r.model}</div>}
                 </div>
                 {r.tokens != null && (
                   <span {...stylex.props(s.costTokens)}>{formatTokens(r.tokens)}</span>
@@ -1209,7 +1182,7 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell style={[s.cellTight, s.num, s.z500]}>{r.id}</TableCell>
+                  <TableCell style={[s.cellTight, shared.tabular, s.z500]}>{r.id}</TableCell>
                   <TableCell style={s.cellTight}>
                     <Link
                       to="/reviews/$id"
@@ -1220,7 +1193,7 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
                       {r.pr_number > 0 ? `#${r.pr_number}` : ""}
                     </Link>
                     {r.model && (
-                      <div {...stylex.props(s.xs, s.z600, s.truncate)}>{r.model}</div>
+                      <div {...stylex.props(s.xs, s.z600, shared.truncate)}>{r.model}</div>
                     )}
                   </TableCell>
                   <TableCell style={s.cellTight}>
@@ -1229,16 +1202,16 @@ function Reviews({ rows, pending }: { rows?: ReviewRow[]; pending: boolean }) {
                   <TableCell style={[s.cellTight, s.xs, s.z400]}>
                     {triggerLabel(r.trigger) ?? "—"}
                   </TableCell>
-                  <TableCell style={[s.cellTight, s.right, s.num, s.z400]}>
+                  <TableCell style={[s.cellTight, s.right, shared.tabular, s.z400]}>
                     {r.completed_at
                       ? (formatSeconds(r.completed_at - r.created_at) ?? "—")
                       : "—"}
                   </TableCell>
-                  <TableCell style={[s.cellTight, s.right, s.num, s.z200]}>
+                  <TableCell style={[s.cellTight, s.right, shared.tabular, s.z200]}>
                     {formatCost(r.cost) ?? "—"}
                   </TableCell>
                   <TableCell
-                    style={[s.cellTight, s.right, s.num, s.z500, s.nowrap]}
+                    style={[s.cellTight, s.right, shared.tabular, s.z500, s.nowrap]}
                     title={new Date(r.created_at * 1000).toLocaleString()}
                   >
                     {timeAgo(r.created_at)}
@@ -1342,7 +1315,7 @@ function LatencyTrend({ rows, truncated }: { rows?: LatencyDayRow[]; truncated?:
             {rows.map((r) => (
               <div
                 key={r.day}
-                {...stylex.props(s.latencyColumn)}
+                {...stylex.props(shared.fill, s.latencyColumn)}
                 title={`${r.day} · p50 ${formatSeconds(r.p50) ?? "—"} · p95 ${
                   formatSeconds(r.p95) ?? "—"
                 } · ${r.count} review${r.count === 1 ? "" : "s"}`}
@@ -1455,7 +1428,7 @@ function TopFiles({ rows }: { rows?: TopFileRow[] }) {
                 {...stylex.props(s.fileBar, s.barWidth(`${(r.count / max) * 100}%`))}
               />
               <div {...stylex.props(s.fileRow)}>
-                <span {...stylex.props(s.filePath)} title={r.path}>
+                <span {...stylex.props(shared.truncate, s.filePath)} title={r.path}>
                   {r.path}
                 </span>
                 <span {...stylex.props(s.fileCount)}>{r.count}</span>

@@ -10,6 +10,7 @@ import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { ArrowLeft, ExternalLink, ChevronRight, RotateCw, Square, History } from "lucide-react";
 import { color, font, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 // Tailwind's `animate-pulse`. Restated locally because the @keyframes only
 // exist while a className references the utility.
@@ -30,24 +31,13 @@ const s = stylex.create({
   skeletonLine: { height: space.x16, width: space.x128, borderRadius: radius.base },
   skeletonBlock: { height: space.x128, borderRadius: radius.lg },
 
-  backLink: {
-    fontSize: text.sm, lineHeight: leading.sm,
-    color: { default: color.zinc400, ":hover": color.zinc100 },
-    display: "flex",
-    alignItems: "center",
-    gap: space.x4
-  },
-
   headRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: space.x16 },
   headMain: { minWidth: 0 },
-  titleRow: { display: "flex", alignItems: "center", gap: space.x8, minWidth: 0 },
+  titleRow: { minWidth: 0 },
   title: {
     fontSize: text.xl, lineHeight: leading.xl,
     fontWeight: 700,
-    letterSpacing: tracking.tight,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    letterSpacing: tracking.tight
   },
   meta: {
     marginTop: space.x4,
@@ -68,24 +58,10 @@ const s = stylex.create({
   },
   faded: { opacity: 0.5 },
   metaItem: { display: "inline-flex", alignItems: "center", gap: space.x4 },
-  nums: { fontVariantNumeric: "tabular-nums" },
   dim: { color: color.zinc600 },
-  actions: { display: "flex", alignItems: "center", gap: space.x8, flexShrink: 0 },
+  actions: { flexShrink: 0 },
 
-  empty: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.lg,
-    borderWidth: "1px",
-    borderStyle: "dashed",
-    borderColor: color.zinc800,
-    paddingBlock: space.x64,
-    textAlign: "center"
-  },
   emptyIcon: { color: color.zinc700 },
-  emptyTitle: { marginTop: space.x12, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 },
 
   timeline: {
     borderRadius: radius.lg,
@@ -115,8 +91,8 @@ const s = stylex.create({
     transitionDuration: "150ms"
   },
   rowBody: { minWidth: 0, flexGrow: 1, flexBasis: 0 },
-  rowTop: { display: "flex", alignItems: "center", gap: space.x8, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc300 },
-  rowId: { fontFamily: font.mono, color: color.zinc500, fontVariantNumeric: "tabular-nums" },
+  rowTop: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc300 },
+  rowId: { fontFamily: font.mono, color: color.zinc500 },
   trigger: {
     fontSize: text.xs, lineHeight: leading.xs,
     color: color.zinc500,
@@ -128,13 +104,11 @@ const s = stylex.create({
   rowMeta: {
     fontSize: text.xs, lineHeight: leading.xs,
     color: color.zinc500,
-    marginTop: space.x2,
-    fontVariantNumeric: "tabular-nums"
+    marginTop: space.x2
   },
   rowCost: {
     fontSize: text.xs, lineHeight: leading.xs,
     color: color.zinc500,
-    fontVariantNumeric: "tabular-nums",
     flexShrink: 0
   },
   rowChevron: { color: color.zinc600, flexShrink: 0 }
@@ -206,14 +180,14 @@ export default function PRDetailPage() {
 
   return (
     <div {...stylex.props(s.page)}>
-      <Link to="/repos/$owner/$name" params={{ owner, name }} {...stylex.props(s.backLink)}>
+      <Link to="/repos/$owner/$name" params={{ owner, name }} {...stylex.props(shared.backLink)}>
         <ArrowLeft size={14} /> {owner}/{name}
       </Link>
 
       <div {...stylex.props(s.headRow)}>
         <div {...stylex.props(s.headMain)}>
-          <div {...stylex.props(s.titleRow)}>
-            <h1 {...stylex.props(s.title)}>{latest?.title ?? `PR #${prNumber}`}</h1>
+          <div {...stylex.props(shared.row, s.titleRow)}>
+            <h1 {...stylex.props(shared.truncate, s.title)}>{latest?.title ?? `PR #${prNumber}`}</h1>
             <LiveBadge status={status} />
           </div>
           <div {...stylex.props(s.meta)}>
@@ -231,7 +205,7 @@ export default function PRDetailPage() {
               {reviews?.length ?? 0} review{(reviews?.length ?? 0) === 1 ? "" : "s"}
             </span>
             {hasCost && (
-              <span {...stylex.props(s.nums)}>
+              <span {...stylex.props(shared.tabular)}>
                 {formatCost(totals!.cost)}
                 {totals!.tokens > 0 && (
                   <span {...stylex.props(s.dim)}> · {formatTokens(totals!.tokens)}</span>
@@ -241,7 +215,7 @@ export default function PRDetailPage() {
           </div>
         </div>
         {latest && (
-          <div {...stylex.props(s.actions)}>
+          <div {...stylex.props(shared.row, s.actions)}>
             <Badge status={latest.status} />
             {(latest.status === "running" || latest.status === "pending") && (
               <Button
@@ -270,9 +244,9 @@ export default function PRDetailPage() {
       </div>
 
       {reviews == null ? null : reviews.length === 0 ? (
-        <div {...stylex.props(s.empty)}>
+        <div {...stylex.props(shared.emptyBox)}>
           <History size={28} {...stylex.props(s.emptyIcon)} />
-          <p {...stylex.props(s.emptyTitle)}>No reviews for this PR yet.</p>
+          <p {...stylex.props(shared.emptyTitle)}>No reviews for this PR yet.</p>
         </div>
       ) : (
         <ul {...stylex.props(s.timeline)}>
@@ -292,12 +266,12 @@ function TimelineRow({ r }: { r: ReviewRow }) {
       <Link to="/reviews/$id" params={{ id: String(r.id) }} {...stylex.props(s.rowLink)}>
         <Badge status={r.status} />
         <div {...stylex.props(s.rowBody)}>
-          <div {...stylex.props(s.rowTop)}>
-            <span {...stylex.props(s.rowId)}>#{r.id}</span>
+          <div {...stylex.props(shared.row, s.rowTop)}>
+            <span {...stylex.props(shared.tabular, s.rowId)}>#{r.id}</span>
             {label && <span {...stylex.props(s.trigger)}>{label}</span>}
           </div>
           <div
-            {...stylex.props(s.rowMeta)}
+            {...stylex.props(shared.tabular, s.rowMeta)}
             title={new Date(r.created_at * 1000).toLocaleString()}
           >
             {timeAgo(r.created_at)}
@@ -312,7 +286,7 @@ function TimelineRow({ r }: { r: ReviewRow }) {
           </div>
         </div>
         {r.cost != null && (
-          <span {...stylex.props(s.rowCost)}>
+          <span {...stylex.props(shared.tabular, s.rowCost)}>
             {formatCost(r.cost)}
             {r.tokens != null && r.tokens > 0 && (
               <span {...stylex.props(s.dim)}> · {formatTokens(r.tokens)}</span>

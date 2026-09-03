@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
 import { Button } from "@/components/ui/button";
 import { color, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 // Same-origin: the client defaults to `${location.origin}/api/auth`.
 export const authClient = createAuthClient();
@@ -28,7 +29,6 @@ const s = stylex.create({
     backgroundColor: color.zinc950,
     color: color.zinc100
   },
-  brand: { display: "flex", alignItems: "center", gap: space.x8 },
   brandMark: {
     display: "grid",
     placeItems: "center",
@@ -38,21 +38,20 @@ const s = stylex.create({
     backgroundColor: color.ember500,
     color: color.zinc950
   },
-  brandText: { fontSize: text.xl, lineHeight: leading.xl, fontWeight: 700, letterSpacing: tracking.tight },
-  hint: { fontSize: text.sm, lineHeight: leading.sm, color: color.zinc400 }
+  brandText: { fontSize: text.xl, lineHeight: leading.xl, fontWeight: 700, letterSpacing: tracking.tight }
 });
 
 function LoginScreen() {
   const [pending, setPending] = React.useState(false);
   return (
     <div {...stylex.props(s.screen)}>
-      <span {...stylex.props(s.brand)}>
+      <span {...stylex.props(shared.row)}>
         <span {...stylex.props(s.brandMark)}>
           <Search size={18} strokeWidth={2.5} />
         </span>
         <span {...stylex.props(s.brandText)}>fouine</span>
       </span>
-      <p {...stylex.props(s.hint)}>Sign in to continue</p>
+      <p {...stylex.props(shared.meta)}>Sign in to continue</p>
       <Button
         disabled={pending}
         onClick={() => {

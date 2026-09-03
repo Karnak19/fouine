@@ -19,6 +19,7 @@ import {
   MessageSquare
 } from "lucide-react";
 import { color, leading, radius, space, text, tracking } from "@/tokens.stylex";
+import { shared } from "@/styles";
 import { useAuth, signOut } from "../lib/auth";
 
 const s = stylex.create({
@@ -40,11 +41,10 @@ const s = stylex.create({
       ":hover": `color-mix(in oklab, ${color.zinc800} 60%, transparent)`
     }
   },
-  avatar: { height: space.x16, width: space.x16, borderRadius: radius.full },
-  truncate: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  // Only the extra over `shared.icon`.
+  avatar: { borderRadius: radius.full },
   pushRight: { marginLeft: "auto" },
 
-  logo: { display: "flex", alignItems: "center", gap: space.x8 },
   logoMark: {
     display: "grid",
     placeItems: "center",
@@ -234,8 +234,8 @@ function UserMenu() {
       title={`Sign out${user.name ? ` (${user.name})` : ""}`}
       {...stylex.props(s.sideButton)}
     >
-      {user.image && <img src={user.image} alt="" {...stylex.props(s.avatar)} />}
-      <span {...stylex.props(s.truncate)}>{user.name ?? "Sign out"}</span>
+      {user.image && <img src={user.image} alt="" {...stylex.props(shared.icon, s.avatar)} />}
+      <span {...stylex.props(shared.truncate)}>{user.name ?? "Sign out"}</span>
       <LogOut size={14} {...stylex.props(s.pushRight)} />
     </button>
   );
@@ -243,7 +243,7 @@ function UserMenu() {
 
 function Logo() {
   return (
-    <span {...stylex.props(s.logo)}>
+    <span {...stylex.props(shared.row)}>
       <span {...stylex.props(s.logoMark)}>
         <Search size={15} strokeWidth={2.5} />
       </span>

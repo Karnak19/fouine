@@ -3,7 +3,8 @@ import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-s
 import * as stylex from "@stylexjs/stylex";
 import { Thread } from "@/components/assistant-ui/thread";
 import { chatToolkit } from "@/components/assistant-ui/toolkit";
-import { color, leading, space, text, tracking } from "@/tokens.stylex";
+import { space } from "@/tokens.stylex";
+import { shared } from "@/styles";
 
 // Questions worth asking that no panel answers, so an empty thread suggests
 // something better than a blank box.
@@ -27,8 +28,6 @@ const s = stylex.create({
     flexDirection: "column"
   },
   head: { flexShrink: 0 },
-  title: { fontSize: text.xl2, lineHeight: leading.xl2, fontWeight: 700, letterSpacing: tracking.tight },
-  subtitle: { marginTop: space.x4, fontSize: text.sm, lineHeight: leading.sm, color: color.zinc500 },
   thread: { marginTop: space.x24, minHeight: 0, flexGrow: 1, flexBasis: 0 }
 });
 
@@ -46,8 +45,8 @@ export default function ChatPage() {
   return (
     <div {...stylex.props(s.page)}>
       <div {...stylex.props(s.head)}>
-        <h1 {...stylex.props(s.title)}>Chat</h1>
-        <p {...stylex.props(s.subtitle)}>
+        <h1 {...stylex.props(shared.pageTitle)}>Chat</h1>
+        <p {...stylex.props(shared.lede)}>
           Ask about the review history. Every answer is computed by a SQL query you can inspect.
         </p>
       </div>
