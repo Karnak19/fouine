@@ -26,7 +26,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@octokit/webhooks": "^14.2.0",
         "@opencode-ai/models": "^0.0.24",
-        "@opencode-ai/sdk": "^1.18.11",
+        "@opencode-ai/sdk": "^1.18.30",
         "ai": "^7.0.65",
         "better-auth": "^1.6.23",
         "bun-plugin-tailwind": "^0.1.2",
@@ -337,7 +337,7 @@
 
     "@opencode-ai/models": ["@opencode-ai/models@0.0.24", "", { "peerDependencies": { "effect": "4.0.0-beta.83" }, "optionalPeers": ["effect"] }, "sha512-6l18AqFDsA2UwgzWp4nL6EZeqqAkmAEr8PvhdzsDOCCbBu2SuQ1GH6MiVHYWpC1Xp20g0kKZzgLtijcpPhSClw=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.18.11", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-yDImmNv4PhxdMgtiHVNWQWEVwQlAm7Dr0y4XU7CT4dOIbzgO+VP+9I02lAP7Zva1FhGeyI7oKMI2tzB9RUsWaQ=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.18.30", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-uviJ+PZLc/D1szt33WGzzt/rqJ+IaNmRGBb+UcOXrcQANl8XXKJrp4CNQQ2UAnUJ3Ek+VqcamIwjtKHUW/OjOQ=="],
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.43.0", "", {}, "sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg=="],
 
