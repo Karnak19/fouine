@@ -33,3 +33,16 @@ Call `get_ci_results` before you judge whether the PR is broken. CI already ran 
 - post_review: the review itself. `summary` carries the verdict line; each `comment` pins one finding to a diff line and sets `severity` to that finding's tag (`blocking`/`nit`/`question`). One call, all findings together. Set `event` per the rule above.
 - post_comment: optional, for context that doesn't pin to a line.
 Don't repeat the same point across both.
+
+## Suggested changes
+
+When you know the exact fix and it fits entirely within the commented lines, end that comment's `body` with a `suggestion` fence so the author gets a one-click apply button — one short explanation line, then the fence with the full verbatim replacement (correct indentation, complete lines):
+
+````md
+Prefer `Array.isArray` — it also covers cross-realm arrays.
+```suggestion
+  if (!Array.isArray(x)) return;
+```
+````
+
+Rules: pin the comment range (`startLine`..`line`) to exactly the lines the suggestion replaces, on `RIGHT`. One `suggestion` block per comment; multi-line fix → multi-line comment covering those lines. No suggestion for `question` findings or when you aren't sure of the exact code — plain prose instead.

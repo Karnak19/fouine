@@ -12,7 +12,9 @@ const AGENT_FOOTER =
 export default tool({
   description:
     "Post a formal PR review: a summary plus optional inline comments pinned to specific file " +
-    "lines in the diff. Call once with all inline findings.",
+    "lines in the diff. Call once with all inline findings. To offer a one-click fix, end a " +
+    "comment body with a ```suggestion fence containing the full verbatim replacement for " +
+    "exactly the commented lines.",
   args: {
     summary: tool.schema.string().describe("Review summary shown at the top of the review."),
     event: tool.schema
@@ -40,7 +42,11 @@ export default tool({
               "The finding's tag: 'blocking' (correctness/security/data-loss/broken contract, " +
                 "must fix), 'nit' (taste/style), or 'question' (needs the author, not a change).",
             ),
-          body: tool.schema.string().describe("The comment text (markdown)."),
+          body: tool.schema.string().describe(
+            "The comment text (markdown). For a certain fix, end with a ```suggestion fence " +
+              "holding the full replacement for exactly the commented lines (pin startLine..line " +
+              "to those lines); one block per comment, never for questions.",
+          ),
         }),
       )
       .default([]),
