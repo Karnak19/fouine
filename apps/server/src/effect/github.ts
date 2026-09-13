@@ -7,6 +7,21 @@ import { GitHubError } from "~/effect/errors";
 export const CHECK_NAME = "fouine";
 const MAX_SUMMARY = 65000;
 
+// No GitHub check call may hang the pipeline: fetch has no default timeout, and
+// finishCheck runs after the opencode watchdog is already dismissed (the race
+// ends when runReview wins), so a stalled checks.update used to wedge the fiber
+// — row settled, check open — forever. 30s turns that into an ordinary failure
+// the finaliser and the reconciler know how to handle.
+const CHECK_TIMEOUT_MS = 30_000;
+
+// Best-effort read of an error's HTTP status through Effect's UnknownException
+// wrapper (or a bare throw): a missing check run is "already gone", not a
+// reason to keep retrying.
+const isNotFound = (cause: unknown): boolean => {
+  const err = cause as { error?: { status?: unknown }; status?: unknown } | null;
+  return err?.error?.status === 404 || err?.status === 404;
+};
+
 export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubService", {
   sync: () => ({
     installationClient: (installationId: number): Effect.Effect<Octokit, GitHubError> =>
@@ -51,6 +66,10 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         }),
       ).pipe(
         Effect.map((res) => res.data.id as number | undefined),
+        // Past the timeout the run id is lost to us even if GitHub did create
+        // the run — same as any other create failure: the review proceeds and
+        // the row simply carries no check to close.
+        Effect.timeout(CHECK_TIMEOUT_MS),
         Effect.catchAll((cause) =>
           Effect.sync(() => {
             log.warn("check create failed (needs checks:write permission?)", {
@@ -108,6 +127,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         }),
       ).pipe(
         Effect.as(true),
+        Effect.timeout(CHECK_TIMEOUT_MS),
         Effect.catchAll((cause) =>
           Effect.sync(() => {
             log.warn("check update failed", { error: String(cause) });
@@ -116,5 +136,25 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         ),
       );
     },
+
+    // GitHub-side truth for one check run: "open" still needs closing, "closed"
+    // doesn't, "unknown" means ask again next tick. Never fails — a missing run
+    // (404) counts as closed, anything else as unknown.
+    checkStatus: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      checkRunId: number,
+    ): Effect.Effect<"open" | "closed" | "unknown"> =>
+      Effect.tryPromise(() =>
+        octokit.rest.checks.get({ owner, repo, check_run_id: checkRunId }),
+      ).pipe(
+        Effect.map((res): "open" | "closed" => (res.data.status === "completed" ? "closed" : "open")),
+        Effect.timeout(CHECK_TIMEOUT_MS),
+        Effect.catchAll(
+          (cause): Effect.Effect<"open" | "closed" | "unknown"> =>
+            Effect.succeed(isNotFound(cause) ? "closed" : "unknown"),
+        ),
+      ),
   }),
 }) {}

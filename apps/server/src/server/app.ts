@@ -10,7 +10,7 @@ import { auth, migrateAuth } from "~/server/auth";
 import { internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills } from "~/skills";
-import { reapOrphanReviews, runImproverSweep } from "~/review";
+import { reapOrphanReviews, runImproverSweep, reconcileReviewChecks } from "~/review";
 
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
 // package dir and Docker runs from /app, so a cwd-relative path points somewhere
@@ -251,6 +251,11 @@ export async function boot(): Promise<void> {
   await reapOrphanReviews().catch((err) =>
     log.error("orphan reap failed", { error: String(err) }),
   );
+  // Heals whatever is currently stuck: wedged rows past the watchdog ceiling
+  // and terminal rows whose check run never closed (a hung finishCheck only
+  // shows GitHub-side). Runs hourly too — the boot reaper alone can't catch a
+  // close that fails after boot.
+  await reconcileReviewChecks();
   const app = await createServer();
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });
@@ -262,4 +267,7 @@ export async function boot(): Promise<void> {
     () => runImproverSweep().catch((err) => log.error("improver sweep failed", { error: String(err) })),
     60 * 60 * 1000,
   );
+  // Stale-check reconciler: same hourly cadence, cheap no-op when nothing is
+  // stuck (two indexed reads, no GitHub calls unless a row needs closing).
+  setInterval(() => void reconcileReviewChecks(), 60 * 60 * 1000);
 }

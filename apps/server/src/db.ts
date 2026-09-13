@@ -310,6 +310,20 @@ export const reviews = {
   unfinished: db.prepare<ReviewRow, []>(
     "SELECT * FROM reviews WHERE status IN ('pending', 'running') ORDER BY id",
   ),
+  // In-flight rows older than a cutoff — no legitimate fiber can still own them
+  // once the cutoff passes the watchdog's absolute ceiling, so the periodic
+  // reconciler may fail them and close their checks outright.
+  unfinishedBefore: db.prepare<ReviewRow, { $cutoff: number }>(
+    "SELECT * FROM reviews WHERE status IN ('pending', 'running') AND created_at < $cutoff ORDER BY id",
+  ),
+  // Terminal rows that opened a check run, recent first. The reconciler verifies
+  // each one's GitHub-side state and closes the ones still open — the backstop
+  // for a finishCheck that hung or failed after the row already settled.
+  terminalWithCheckSince: db.prepare<ReviewRow, { $since: number; $limit: number }>(
+    `SELECT * FROM reviews WHERE check_run_id IS NOT NULL
+       AND status IN ('completed', 'failed', 'skipped')
+       AND created_at > $since ORDER BY id DESC LIMIT $limit`,
+  ),
 
   // ── Aggregates ──────────────────────────────────────────────────────────
   // `skipped` rows are bookkeeping, not outcomes — every aggregate that counts,
