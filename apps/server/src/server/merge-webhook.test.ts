@@ -13,8 +13,12 @@ function sign(payload: string): string {
 // merge/decide.test.ts and merge/recap.test.ts). Must be mocked before
 // ~/server/webhook is ever imported, since it captures the binding at import
 // time.
+// Spread the real module: mock.module is process-wide and outlives this file,
+// so a partial mock would strip evaluatePipeline from merge/evaluate.test.ts
+// when it runs later (it does in CI's file order).
+const actualEvaluate = await import("~/merge/evaluate");
 const evaluateArm = mock((_repo: string, _pr: number) => Promise.resolve());
-mock.module("~/merge/evaluate", () => ({ evaluateArm }));
+mock.module("~/merge/evaluate", () => ({ ...actualEvaluate, evaluateArm }));
 
 // Only getInstallationOctokit is faked — getApp() stays real so the actual
 // @octokit/webhooks signature verification and event routing run for real.
