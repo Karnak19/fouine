@@ -203,24 +203,6 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         ),
       ),
 
-    updateIssueComment: (
-      octokit: Octokit,
-      owner: string,
-      repo: string,
-      commentId: number,
-      body: string,
-    ): Effect.Effect<void> =>
-      Effect.tryPromise(() =>
-        octokit.rest.issues.updateComment({ owner, repo, comment_id: commentId, body }),
-      ).pipe(
-        Effect.asVoid,
-        Effect.catchAll((cause) =>
-          Effect.sync(() => {
-            log.warn("issue comment update failed", { error: String(cause) });
-          }),
-        ),
-      ),
-
     // fouine's own reviews plus everyone else's, newest-`submitted_at`-last as
     // GitHub returns them. Read from GitHub, never from our DB — the whole
     // point is dodging the phantom-review trap (#97, #104): our DB can say
@@ -237,6 +219,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         submitted_at: string | null;
         html_url: string;
         body: string;
+        commit_id: string | null;
       }>,
       GitHubError
     > =>
@@ -254,6 +237,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
             submitted_at: r.submitted_at ?? null,
             html_url: r.html_url,
             body: r.body ?? "",
+            commit_id: r.commit_id ?? null,
           }));
         },
         catch: (cause) => new GitHubError({ op: "pulls.listReviews", cause }),
@@ -338,22 +322,6 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       ).pipe(
         Effect.map((res) => res.data.required_status_checks?.contexts ?? null),
         Effect.catchAll(() => Effect.succeed(null)),
-      ),
-
-    // "write" / "admin" / "maintain" may arm a merge; anyone who can comment
-    // can type `/fouine merge`, so this is the gate. Never fails outward: any
-    // error (deleted account, API hiccup) reads as "none" — the safe default.
-    collaboratorPermission: (
-      octokit: Octokit,
-      owner: string,
-      repo: string,
-      username: string,
-    ): Effect.Effect<string> =>
-      Effect.tryPromise(() =>
-        octokit.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username }),
-      ).pipe(
-        Effect.map((res) => res.data.permission),
-        Effect.catchAll(() => Effect.succeed("none")),
       ),
 
     // Never throws: the caller (merge/evaluate.ts) needs to tell a head-moved

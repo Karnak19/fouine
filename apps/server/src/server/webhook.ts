@@ -146,9 +146,7 @@ async function handleMergeCommand(
     sha: pull.data.head.sha,
   });
 
-  evaluateArm(fullName, prNumber).catch((err) =>
-    log.error("merge evaluation failed", { repo: fullName, number: prNumber, error: String(err) }),
-  );
+  evaluateArm(fullName, prNumber);
 }
 
 let handlersRegistered = false;
@@ -319,7 +317,11 @@ export function registerHandlers(): void {
 
     // `/fouine merge` arms the PR — checked and evaluated once, immediately.
     if (isMergeCommand(body, trigger)) {
-      await handleMergeCommand(payload, fullName, prNumber, trigger);
+      try {
+        await handleMergeCommand(payload, fullName, prNumber, trigger);
+      } catch (err) {
+        log.error(`${trigger} merge failed`, { repo: fullName, number: prNumber, error: String(err) });
+      }
       return;
     }
 
@@ -377,9 +379,7 @@ export function registerHandlers(): void {
     const number = payload.pull_request.number;
     if (!mergeEligible(fullName)) return;
     if (!mergeArms.get.get({ $repo: fullName, $pr: number })) return;
-    evaluateArm(fullName, number).catch((err) =>
-      log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
-    );
+    evaluateArm(fullName, number);
   });
 
   webhooks.on("check_run", async (event: EmitterWebhookEvent) => {
@@ -395,9 +395,7 @@ export function registerHandlers(): void {
     const fullName = payload.repository.full_name;
     if (!mergeEligible(fullName)) return;
     for (const number of armedPRsForSha(fullName, payload.check_run.head_sha)) {
-      evaluateArm(fullName, number).catch((err) =>
-        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
-      );
+      evaluateArm(fullName, number);
     }
   });
 
@@ -414,9 +412,7 @@ export function registerHandlers(): void {
     const fullName = payload.repository.full_name;
     if (!mergeEligible(fullName)) return;
     for (const number of armedPRsForSha(fullName, payload.check_suite.head_sha)) {
-      evaluateArm(fullName, number).catch((err) =>
-        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
-      );
+      evaluateArm(fullName, number);
     }
   });
 
@@ -431,9 +427,7 @@ export function registerHandlers(): void {
     const fullName = payload.repository.full_name;
     if (!mergeEligible(fullName)) return;
     for (const number of armedPRsForSha(fullName, payload.sha)) {
-      evaluateArm(fullName, number).catch((err) =>
-        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
-      );
+      evaluateArm(fullName, number);
     }
   });
 }

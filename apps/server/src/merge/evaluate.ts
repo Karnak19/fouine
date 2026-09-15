@@ -36,7 +36,7 @@ function runEvaluation(repoFullName: string, prNumber: number): Promise<void> {
   );
 }
 
-function evaluatePipeline(
+export function evaluatePipeline(
   repoFullName: string,
   prNumber: number,
 ): Effect.Effect<void, never, GitHubService> {
@@ -72,14 +72,22 @@ function evaluatePipeline(
     if (pull.merged) {
       // Already merged (by us on a run we crashed mid-recap, or by a human
       // from the GitHub UI) — nothing left to decide. Clear the arm so a
-      // stray later event doesn't keep re-evaluating a closed PR.
-      yield* Effect.sync(() => mergeArms.disarm.run({ $repo: repoFullName, $pr: prNumber }));
+      // stray later event doesn't keep re-evaluating a closed PR. SHA-scoped:
+      // a re-arm on a new push that landed while this evaluation was in
+      // flight must not have its fresh arm deleted here (issue trap: stale
+      // arm snapshot race).
+      yield* Effect.sync(() =>
+        mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+      );
       return;
     }
     if (pull.headSha !== arm.head_sha) {
       // Should already be gone via the `synchronize` handler; belt-and-braces
       // re-check right before merging (issue trap: race with a new push).
-      yield* Effect.sync(() => mergeArms.disarm.run({ $repo: repoFullName, $pr: prNumber }));
+      // SHA-scoped disarm for the same reason as above.
+      yield* Effect.sync(() =>
+        mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+      );
       return;
     }
 
@@ -98,7 +106,13 @@ function evaluatePipeline(
     const requiredChecks = yield* gh.branchProtectionRequiredChecks(octokit, owner, repoName, pull.baseRef);
     const botLogin = yield* gh.botLogin().pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-    const fouineRaw = reviewsList.filter((r) => r.user && r.user === botLogin);
+    // Pin fouine's reviews to the armed SHA: without this, an APPROVED on an
+    // older commit plus green CI on a later re-armed push would merge a
+    // commit fouine never actually reviewed (issue trap: approval not pinned
+    // to the armed SHA).
+    const fouineRaw = reviewsList.filter(
+      (r) => r.user && r.user === botLogin && r.commit_id === arm.head_sha,
+    );
     const humanReviews: MergeReview[] = reviewsList
       .filter((r) => r.user && r.user !== botLogin)
       .map((r) => ({ user: r.user!, state: r.state, submitted_at: r.submitted_at }));
@@ -148,7 +162,9 @@ function evaluatePipeline(
         prNumber,
         "🦡 The PR's head moved right before merging — disarmed. Comment `/fouine merge` again once you're ready.",
       );
-      yield* Effect.sync(() => mergeArms.disarm.run({ $repo: repoFullName, $pr: prNumber }));
+      yield* Effect.sync(() =>
+        mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+      );
       return;
     } else {
       // 405 (method forbidden by the repo) and anything else unexpected get
@@ -161,7 +177,9 @@ function evaluatePipeline(
         prNumber,
         `🦡 Merge failed (${mergeResult.status}): ${mergeResult.message}. Disarmed — fix the issue and comment \`/fouine merge\` again.`,
       );
-      yield* Effect.sync(() => mergeArms.disarm.run({ $repo: repoFullName, $pr: prNumber }));
+      yield* Effect.sync(() =>
+        mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+      );
       return;
     }
 
@@ -196,16 +214,12 @@ function evaluatePipeline(
       totalCost: allReviews.reduce((sum, r) => sum + (r.cost ?? 0), 0),
     });
 
-    if (arm.recap_comment_id) {
-      yield* gh.updateIssueComment(octokit, owner, repoName, arm.recap_comment_id, recap);
-    } else {
-      const commentId = yield* gh.postComment(octokit, owner, repoName, prNumber, recap);
-      if (commentId) {
-        yield* Effect.sync(() =>
-          mergeArms.setRecapCommentId.run({ $repo: repoFullName, $pr: prNumber, $comment: commentId }),
-        );
-      }
-    }
-    yield* Effect.sync(() => mergeArms.disarm.run({ $repo: repoFullName, $pr: prNumber }));
+    // No edit-in-place branch here: idempotency against a retried evaluation
+    // rests on the `pull.merged` early-return above, so a post-merge retry
+    // never reaches this line again.
+    yield* gh.postComment(octokit, owner, repoName, prNumber, recap);
+    yield* Effect.sync(() =>
+      mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+    );
   });
 }

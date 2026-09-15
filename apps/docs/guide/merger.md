@@ -8,7 +8,7 @@ It is off by default, and a setting alone never merges anything: a PR only merge
 
 The merger checks all of the following, re-checked at the moment of merge, not just when you arm it:
 
-1. **fouine's latest review is `APPROVED`.** Read straight from GitHub, not from fouine's own database — never `PENDING`, never a stale comment/changes-requested state.
+1. **fouine's latest review on the armed head SHA is `APPROVED`.** Read straight from GitHub, not from fouine's own database — never `PENDING`, never a stale comment/changes-requested state, and never a review left on a commit that was later superseded by a push.
 2. **No human review is `CHANGES_REQUESTED`.** A human's later `APPROVED` clears their own earlier `CHANGES_REQUESTED`; fouine's approval never overrides one that's still standing.
 3. **Every check run and commit status on the head SHA has completed**, and none concluded `failure`, `cancelled`, `timed_out` or `action_required`. `neutral` and `skipped` count as passing. If GitHub reports required status checks for the branch, only those count; otherwise every check on the commit does.
 4. **The PR's head SHA still equals the SHA that was armed.** A new push disarms it (see below); this is the belt-and-braces re-check right before merging.
@@ -38,7 +38,7 @@ Opting a repo in only makes the merger *available*; a human still has to ask for
 
 ## The recap comment
 
-Once merged, fouine posts one short comment on the PR: the merge method and commit SHA, who armed it and when, a link to the approving review, how many findings it raised and how many pushes it took to clear them, how many checks passed and whether required or all checks applied, fixer commits if any, and fouine's total cost on that PR. A transient error retrying the merge never produces a second recap — the same comment is edited in place.
+Once merged, fouine posts one short comment on the PR: the merge method and commit SHA, who armed it and when, a link to the approving review, how many findings it raised and how many pushes it took to clear them, how many checks passed and whether required or all checks applied, fixer commits if any, and fouine's total cost on that PR. A retried evaluation never posts a second recap: once the PR shows as merged, evaluation short-circuits before ever reaching the recap step.
 
 ## What it never does
 

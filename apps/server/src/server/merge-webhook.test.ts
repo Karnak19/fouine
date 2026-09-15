@@ -244,3 +244,23 @@ test("re-evaluation events never call evaluateArm for a repo that hasn't opted i
 
   expect(evaluateArm).not.toHaveBeenCalledWith(full, 30);
 });
+
+test("/fouine merge resolves without throwing when getInstallationOctokit rejects", async () => {
+  const full = "acme/octokit-down";
+  enableAutoMerge(full);
+  getInstallationOctokit.mockRejectedValueOnce(new Error("installation token fetch failed"));
+
+  // Must not throw — a redelivery-loop-inducing 500 is exactly what this test
+  // guards against (webhook.ts's try/catch around handleMergeCommand).
+  await expect(
+    dispatch("issue_comment", {
+      action: "created",
+      installation: { id: 1 },
+      repository: { full_name: full },
+      comment: { id: 1, body: "/fouine merge", user: { login: "alice" } },
+      issue: { number: 40, pull_request: {} },
+    }),
+  ).resolves.toBeUndefined();
+
+  expect(mergeArms.get.get({ $repo: full, $pr: 40 })).toBeNull();
+});

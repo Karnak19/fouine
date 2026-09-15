@@ -598,20 +598,30 @@ test("merge_arms: arm, re-arm replaces the row, disarm removes it", () => {
   const armed = mergeArms.get.get({ $repo: full, $pr: 1 });
   expect(armed?.head_sha).toBe("sha1");
   expect(armed?.armed_by).toBe("alice");
-  expect(armed?.recap_comment_id).toBeNull();
 
-  mergeArms.setRecapCommentId.run({ $repo: full, $pr: 1, $comment: 999 });
-  expect(mergeArms.get.get({ $repo: full, $pr: 1 })?.recap_comment_id).toBe(999);
-
-  // Re-arming (a fresh /fouine merge) replaces the sha/armer and clears any
-  // stale recap id from a previous arm.
+  // Re-arming (a fresh /fouine merge) replaces the sha/armer.
   mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha2", $by: "bob" });
   const rearmed = mergeArms.get.get({ $repo: full, $pr: 1 });
   expect(rearmed?.head_sha).toBe("sha2");
   expect(rearmed?.armed_by).toBe("bob");
-  expect(rearmed?.recap_comment_id).toBeNull();
 
   mergeArms.disarm.run({ $repo: full, $pr: 1 });
+  expect(mergeArms.get.get({ $repo: full, $pr: 1 })).toBeNull();
+});
+
+test("merge_arms.disarmIfSha only removes the row when the sha still matches", () => {
+  const full = "acme/arms-sha";
+  mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha-A", $by: "alice" });
+  // Simulates a re-arm on a new push landing while a stale evaluation (still
+  // holding sha-A) is in flight.
+  mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha-B", $by: "bob" });
+
+  mergeArms.disarmIfSha.run({ $repo: full, $pr: 1, $sha: "sha-A" });
+
+  const row = mergeArms.get.get({ $repo: full, $pr: 1 });
+  expect(row?.head_sha).toBe("sha-B");
+
+  mergeArms.disarmIfSha.run({ $repo: full, $pr: 1, $sha: "sha-B" });
   expect(mergeArms.get.get({ $repo: full, $pr: 1 })).toBeNull();
 });
 

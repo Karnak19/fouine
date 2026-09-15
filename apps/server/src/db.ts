@@ -176,8 +176,8 @@ for (const def of [
 // merge_arms: one row per PR the author has armed with `/fouine merge`. A new
 // push disarms (row deleted) — see webhook.ts `synchronize` handling. Unique on
 // (repo, pr) so re-arming just replaces the row (new head sha, new armer).
-// recap_comment_id is set once the merge posts its recap, so a retried
-// evaluation edits instead of reposting (issue trap: idempotent recap).
+// Idempotency against a retried evaluation rests on the `pull.merged`
+// early-return in evaluate.ts, not on editing a tracked comment id.
 db.exec(`
   CREATE TABLE IF NOT EXISTS merge_arms (
     repo_full_name    TEXT NOT NULL,
@@ -185,7 +185,6 @@ db.exec(`
     head_sha          TEXT NOT NULL,
     armed_by          TEXT NOT NULL,
     armed_at          INTEGER NOT NULL DEFAULT (unixepoch()),
-    recap_comment_id  INTEGER,
     UNIQUE(repo_full_name, pr_number)
   );
 `);
@@ -655,38 +654,36 @@ export interface MergeArmRow {
   head_sha: string;
   armed_by: string;
   armed_at: number;
-  recap_comment_id: number | null;
 }
 
 // Arms are cheap, short-lived rows — no cache, straight prepared statements.
 export const mergeArms = {
-  // Re-arming replaces the row wholesale: new head sha, new armer, new arm
-  // time, and any stale recap_comment_id from a previous arm is cleared —
-  // a fresh arm must never edit a recap that belonged to a different push.
+  // Re-arming replaces the row wholesale: new head sha, new armer, new arm time.
   arm: db.prepare<
     null,
     { $repo: string; $pr: number; $sha: string; $by: string }
   >(
-    `INSERT INTO merge_arms (repo_full_name, pr_number, head_sha, armed_by, recap_comment_id)
-     VALUES ($repo, $pr, $sha, $by, NULL)
+    `INSERT INTO merge_arms (repo_full_name, pr_number, head_sha, armed_by)
+     VALUES ($repo, $pr, $sha, $by)
      ON CONFLICT(repo_full_name, pr_number) DO UPDATE SET
        head_sha = excluded.head_sha,
        armed_by = excluded.armed_by,
-       armed_at = unixepoch(),
-       recap_comment_id = NULL`,
+       armed_at = unixepoch()`,
   ),
   disarm: db.prepare<null, { $repo: string; $pr: number }>(
     "DELETE FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr",
+  ),
+  // Same as disarm, but only when the row still matches the SHA the caller
+  // read — guards against deleting a freshly re-armed row while an evaluation
+  // that read the stale arm is still in flight (issue trap: stale-arm race).
+  disarmIfSha: db.prepare<null, { $repo: string; $pr: number; $sha: string }>(
+    "DELETE FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr AND head_sha = $sha",
   ),
   get: db.prepare<MergeArmRow, { $repo: string; $pr: number }>(
     "SELECT * FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr",
   ),
   listForRepo: db.prepare<MergeArmRow, { $repo: string }>(
     "SELECT * FROM merge_arms WHERE repo_full_name = $repo",
-  ),
-  setRecapCommentId: db.prepare<null, { $repo: string; $pr: number; $comment: number }>(
-    `UPDATE merge_arms SET recap_comment_id = $comment
-     WHERE repo_full_name = $repo AND pr_number = $pr`,
   ),
   // Boot sweep: an arm nobody re-evaluated in 7 days is abandoned (PR closed
   // without the closed webhook firing, e.g. the app was uninstalled mid-flight).
