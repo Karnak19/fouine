@@ -8,7 +8,7 @@ import {
   subscribeEvents,
   type ServerEvent,
 } from "~/server/events";
-import { SETTINGS, resolveDefaultModel } from "~/settings";
+import { SETTINGS, resolveDefaultModel, MERGE_METHODS } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
@@ -274,6 +274,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       const full = `${params.owner}/${params.name}`;
       const existing = repos.get.get({ $full_name: full });
       if (!existing) return status(404, { error: "Not found" });
+      if (body.merge_method != null && !MERGE_METHODS.includes(body.merge_method as never)) {
+        return status(400, { error: `merge_method must be one of ${MERGE_METHODS.join(", ")}` });
+      }
       repos.update.run({
         $full_name: full,
         $prompt: body.prompt ?? null,
@@ -285,6 +288,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
           body.deny_test_commands === undefined
             ? existing.deny_test_commands
             : body.deny_test_commands,
+        $auto_merge: body.auto_merge === undefined ? existing.auto_merge : body.auto_merge,
+        $merge_method: body.merge_method === undefined ? existing.merge_method : body.merge_method,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -296,6 +301,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         model: t.Optional(t.String()),
         enabled: t.Optional(t.Number()),
         deny_test_commands: t.Optional(t.Union([t.Number(), t.Null()])),
+        auto_merge: t.Optional(t.Union([t.Number(), t.Null()])),
+        merge_method: t.Optional(t.Union([t.String(), t.Null()])),
       }),
     },
   )
@@ -529,6 +536,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .put(
     "/settings",
     ({ body }) => {
+      if (body.merge_method != null && !MERGE_METHODS.includes(body.merge_method as never)) {
+        return status(400, { error: `merge_method must be one of ${MERGE_METHODS.join(", ")}` });
+      }
       // Keys: an absent field keeps the stored value, an explicit "" deletes the
       // row. Without the delete the row would shadow the env var forever, so a
       // rotated OPENCODE_API_KEY/ZAI_API_KEY could never take effect.
@@ -540,6 +550,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.ZAI_API_KEY, body.zai_api_key);
       // "1" turns it on, "" deletes the row -> back to off (the default).
       setKey(SETTINGS.DENY_TEST_COMMANDS, body.deny_test_commands);
+      setKey(SETTINGS.AUTO_MERGE, body.auto_merge);
+      if (body.merge_method) settings.set.run({ $key: SETTINGS.MERGE_METHOD, $value: body.merge_method });
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }
@@ -560,6 +572,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
+        auto_merge: t.Optional(t.String()),
+        merge_method: t.Optional(t.String()),
       }),
     },
   )

@@ -1,9 +1,10 @@
-import { repos, reviews, type ReviewRow } from "~/db";
+import { mergeArms, repos, reviews, type ReviewRow } from "~/db";
 import { getInstallationOctokit } from "~/github";
 import { publishReviewEvent } from "~/server/events";
 import { log } from "~/server/log";
 
 export const REAP_MESSAGE = "Interrupted by server restart";
+const STALE_ARM_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A review only lives in memory (see activeReviews in runner.ts), so any row
 // still at pending/running when we boot is an orphan from a crash, a deploy, or
@@ -57,6 +58,18 @@ export async function reapOrphanReviews(): Promise<void> {
         error: String(err),
       });
     }
+  }
+}
+
+// A PR closed without merging drops its arm via the `closed` webhook handler,
+// but an installation removed mid-flight or a delivery that never arrives
+// leaves the row behind forever. 7 days is the issue's own number for "stale".
+export function reapStaleArms(): void {
+  const before = Math.floor((Date.now() - STALE_ARM_MS) / 1000);
+  try {
+    mergeArms.sweepStale.run({ $before: before });
+  } catch (err) {
+    log.error("stale arm sweep failed", { error: String(err) });
   }
 }
 

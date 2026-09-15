@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { db, repos, reviews, settings, settingValue, findings, type StatsFilter } from "~/db";
+import { db, repos, reviews, settings, settingValue, findings, mergeArms, type StatsFilter } from "~/db";
 
 test("upsert then get a repo", () => {
   repos.upsert.run({
@@ -24,6 +24,8 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
     $model: "opencode-go/glm-5.1",
     $enabled: 0,
     $deny_test_commands: 1,
+    $auto_merge: null,
+    $merge_method: null,
   });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
@@ -566,4 +568,72 @@ test("attempt column: stored at insert, defaults to 0 for rows that omit it", ()
   db.exec(`INSERT INTO reviews (repo_full_name, pr_number) VALUES ('${full}', 2)`);
   const legacy = reviews.byRepoPR.get({ $repo: full, $pr: 2, $limit: 1 });
   expect(legacy?.attempt).toBe(0);
+});
+
+test("repos.upsert never clobbers auto_merge/merge_method overrides", () => {
+  const full = "acme/merge-settings";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  repos.update.run({
+    $full_name: full,
+    $prompt: null,
+    $model: null,
+    $enabled: 1,
+    $deny_test_commands: null,
+    $auto_merge: 1,
+    $merge_method: "rebase",
+  });
+
+  // A re-sighting webhook re-upserts: installation_id updates, the merger
+  // overrides must survive untouched.
+  repos.upsert.run({ $full_name: full, $installation_id: 2, $prompt: null, $model: null });
+  const got = repos.get.get({ $full_name: full });
+  expect(got?.installation_id).toBe(2);
+  expect(got?.auto_merge).toBe(1);
+  expect(got?.merge_method).toBe("rebase");
+});
+
+test("merge_arms: arm, re-arm replaces the row, disarm removes it", () => {
+  const full = "acme/arms";
+  mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha1", $by: "alice" });
+  const armed = mergeArms.get.get({ $repo: full, $pr: 1 });
+  expect(armed?.head_sha).toBe("sha1");
+  expect(armed?.armed_by).toBe("alice");
+  expect(armed?.recap_comment_id).toBeNull();
+
+  mergeArms.setRecapCommentId.run({ $repo: full, $pr: 1, $comment: 999 });
+  expect(mergeArms.get.get({ $repo: full, $pr: 1 })?.recap_comment_id).toBe(999);
+
+  // Re-arming (a fresh /fouine merge) replaces the sha/armer and clears any
+  // stale recap id from a previous arm.
+  mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha2", $by: "bob" });
+  const rearmed = mergeArms.get.get({ $repo: full, $pr: 1 });
+  expect(rearmed?.head_sha).toBe("sha2");
+  expect(rearmed?.armed_by).toBe("bob");
+  expect(rearmed?.recap_comment_id).toBeNull();
+
+  mergeArms.disarm.run({ $repo: full, $pr: 1 });
+  expect(mergeArms.get.get({ $repo: full, $pr: 1 })).toBeNull();
+});
+
+test("merge_arms.sweepStale removes only arms older than the cutoff", () => {
+  const full = "acme/arms-stale";
+  mergeArms.arm.run({ $repo: full, $pr: 10, $sha: "old", $by: "alice" });
+  mergeArms.arm.run({ $repo: full, $pr: 11, $sha: "new", $by: "alice" });
+  // Backdate pr 10's arm past the 7-day cutoff.
+  db.exec(
+    `UPDATE merge_arms SET armed_at = unixepoch() - 8*24*60*60 WHERE repo_full_name = '${full}' AND pr_number = 10`,
+  );
+
+  mergeArms.sweepStale.run({ $before: Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60 });
+
+  expect(mergeArms.get.get({ $repo: full, $pr: 10 })).toBeNull();
+  expect(mergeArms.get.get({ $repo: full, $pr: 11 })).not.toBeNull();
+});
+
+test("merge_arms.listForRepo scopes to one repo", () => {
+  mergeArms.arm.run({ $repo: "acme/list-a", $pr: 1, $sha: "a", $by: "x" });
+  mergeArms.arm.run({ $repo: "acme/list-b", $pr: 1, $sha: "b", $by: "x" });
+  const rows = mergeArms.listForRepo.all({ $repo: "acme/list-a" });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.head_sha).toBe("a");
 });

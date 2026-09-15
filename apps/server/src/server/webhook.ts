@@ -4,6 +4,9 @@ import { abortReviewsForPR, runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
+import { mergeArms, repos } from "~/db";
+import { resolveAutoMerge } from "~/settings";
+import { evaluateArm } from "~/merge/evaluate";
 
 // `ready_for_review` matters: draft PRs are skipped below, so without it a PR
 // opened as a draft (what `gh stack submit` does) is never reviewed at all.
@@ -29,6 +32,32 @@ export function isStopCommand(body: string, trigger = matchTrigger(body)): boole
   return body.trim().slice(trigger.length).trim() === "stop";
 }
 
+// `<trigger> merge` (and the deprecated `/review merge` alias, same as stop) —
+// arms the PR for the merger (#117). Exact match for the same reason as
+// isStopCommand: a future subcommand starting with "merge" must not misfire.
+export function isMergeCommand(body: string, trigger = matchTrigger(body)): boolean {
+  if (!trigger) return false;
+  return body.trim().slice(trigger.length).trim() === "merge";
+}
+
+// Repo enabled + opted into auto-merge, read straight from the DB — no GitHub
+// call needed to reject an obviously-not-eligible repo (issue: every merger
+// handler short-circuits before any GitHub call when the repo isn't opted in).
+function mergeEligible(fullName: string): boolean {
+  const repo = repos.get.get({ $full_name: fullName });
+  return !!repo && !!repo.enabled && resolveAutoMerge(repo.auto_merge);
+}
+
+// Any armed PR in this repo whose head currently matches `sha` — used by the
+// events that only carry a commit SHA, not a PR number (check_run, check_suite,
+// status).
+function armedPRsForSha(fullName: string, sha: string): number[] {
+  return mergeArms.listForRepo
+    .all({ $repo: fullName })
+    .filter((a) => a.head_sha === sha)
+    .map((a) => a.pr_number);
+}
+
 // Best-effort ack on the triggering comment. Never throws: a failed reaction
 // must not turn a successful stop into a logged error, and the abort has
 // already happened by the time we get here.
@@ -51,6 +80,75 @@ async function react(
   } catch (err) {
     log.warn("comment reaction failed", { repo: fullName, comment: commentId, error: String(err) });
   }
+}
+
+// `/fouine merge`: arm the PR, then evaluate immediately so an already-green
+// PR merges within this one webhook round-trip instead of waiting for the
+// next check/review event.
+async function handleMergeCommand(
+  payload: {
+    installation?: { id: number };
+    comment: { user?: { login: string } };
+  },
+  fullName: string,
+  prNumber: number,
+  trigger: string,
+): Promise<void> {
+  const installationId = payload.installation?.id;
+  if (!installationId) {
+    log.warn(`${trigger} merge skipped`, { repo: fullName, number: prNumber, reason: "no installation id" });
+    return;
+  }
+  const [owner, repo] = fullName.split("/");
+  const octokit = await getInstallationOctokit(installationId);
+  const repoRow = upsertRepoAndPublish(fullName, installationId);
+
+  const comment = (body: string) =>
+    octokit.rest.issues
+      .createComment({ owner, repo, issue_number: prNumber, body })
+      .catch((err) =>
+        log.warn("merge command comment failed", { repo: fullName, number: prNumber, error: String(err) }),
+      );
+
+  if (!repoRow.enabled || !resolveAutoMerge(repoRow.auto_merge)) {
+    log.info(`${trigger} merge rejected`, { repo: fullName, number: prNumber, reason: "not opted in" });
+    await comment("🦡 Auto-merge isn't enabled for this repo — turn it on in the dashboard first.");
+    return;
+  }
+
+  const commenter = payload.comment.user?.login;
+  if (!commenter) {
+    log.warn(`${trigger} merge skipped`, { repo: fullName, number: prNumber, reason: "no comment author" });
+    return;
+  }
+
+  const permission = await octokit.rest.repos
+    .getCollaboratorPermissionLevel({ owner, repo, username: commenter })
+    .then((res) => res.data.permission)
+    .catch(() => "none");
+  if (!["write", "admin", "maintain"].includes(permission)) {
+    log.info(`${trigger} merge rejected`, {
+      repo: fullName,
+      number: prNumber,
+      commenter,
+      reason: "no write access",
+    });
+    await comment(`🦡 @${commenter} needs write access to this repo to arm a merge.`);
+    return;
+  }
+
+  const pull = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+  mergeArms.arm.run({ $repo: fullName, $pr: prNumber, $sha: pull.data.head.sha, $by: commenter });
+  log.info(`${trigger} merge armed`, {
+    repo: fullName,
+    number: prNumber,
+    by: commenter,
+    sha: pull.data.head.sha,
+  });
+
+  evaluateArm(fullName, prNumber).catch((err) =>
+    log.error("merge evaluation failed", { repo: fullName, number: prNumber, error: String(err) }),
+  );
 }
 
 let handlersRegistered = false;
@@ -83,6 +181,36 @@ export function registerHandlers(): void {
     const { payload } = e;
     const fullName = payload.repository.full_name;
     const number = payload.pull_request.number;
+
+    // Merger housekeeping runs independently of the review gate below: a
+    // closed PR must drop its arm even though "closed" isn't a review trigger,
+    // and a new push must disarm before the review flow decides whether to
+    // re-review the same commit.
+    if (payload.action === "synchronize" || payload.action === "closed") {
+      const arm = mergeArms.get.get({ $repo: fullName, $pr: number });
+      if (arm) {
+        mergeArms.disarm.run({ $repo: fullName, $pr: number });
+        if (payload.action === "synchronize") {
+          const installationId = payload.installation?.id;
+          if (installationId) {
+            const [owner, repo] = fullName.split("/");
+            getInstallationOctokit(installationId)
+              .then((octokit) =>
+                octokit.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  body: "🦡 New push — merge disarmed. Comment `/fouine merge` again once you're ready.",
+                }),
+              )
+              .catch((err) =>
+                log.warn("merge disarm comment failed", { repo: fullName, number, error: String(err) }),
+              );
+          }
+          // `closed` drops the arm silently — the PR is done either way.
+        }
+      }
+    }
 
     if (!HANDLED_ACTIONS.has(payload.action)) {
       log.debug("pull_request skipped", {
@@ -134,7 +262,7 @@ export function registerHandlers(): void {
         action: string;
         installation?: { id: number };
         repository: { full_name: string };
-        comment: { id: number; body: string };
+        comment: { id: number; body: string; user?: { login: string } };
         issue: { number: number; pull_request?: unknown };
       };
     };
@@ -189,6 +317,12 @@ export function registerHandlers(): void {
       return;
     }
 
+    // `/fouine merge` arms the PR — checked and evaluated once, immediately.
+    if (isMergeCommand(body, trigger)) {
+      await handleMergeCommand(payload, fullName, prNumber, trigger);
+      return;
+    }
+
     log.info(`${trigger} triggered`, { repo: fullName, number: prNumber });
 
     try {
@@ -222,6 +356,84 @@ export function registerHandlers(): void {
         number: prNumber,
         error: String(err),
       });
+    }
+  });
+
+  // The four merger re-evaluation triggers (#117). Every one short-circuits on
+  // local DB reads alone (mergeEligible / armedPRsForSha) before evaluateArm
+  // makes its first GitHub call.
+
+  webhooks.on("pull_request_review", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        action: string;
+        repository: { full_name: string };
+        pull_request: { number: number };
+      };
+    };
+    const { payload } = e;
+    if (payload.action !== "submitted") return;
+    const fullName = payload.repository.full_name;
+    const number = payload.pull_request.number;
+    if (!mergeEligible(fullName)) return;
+    if (!mergeArms.get.get({ $repo: fullName, $pr: number })) return;
+    evaluateArm(fullName, number).catch((err) =>
+      log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
+    );
+  });
+
+  webhooks.on("check_run", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        action: string;
+        repository: { full_name: string };
+        check_run: { head_sha: string };
+      };
+    };
+    const { payload } = e;
+    if (payload.action !== "completed") return;
+    const fullName = payload.repository.full_name;
+    if (!mergeEligible(fullName)) return;
+    for (const number of armedPRsForSha(fullName, payload.check_run.head_sha)) {
+      evaluateArm(fullName, number).catch((err) =>
+        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
+      );
+    }
+  });
+
+  webhooks.on("check_suite", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        action: string;
+        repository: { full_name: string };
+        check_suite: { head_sha: string };
+      };
+    };
+    const { payload } = e;
+    if (payload.action !== "completed") return;
+    const fullName = payload.repository.full_name;
+    if (!mergeEligible(fullName)) return;
+    for (const number of armedPRsForSha(fullName, payload.check_suite.head_sha)) {
+      evaluateArm(fullName, number).catch((err) =>
+        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
+      );
+    }
+  });
+
+  webhooks.on("status", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        repository: { full_name: string };
+        sha: string;
+      };
+    };
+    const { payload } = e;
+    const fullName = payload.repository.full_name;
+    if (!mergeEligible(fullName)) return;
+    for (const number of armedPRsForSha(fullName, payload.sha)) {
+      evaluateArm(fullName, number).catch((err) =>
+        log.error("merge evaluation failed", { repo: fullName, number, error: String(err) }),
+      );
     }
   });
 }

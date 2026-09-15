@@ -18,6 +18,12 @@ fouine connects to GitHub as a GitHub App. This gives it per-repo access, webhoo
 4. Set **Subscribe to events**:
    - **Pull request**
    - **Issue comment** (for `/fouine` triggers)
+   - **Pull request review** (merger: re-evaluate an armed PR once a review is submitted)
+   - **Check run** (merger: re-evaluate once a check completes)
+   - **Check suite** (merger: re-evaluate once a suite completes)
+   - **Status** (merger: re-evaluate once a commit status completes)
+
+   The last four are only needed for the [merger](/guide/merger) (`/fouine merge`) — skip them if you don't use auto-merge. `Contents: write` + `Pull requests: write`, set below, are all the permissions the merger needs; it does not use `administration:read`, so it can't read branch protection and falls back to requiring every check on the head commit (see the merger guide).
 
 5. Under **Where can this GitHub App be installed?**, choose:
    - **Only on this account** — for personal/org use
