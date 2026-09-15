@@ -48,7 +48,6 @@ function fakeLayer(opts: { headSha: string; reviewSha: string }) {
     branchProtectionRequiredChecks: () => Effect.succeed(null),
     botLogin: () => Effect.succeed("fouine[bot]"),
     createIssueComment: () => Effect.void,
-    postComment: () => Effect.succeed(123),
     mergePull: () =>
       Effect.sync(() => {
         merged = true;

@@ -182,27 +182,6 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         ),
       ),
 
-    // Like createIssueComment, but hands back the comment id — the merger
-    // needs it to edit the recap in place on a later idempotent re-evaluation.
-    postComment: (
-      octokit: Octokit,
-      owner: string,
-      repo: string,
-      issueNumber: number,
-      body: string,
-    ): Effect.Effect<number | undefined> =>
-      Effect.tryPromise(() =>
-        octokit.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body }),
-      ).pipe(
-        Effect.map((res) => res.data.id as number | undefined),
-        Effect.catchAll((cause) =>
-          Effect.sync(() => {
-            log.warn("recap comment post failed", { error: String(cause) });
-            return undefined;
-          }),
-        ),
-      ),
-
     // fouine's own reviews plus everyone else's, newest-`submitted_at`-last as
     // GitHub returns them. Read from GitHub, never from our DB — the whole
     // point is dodging the phantom-review trap (#97, #104): our DB can say

@@ -217,7 +217,7 @@ export function evaluatePipeline(
     // No edit-in-place branch here: idempotency against a retried evaluation
     // rests on the `pull.merged` early-return above, so a post-merge retry
     // never reaches this line again.
-    yield* gh.postComment(octokit, owner, repoName, prNumber, recap);
+    yield* gh.createIssueComment(octokit, owner, repoName, prNumber, recap);
     yield* Effect.sync(() =>
       mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
     );
