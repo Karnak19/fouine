@@ -20,11 +20,6 @@ const VERIFY_LIMIT = 100;
 export const STALE_MESSAGE =
   "Stale review reconciled: still unfinished past the watchdog ceiling, nothing will ever finish it";
 
-const splitRepo = (fullName: string): [string, string] => {
-  const [owner, name] = fullName.split("/");
-  return [owner ?? fullName, name ?? ""];
-};
-
 // Conclusion for a wedged run's check: the check represents "the review reached
 // the PR" — if findings were posted the deliverable exists (success), otherwise
 // the run produced nothing (failure). The DB row is failed either way: the
@@ -69,7 +64,7 @@ function settleStaleRow(
     const octokit = yield* clientFor(db, gh, row.repo_full_name);
     if (!octokit) return;
     const posted = yield* db.hasFindings(row.id);
-    const [owner, name] = splitRepo(row.repo_full_name);
+    const [owner, name] = row.repo_full_name.split("/");
     const closed = yield* gh.finishCheck(
       octokit,
       owner,
@@ -107,15 +102,18 @@ function verifyTerminalRow(
     if (row.check_run_id == null) return;
     const octokit = yield* clientFor(db, gh, row.repo_full_name);
     if (!octokit) return;
-    const [owner, name] = splitRepo(row.repo_full_name);
+    const [owner, name] = row.repo_full_name.split("/");
     const state = yield* gh.checkStatus(octokit, owner, name, row.check_run_id);
     if (state !== "open") return;
+    // Same rule as the stale sweep: the check reflects "the review reached the
+    // PR", so a failed row whose findings were posted still closes green.
+    const posted = yield* db.hasFindings(row.id);
     const closed = yield* gh.finishCheck(
       octokit,
       owner,
       name,
       row.check_run_id,
-      row.status === "failed" ? "failure" : "success",
+      row.status === "failed" && !posted ? "failure" : "success",
       terminalSummary(row.status),
     );
     log.info("terminal check run still open, closed it", {

@@ -254,8 +254,9 @@ export async function boot(): Promise<void> {
   // Heals whatever is currently stuck: wedged rows past the watchdog ceiling
   // and terminal rows whose check run never closed (a hung finishCheck only
   // shows GitHub-side). Runs hourly too — the boot reaper alone can't catch a
-  // close that fails after boot.
-  await reconcileReviewChecks();
+  // close that fails after boot. Must not block boot, so it's fired and
+  // forgotten: the hourly tick retries anything this run misses.
+  void reconcileReviewChecks();
   const app = await createServer();
   app.listen(config.port, () => {
     log.info("server started", { port: config.port });
@@ -267,7 +268,7 @@ export async function boot(): Promise<void> {
     () => runImproverSweep().catch((err) => log.error("improver sweep failed", { error: String(err) })),
     60 * 60 * 1000,
   );
-  // Stale-check reconciler: same hourly cadence, cheap no-op when nothing is
-  // stuck (two indexed reads, no GitHub calls unless a row needs closing).
+  // Stale-check reconciler: same hourly cadence (two indexed reads, then one
+  // checks.get per recent terminal row, capped at 100).
   setInterval(() => void reconcileReviewChecks(), 60 * 60 * 1000);
 }

@@ -28,7 +28,12 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       Effect.tryPromise({
         try: () => getInstallationOctokit(installationId),
         catch: (cause) => new GitHubError({ op: "getInstallationOctokit", cause }),
-      }),
+      }).pipe(
+        Effect.timeoutFail({
+          duration: CHECK_TIMEOUT_MS,
+          onTimeout: () => new GitHubError({ op: "getInstallationOctokit", cause: "timeout" }),
+        }),
+      ),
 
     installationToken: (octokit: Octokit): Effect.Effect<string, GitHubError> =>
       Effect.tryPromise({

@@ -22,6 +22,7 @@ function row(partial: { id: number } & Partial<ReviewRow>): ReviewRow {
     model: null,
     check_run_id: 77,
     patch_id: null,
+    attempt: 0,
     created_at: NOW - 7200,
     completed_at: null,
     ...partial,
@@ -143,6 +144,18 @@ test("terminal failed row with an open check is closed as failure", async () => 
   expect(Exit.isSuccess(exit)).toBe(true);
   expect(calls.failed).toEqual([]);
   expect(calls.conclusions).toEqual(["failure"]);
+});
+
+test("terminal failed row with posted findings and an open check closes as success", async () => {
+  const { layer, calls } = makeLayer({
+    terminal: [row({ id: 10, status: "failed" })],
+    checkState: "open",
+    findings: true,
+  });
+  const exit = await run(layer);
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(calls.failed).toEqual([]);
+  expect(calls.conclusions).toEqual(["success"]);
 });
 
 test("terminal skipped row with an open check is closed as success", async () => {
