@@ -40,6 +40,10 @@ export default defineConfig({
             { text: "Configuration", link: "/guide/configuration" },
           ],
         },
+        {
+          text: "Features",
+          items: [{ text: "Merger", link: "/guide/merger" }],
+        },
       ],
       "/architecture/": [
         {

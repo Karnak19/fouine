@@ -9,7 +9,12 @@ export const SETTINGS = {
   PROMPT: "default_prompt",
   IMPROVER_MODEL: "improver_model",
   DENY_TEST_COMMANDS: "deny_test_commands",
+  AUTO_MERGE: "auto_merge",
+  MERGE_METHOD: "merge_method",
 } as const;
+
+export type MergeMethod = "merge" | "squash" | "rebase";
+export const MERGE_METHODS: readonly MergeMethod[] = ["merge", "squash", "rebase"];
 
 // opencode's provider id for the Z.ai GLM Coding Plan. Models under it are
 // specced as `zai-coding-plan/glm-5.2`.
@@ -59,4 +64,21 @@ export function resolveDenyTestCommands(repoValue: number | null): boolean {
 
 export function resolvePrompt(repoPrompt: string | null): string {
   return repoPrompt?.trim() || settingValue(SETTINGS.PROMPT) || DEFAULT_PROMPT;
+}
+
+// Auto-merge opt-in. Same repo-wins, 0-included shape as resolveDenyTestCommands.
+// Default OFF: a setting alone must never merge anything (the per-PR arm is the
+// other half of consent — see merge/decide.ts).
+export function resolveAutoMerge(repoValue: number | null): boolean {
+  if (repoValue !== null) return repoValue === 1;
+  return settingValue(SETTINGS.AUTO_MERGE) === "1";
+}
+
+export function resolveMergeMethod(repoValue: string | null): MergeMethod {
+  if (repoValue && (MERGE_METHODS as readonly string[]).includes(repoValue)) {
+    return repoValue as MergeMethod;
+  }
+  const global = settingValue(SETTINGS.MERGE_METHOD);
+  if (global && (MERGE_METHODS as readonly string[]).includes(global)) return global as MergeMethod;
+  return "squash";
 }

@@ -44,6 +44,8 @@ The dashboard (accessible at your server URL) allows setting:
 - **GLM Coding Plan API key** — overrides `ZAI_API_KEY`
 - **Default model** — overrides `OPENCODE_MODEL` (reviews only; Chat uses `OPENCODE_CHAT_MODEL`)
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
+- **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).
+- **Merge method** — `merge` / `squash` / `rebase`, default `squash`. See the [merger guide](/guide/merger).
 
 ::: warning Chat needs an OpenAI-compatible model
 The opencode-go gateway is not uniformly OpenAI-shaped: each model declares which SDK it needs, and a few use the Anthropic API shape.
@@ -80,6 +82,7 @@ Each registered repo can have:
 - **Custom prompt** — overrides the default prompt for that repo
 - **Custom model** — overrides the default model for that repo
 - **Enabled/disabled** — toggle reviews without removing the repo
+- **Auto-merge** and **merge method** — inherit the global setting, or override per repo. See the [merger guide](/guide/merger).
 
 ## Dashboard login
 

@@ -31,11 +31,20 @@ export default function SettingsPage() {
   const [prompt, setPrompt] = useState("");
   const [improverModel, setImproverModel] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
+  const [autoMerge, setAutoMerge] = useState(false);
+  const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
   // they aren't part of the baseline — any non-empty value in them is dirty.
-  const [baseline, setBaseline] = useState({ model: "", prompt: "", improverModel: "", denyTestCommands: false });
+  const [baseline, setBaseline] = useState({
+    model: "",
+    prompt: "",
+    improverModel: "",
+    denyTestCommands: false,
+    autoMerge: false,
+    mergeMethod: "squash" as "merge" | "squash" | "rebase",
+  });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
   // guard instead of keying a child component, since this page has no natural
@@ -48,11 +57,22 @@ export default function SettingsPage() {
       const p = settings.default_prompt ?? "";
       const im = settings.improver_model ?? "";
       const d = settings.deny_test_commands === "1";
+      const am = settings.auto_merge === "1";
+      const mm = settings.merge_method ?? "squash";
       setModel(m);
       setPrompt(p);
       setImproverModel(im);
       setDenyTestCommands(d);
-      setBaseline({ model: m, prompt: p, improverModel: im, denyTestCommands: d });
+      setAutoMerge(am);
+      setMergeMethod(mm);
+      setBaseline({
+        model: m,
+        prompt: p,
+        improverModel: im,
+        denyTestCommands: d,
+        autoMerge: am,
+        mergeMethod: mm,
+      });
     }
   }, [settings]);
 
@@ -62,7 +82,9 @@ export default function SettingsPage() {
     model !== baseline.model ||
     prompt !== baseline.prompt ||
     improverModel !== baseline.improverModel ||
-    denyTestCommands !== baseline.denyTestCommands;
+    denyTestCommands !== baseline.denyTestCommands ||
+    autoMerge !== baseline.autoMerge ||
+    mergeMethod !== baseline.mergeMethod;
 
   const reset = () => {
     setApiKey("");
@@ -71,6 +93,8 @@ export default function SettingsPage() {
     setPrompt(baseline.prompt);
     setImproverModel(baseline.improverModel);
     setDenyTestCommands(baseline.denyTestCommands);
+    setAutoMerge(baseline.autoMerge);
+    setMergeMethod(baseline.mergeMethod);
   };
 
   useEffect(() => {
@@ -97,13 +121,15 @@ export default function SettingsPage() {
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
       data.deny_test_commands = denyTestCommands ? "1" : "";
+      data.auto_merge = autoMerge ? "1" : "";
+      data.merge_method = mergeMethod;
       return api.settings.update(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
-      setBaseline({ model, prompt, improverModel, denyTestCommands });
+      setBaseline({ model, prompt, improverModel, denyTestCommands, autoMerge, mergeMethod });
       toast.success("Settings saved");
     },
     onError: (e: Error) => toast.error("Couldn't save settings", { description: e.message }),
@@ -226,6 +252,34 @@ export default function SettingsPage() {
                 vars — so they tend to fail for unrelated reasons and show up as findings. A repo
                 can override this.
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="auto_merge"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={autoMerge}
+                  onChange={(e) => setAutoMerge(e.target.checked)}
+                />
+                Allow merging PRs on <code>/fouine merge</code>
+              </label>
+              <p className="text-xs text-zinc-500">
+                Only merges when fouine approved, CI is green, and a collaborator armed the PR.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="merge_method">Merge method</Label>
+              <select
+                id="merge_method"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={mergeMethod}
+                onChange={(e) => setMergeMethod(e.target.value as "merge" | "squash" | "rebase")}
+              >
+                <option value="squash">Squash and merge</option>
+                <option value="merge">Create a merge commit</option>
+                <option value="rebase">Rebase and merge</option>
+              </select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="prompt">Default review prompt</Label>

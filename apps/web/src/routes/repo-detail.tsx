@@ -126,12 +126,18 @@ export default function RepoDetailPage() {
   const [enabled, setEnabled] = useState(true);
   // null = inherit the global default; 1 = deny; 0 = explicitly allow.
   const [denyTestCommands, setDenyTestCommands] = useState<number | null>(null);
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [autoMerge, setAutoMerge] = useState<number | null>(null);
+  // null = inherit the global merge method.
+  const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase" | null>(null);
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
     prompt: "",
     enabled: true,
     denyTestCommands: null as number | null,
+    autoMerge: null as number | null,
+    mergeMethod: null as "merge" | "squash" | "rebase" | null,
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -151,11 +157,22 @@ export default function RepoDetailPage() {
       const p = repo.prompt ?? "";
       const e = repo.enabled !== 0;
       const d = repo.deny_test_commands ?? null;
+      const am = repo.auto_merge ?? null;
+      const mm = repo.merge_method ?? null;
       setModel(m);
       setPrompt(p);
       setEnabled(e);
       setDenyTestCommands(d);
-      setBaseline({ model: m, prompt: p, enabled: e, denyTestCommands: d });
+      setAutoMerge(am);
+      setMergeMethod(mm);
+      setBaseline({
+        model: m,
+        prompt: p,
+        enabled: e,
+        denyTestCommands: d,
+        autoMerge: am,
+        mergeMethod: mm,
+      });
     }
   }, [repo]);
 
@@ -163,13 +180,17 @@ export default function RepoDetailPage() {
     model !== baseline.model ||
     prompt !== baseline.prompt ||
     enabled !== baseline.enabled ||
-    denyTestCommands !== baseline.denyTestCommands;
+    denyTestCommands !== baseline.denyTestCommands ||
+    autoMerge !== baseline.autoMerge ||
+    mergeMethod !== baseline.mergeMethod;
 
   const resetForm = () => {
     setModel(baseline.model);
     setPrompt(baseline.prompt);
     setEnabled(baseline.enabled);
     setDenyTestCommands(baseline.denyTestCommands);
+    setAutoMerge(baseline.autoMerge);
+    setMergeMethod(baseline.mergeMethod);
   };
 
   useEffect(() => {
@@ -198,10 +219,12 @@ export default function RepoDetailPage() {
         enabled: enabled ? 1 : 0,
         // Explicit null clears the override — absent would mean "unchanged".
         deny_test_commands: denyTestCommands,
+        auto_merge: autoMerge,
+        merge_method: mergeMethod,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
-      setBaseline({ model, prompt, enabled, denyTestCommands });
+      setBaseline({ model, prompt, enabled, denyTestCommands, autoMerge, mergeMethod });
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
   });
@@ -397,6 +420,45 @@ export default function RepoDetailPage() {
                 </option>
                 <option value="1">Don't run them on this repo</option>
                 <option value="0">Run them on this repo</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="auto_merge">Allow merging PRs on <code>/fouine merge</code></Label>
+              <select
+                id="auto_merge"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={autoMerge === null ? "inherit" : String(autoMerge)}
+                onChange={(e) =>
+                  setAutoMerge(e.target.value === "inherit" ? null : Number(e.target.value))
+                }
+              >
+                <option value="inherit">
+                  Use global default (inherit: currently {settings?.auto_merge === "1" ? "on" : "off"})
+                </option>
+                <option value="1">On for this repo</option>
+                <option value="0">Off for this repo</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="merge_method">Merge method</Label>
+              <select
+                id="merge_method"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={mergeMethod ?? "inherit"}
+                onChange={(e) =>
+                  setMergeMethod(
+                    e.target.value === "inherit"
+                      ? null
+                      : (e.target.value as "merge" | "squash" | "rebase"),
+                  )
+                }
+              >
+                <option value="inherit">
+                  Use global default (inherit: currently {settings?.merge_method ?? "squash"})
+                </option>
+                <option value="squash">Squash and merge</option>
+                <option value="merge">Create a merge commit</option>
+                <option value="rebase">Rebase and merge</option>
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">

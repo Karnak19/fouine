@@ -15,6 +15,11 @@ export interface RepoRow {
   // Per-repo override for the deny-test-commands toggle. NULL = inherit the
   // global default, 1 = deny, 0 = explicitly allow.
   deny_test_commands: number | null;
+  // Per-repo override for auto-merge. NULL = inherit the global setting, 1 =
+  // on, 0 = explicitly off.
+  auto_merge: number | null;
+  // Per-repo override for the merge method. NULL = inherit the global setting.
+  merge_method: "merge" | "squash" | "rebase" | null;
   created_at: number;
 }
 

@@ -162,8 +162,32 @@ for (const def of [
 // toggle: NULL = inherit the global setting, 1 = deny, 0 = explicitly allow.
 // Like enabled, repos.upsert never touches it — re-sighting a repo must not
 // clobber the override.
-for (const def of ["enabled INTEGER NOT NULL DEFAULT 0", "deny_test_commands INTEGER"])
+// repos.auto_merge / repos.merge_method are the merger's per-repo overrides,
+// same NULL-means-inherit shape as deny_test_commands. repos.upsert never
+// touches either — re-sighting a repo must not clobber a dashboard override.
+for (const def of [
+  "enabled INTEGER NOT NULL DEFAULT 0",
+  "deny_test_commands INTEGER",
+  "auto_merge INTEGER",
+  "merge_method TEXT",
+])
   addColumn("repos", def);
+
+// merge_arms: one row per PR the author has armed with `/fouine merge`. A new
+// push disarms (row deleted) — see webhook.ts `synchronize` handling. Unique on
+// (repo, pr) so re-arming just replaces the row (new head sha, new armer).
+// Idempotency against a retried evaluation rests on the `pull.merged`
+// early-return in evaluate.ts, not on editing a tracked comment id.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS merge_arms (
+    repo_full_name    TEXT NOT NULL,
+    pr_number         INTEGER NOT NULL,
+    head_sha          TEXT NOT NULL,
+    armed_by          TEXT NOT NULL,
+    armed_at          INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(repo_full_name, pr_number)
+  );
+`);
 
 export interface SettingRow {
   key: string;
@@ -221,10 +245,13 @@ export const repos = {
       $model: string | null;
       $enabled: number;
       $deny_test_commands: number | null;
+      $auto_merge: number | null;
+      $merge_method: string | null;
     }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
-       deny_test_commands = $deny_test_commands WHERE full_name = $full_name`,
+       deny_test_commands = $deny_test_commands, auto_merge = $auto_merge,
+       merge_method = $merge_method WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",
@@ -549,6 +576,11 @@ export const findings = {
   byReview: db.prepare<FindingRow, { $review: number }>(
     "SELECT * FROM findings WHERE review_id = $review ORDER BY id",
   ),
+  // Used by the merger's recap comment: every finding fouine has ever posted
+  // on this PR, across all its reviews.
+  byRepoPR: db.prepare<FindingRow, { $repo: string; $pr: number }>(
+    "SELECT * FROM findings WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id",
+  ),
   // Severity mix across all inline findings, for the dashboard.
   // All three guards read from the joined review, not from the finding's own
   // row: findings are written after the review runs, so a finding recorded just
@@ -615,6 +647,50 @@ export const settings = {
 export function settingValue(key: string): string | undefined {
   return settings.get.get({ $key: key })?.value;
 }
+
+export interface MergeArmRow {
+  repo_full_name: string;
+  pr_number: number;
+  head_sha: string;
+  armed_by: string;
+  armed_at: number;
+}
+
+// Arms are cheap, short-lived rows — no cache, straight prepared statements.
+export const mergeArms = {
+  // Re-arming replaces the row wholesale: new head sha, new armer, new arm time.
+  arm: db.prepare<
+    null,
+    { $repo: string; $pr: number; $sha: string; $by: string }
+  >(
+    `INSERT INTO merge_arms (repo_full_name, pr_number, head_sha, armed_by)
+     VALUES ($repo, $pr, $sha, $by)
+     ON CONFLICT(repo_full_name, pr_number) DO UPDATE SET
+       head_sha = excluded.head_sha,
+       armed_by = excluded.armed_by,
+       armed_at = unixepoch()`,
+  ),
+  disarm: db.prepare<null, { $repo: string; $pr: number }>(
+    "DELETE FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr",
+  ),
+  // Same as disarm, but only when the row still matches the SHA the caller
+  // read — guards against deleting a freshly re-armed row while an evaluation
+  // that read the stale arm is still in flight (issue trap: stale-arm race).
+  disarmIfSha: db.prepare<null, { $repo: string; $pr: number; $sha: string }>(
+    "DELETE FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr AND head_sha = $sha",
+  ),
+  get: db.prepare<MergeArmRow, { $repo: string; $pr: number }>(
+    "SELECT * FROM merge_arms WHERE repo_full_name = $repo AND pr_number = $pr",
+  ),
+  listForRepo: db.prepare<MergeArmRow, { $repo: string }>(
+    "SELECT * FROM merge_arms WHERE repo_full_name = $repo",
+  ),
+  // Boot sweep: an arm nobody re-evaluated in 7 days is abandoned (PR closed
+  // without the closed webhook firing, e.g. the app was uninstalled mid-flight).
+  sweepStale: db.prepare<null, { $before: number }>(
+    "DELETE FROM merge_arms WHERE armed_at < $before",
+  ),
+};
 
 const SKILL_META_COLS =
   "name, source_url, owner, repo, path, ref, description, enabled, created_at";

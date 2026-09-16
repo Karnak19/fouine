@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Octokit } from "octokit";
-import { getInstallationOctokit } from "~/github";
+import { getApp, getInstallationOctokit } from "~/github";
 import { log } from "~/server/log";
 import { GitHubError } from "~/effect/errors";
 
@@ -22,6 +22,13 @@ const isNotFound = (cause: unknown): boolean => {
   return err?.error?.status === 404 || err?.status === 404;
 };
 
+// The App's own bot identity ("<slug>[bot]"), used to pick fouine's own
+// reviews out of listReviews — never assume the literal string "fouine", a
+// self-hosted install can register the App under any name. Cached: the App's
+// identity doesn't change at runtime, and this is a JWT call (app-level, not
+// per-installation), worth avoiding on every evaluation.
+let cachedBotLogin: string | undefined;
+
 export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubService", {
   sync: () => ({
     installationClient: (installationId: number): Effect.Effect<Octokit, GitHubError> =>
@@ -34,6 +41,19 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           onTimeout: () => new GitHubError({ op: "getInstallationOctokit", cause: "timeout" }),
         }),
       ),
+
+    botLogin: (): Effect.Effect<string, GitHubError> => {
+      if (cachedBotLogin) return Effect.succeed(cachedBotLogin);
+      return Effect.tryPromise({
+        try: async () => {
+          const { data } = await getApp().octokit.rest.apps.getAuthenticated();
+          const login = `${data!.slug}[bot]`;
+          cachedBotLogin = login;
+          return login;
+        },
+        catch: (cause) => new GitHubError({ op: "apps.getAuthenticated", cause }),
+      });
+    },
 
     installationToken: (octokit: Octokit): Effect.Effect<string, GitHubError> =>
       Effect.tryPromise({
@@ -159,6 +179,159 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         Effect.catchAll(
           (cause): Effect.Effect<"open" | "closed" | "unknown"> =>
             Effect.succeed(isNotFound(cause) ? "closed" : "unknown"),
+        ),
+      ),
+
+    // fouine's own reviews plus everyone else's, newest-`submitted_at`-last as
+    // GitHub returns them. Read from GitHub, never from our DB — the whole
+    // point is dodging the phantom-review trap (#97, #104): our DB can say
+    // APPROVE while GitHub holds something else entirely.
+    listReviews: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      pr: number,
+    ): Effect.Effect<
+      Array<{
+        user: string | null;
+        state: string;
+        submitted_at: string | null;
+        html_url: string;
+        body: string;
+        commit_id: string | null;
+      }>,
+      GitHubError
+    > =>
+      Effect.tryPromise({
+        try: async () => {
+          const { data } = await octokit.rest.pulls.listReviews({
+            owner,
+            repo,
+            pull_number: pr,
+            per_page: 100,
+          });
+          return data.map((r) => ({
+            user: r.user?.login ?? null,
+            state: r.state,
+            submitted_at: r.submitted_at ?? null,
+            html_url: r.html_url,
+            body: r.body ?? "",
+            commit_id: r.commit_id ?? null,
+          }));
+        },
+        catch: (cause) => new GitHubError({ op: "pulls.listReviews", cause }),
+      }),
+
+    getPull: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      pr: number,
+    ): Effect.Effect<
+      {
+        headSha: string;
+        baseRef: string;
+        draft: boolean;
+        mergeable: boolean | null;
+        merged: boolean;
+      },
+      GitHubError
+    > =>
+      Effect.tryPromise({
+        try: async () => {
+          const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr });
+          return {
+            headSha: data.head.sha,
+            baseRef: data.base.ref,
+            draft: !!data.draft,
+            mergeable: data.mergeable ?? null,
+            merged: !!data.merged,
+          };
+        },
+        catch: (cause) => new GitHubError({ op: "pulls.get", cause }),
+      }),
+
+    // Check runs + commit statuses for the head SHA, combined — the merger
+    // needs both (a repo can gate on either). Shares the check-runs read with
+    // opencode-config/tools/get_ci_results.ts conceptually, but that tool
+    // formats for an LLM prompt while this returns raw state for shouldMerge;
+    // not worth forcing one module to serve both callers.
+    headChecks: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      sha: string,
+    ): Effect.Effect<
+      {
+        checks: Array<{ name: string; status: string; conclusion: string | null }>;
+        statuses: Array<{ name: string; state: string }>;
+      },
+      GitHubError
+    > =>
+      Effect.tryPromise({
+        try: async () => {
+          const [checkRuns, combined] = await Promise.all([
+            octokit.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 }),
+            octokit.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha }),
+          ]);
+          return {
+            checks: checkRuns.data.check_runs.map((c) => ({
+              name: c.name,
+              status: c.status,
+              conclusion: c.conclusion,
+            })),
+            statuses: combined.data.statuses.map((s) => ({ name: s.context, state: s.state })),
+          };
+        },
+        catch: (cause) => new GitHubError({ op: "headChecks", cause }),
+      }),
+
+    // Branch protection needs `administration:read`, which the App does not
+    // request (#117 out of scope). A 403/404 means "can't tell" — that's not a
+    // failure of the merger, it's the fallback signal: null means "use all
+    // checks on the head SHA" instead of only the required ones.
+    branchProtectionRequiredChecks: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      branch: string,
+    ): Effect.Effect<string[] | null> =>
+      Effect.tryPromise(() =>
+        octokit.rest.repos.getBranchProtection({ owner, repo, branch }),
+      ).pipe(
+        Effect.map((res) => res.data.required_status_checks?.contexts ?? null),
+        Effect.catchAll(() => Effect.succeed(null)),
+      ),
+
+    // Never throws: the caller (merge/evaluate.ts) needs to tell a head-moved
+    // 409 and a method-forbidden 405 apart to pick the right disarm message, so
+    // both come back as data instead of a typed failure channel.
+    mergePull: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      pr: number,
+      opts: { method: "merge" | "squash" | "rebase"; sha: string },
+    ): Effect.Effect<
+      { ok: true; sha: string } | { ok: false; status: number; message: string }
+    > =>
+      Effect.tryPromise(() =>
+        octokit.rest.pulls.merge({
+          owner,
+          repo,
+          pull_number: pr,
+          merge_method: opts.method,
+          sha: opts.sha,
+        }),
+      ).pipe(
+        Effect.map((res) => ({ ok: true as const, sha: res.data.sha })),
+        Effect.catchAll((cause) =>
+          Effect.sync(() => {
+            const status = (cause as { status?: number })?.status ?? 0;
+            const message = String((cause as { message?: string })?.message ?? cause);
+            log.warn("merge failed", { repo: `${owner}/${repo}`, pr, status, message });
+            return { ok: false as const, status, message };
+          }),
         ),
       ),
   }),

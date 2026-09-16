@@ -141,6 +141,10 @@ export interface Settings {
   improver_model?: string;
   // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
   deny_test_commands?: string;
+  // "1" = on, "" = delete the row (off). Default off.
+  auto_merge?: string;
+  // Default "squash".
+  merge_method?: "merge" | "squash" | "rebase";
 }
 
 // Route query objects go straight to Eden — it drops null/undefined keys
@@ -167,6 +171,9 @@ export const api = {
         model?: string;
         enabled?: number;
         deny_test_commands?: number | null;
+        // 1/0, null = inherit the global default. Absent leaves it unchanged.
+        auto_merge?: number | null;
+        merge_method?: "merge" | "squash" | "rebase" | null;
       },
     ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>

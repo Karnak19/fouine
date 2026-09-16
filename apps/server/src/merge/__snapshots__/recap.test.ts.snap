@@ -1,0 +1,20 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`snapshot: full recap with fixer commits 1`] = `
+"🦡 Merged as \`abc1234\`.
+Armed by @author on 2026-09-15 14:02 UTC.
+Review: [approved](https://github.com/acme/repo/pull/1#pullrequestreview-1) — "LGTM, ship it."
+Findings: 3 reported, cleared in 2 pushes.
+Checks: 5 passed (all checks).
+Fixer: 1 commit by fouine /fix (c0ffee1).
+Cost: $0.1234 total on this PR."
+`;
+
+exports[`snapshot: recap without fixer commits 1`] = `
+"🦡 Squashed as \`abc1234\`.
+Armed by @author on 2026-09-15 14:02 UTC.
+Review: [approved](https://github.com/acme/repo/pull/1#pullrequestreview-1) — "LGTM, ship it."
+Findings: 3 reported, cleared in 2 pushes.
+Checks: 5 passed (all checks).
+Cost: $0.1234 total on this PR."
+`;
