@@ -81,6 +81,9 @@ test("the fouine agent prompt owns the review mechanics", async () => {
   // A COMMENT never clears GitHub's changes-requested state — the re-review must APPROVE.
   expect(agent).toMatch(/`APPROVE`[^.]*most recent review on this PR is `CHANGES_REQUESTED`/);
   expect(agent).toContain("post_review");
+  // Suggestion mechanics must survive prompt overrides too — the one-click fix syntax.
+  expect(agent).toContain("```suggestion");
+  expect(agent).toContain("startLine");
 });
 
 test("the blocked-commands line appears only when the toggle is on", () => {
