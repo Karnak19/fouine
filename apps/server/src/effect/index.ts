@@ -16,6 +16,7 @@ export const AppLayer = Layer.mergeAll(
 export * from "~/effect/errors";
 export { reviewPipeline } from "~/effect/review";
 export { improvePipeline } from "~/effect/improve";
+export { reconcileStaleChecks } from "~/effect/reconcile";
 export { DbService } from "~/effect/db";
 export { GitHubService } from "~/effect/github";
 export { GitService } from "~/effect/git";

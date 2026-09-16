@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { findings, repos, reviews, type RepoRow } from "~/db";
+import { findings, repos, reviews, type RepoRow, type ReviewRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
 import { publishReviewEvent } from "~/server/events";
 
@@ -47,6 +47,22 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
     // and never overwrite a completed review with a failure.
     status: (id: number): Effect.Effect<string | undefined, DatabaseError> =>
       attempt("reviews.byId", () => reviews.byId.get({ $id: id })?.status),
+
+    // In-flight rows older than `cutoff` (epoch seconds) — the reconciler's
+    // wedged set. The caller picks a cutoff past the watchdog's absolute
+    // ceiling, so nothing returned here can still be legitimately running.
+    staleUnfinished: (cutoff: number): Effect.Effect<ReviewRow[], DatabaseError> =>
+      attempt("reviews.unfinishedBefore", () =>
+        reviews.unfinishedBefore.all({ $cutoff: cutoff }),
+      ),
+
+    // Terminal rows that opened a check run, for GitHub-side verification: a
+    // row can settle while its check stays open (hung/failed finishCheck), and
+    // only asking GitHub reveals those.
+    terminalWithCheck: (since: number, limit: number): Effect.Effect<ReviewRow[], DatabaseError> =>
+      attempt("reviews.terminalWithCheckSince", () =>
+        reviews.terminalWithCheckSince.all({ $since: since, $limit: limit }),
+      ),
 
     setSession: (id: number, session: string): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.setSession", () => {
