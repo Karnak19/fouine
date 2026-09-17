@@ -173,9 +173,10 @@ for (const def of [
 ])
   addColumn("repos", def);
 
-// merge_arms: one row per PR the author has armed with `/fouine merge`. A new
-// push disarms (row deleted) — see webhook.ts `synchronize` handling. Unique on
-// (repo, pr) so re-arming just replaces the row (new head sha, new armer).
+// merge_arms: one row per PR currently armed for auto-merge (#117) — armed
+// automatically by the pull_request handler for every non-draft PR on an
+// opted-in repo. Unique on (repo, pr) so a new push just replaces the row
+// (new head sha) via `mergeArms.arm`'s upsert.
 // Idempotency against a retried evaluation rests on the `pull.merged`
 // early-return in evaluate.ts, not on editing a tracked comment id.
 db.exec(`

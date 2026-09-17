@@ -32,14 +32,6 @@ export function isStopCommand(body: string, trigger = matchTrigger(body)): boole
   return body.trim().slice(trigger.length).trim() === "stop";
 }
 
-// `<trigger> merge` (and the deprecated `/review merge` alias, same as stop) —
-// arms the PR for the merger (#117). Exact match for the same reason as
-// isStopCommand: a future subcommand starting with "merge" must not misfire.
-export function isMergeCommand(body: string, trigger = matchTrigger(body)): boolean {
-  if (!trigger) return false;
-  return body.trim().slice(trigger.length).trim() === "merge";
-}
-
 // Repo enabled + opted into auto-merge, read straight from the DB — no GitHub
 // call needed to reject an obviously-not-eligible repo (issue: every merger
 // handler short-circuits before any GitHub call when the repo isn't opted in).
@@ -82,73 +74,6 @@ async function react(
   }
 }
 
-// `/fouine merge`: arm the PR, then evaluate immediately so an already-green
-// PR merges within this one webhook round-trip instead of waiting for the
-// next check/review event.
-async function handleMergeCommand(
-  payload: {
-    installation?: { id: number };
-    comment: { user?: { login: string } };
-  },
-  fullName: string,
-  prNumber: number,
-  trigger: string,
-): Promise<void> {
-  const installationId = payload.installation?.id;
-  if (!installationId) {
-    log.warn(`${trigger} merge skipped`, { repo: fullName, number: prNumber, reason: "no installation id" });
-    return;
-  }
-  const [owner, repo] = fullName.split("/");
-  const octokit = await getInstallationOctokit(installationId);
-  const repoRow = upsertRepoAndPublish(fullName, installationId);
-
-  const comment = (body: string) =>
-    octokit.rest.issues
-      .createComment({ owner, repo, issue_number: prNumber, body })
-      .catch((err) =>
-        log.warn("merge command comment failed", { repo: fullName, number: prNumber, error: String(err) }),
-      );
-
-  if (!repoRow.enabled || !resolveAutoMerge(repoRow.auto_merge)) {
-    log.info(`${trigger} merge rejected`, { repo: fullName, number: prNumber, reason: "not opted in" });
-    await comment("🦡 Auto-merge isn't enabled for this repo — turn it on in the dashboard first.");
-    return;
-  }
-
-  const commenter = payload.comment.user?.login;
-  if (!commenter) {
-    log.warn(`${trigger} merge skipped`, { repo: fullName, number: prNumber, reason: "no comment author" });
-    return;
-  }
-
-  const permission = await octokit.rest.repos
-    .getCollaboratorPermissionLevel({ owner, repo, username: commenter })
-    .then((res) => res.data.permission)
-    .catch(() => "none");
-  if (!["write", "admin", "maintain"].includes(permission)) {
-    log.info(`${trigger} merge rejected`, {
-      repo: fullName,
-      number: prNumber,
-      commenter,
-      reason: "no write access",
-    });
-    await comment(`🦡 @${commenter} needs write access to this repo to arm a merge.`);
-    return;
-  }
-
-  const pull = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-  mergeArms.arm.run({ $repo: fullName, $pr: prNumber, $sha: pull.data.head.sha, $by: commenter });
-  log.info(`${trigger} merge armed`, {
-    repo: fullName,
-    number: prNumber,
-    by: commenter,
-    sha: pull.data.head.sha,
-  });
-
-  evaluateArm(fullName, prNumber);
-}
-
 let handlersRegistered = false;
 export function ensureHandlers(): void {
   if (handlersRegistered) return;
@@ -180,33 +105,15 @@ export function registerHandlers(): void {
     const fullName = payload.repository.full_name;
     const number = payload.pull_request.number;
 
-    // Merger housekeeping runs independently of the review gate below: a
-    // closed PR must drop its arm even though "closed" isn't a review trigger,
-    // and a new push must disarm before the review flow decides whether to
-    // re-review the same commit.
-    if (payload.action === "synchronize" || payload.action === "closed") {
-      const arm = mergeArms.get.get({ $repo: fullName, $pr: number });
-      if (arm) {
+    // Merger housekeeping (#117): a closed PR drops its arm silently even
+    // though "closed" isn't a review trigger below. Arming/re-arming happens
+    // further down, after the draft/enabled checks, so it reuses repoRow —
+    // `mergeArms.arm` replaces the row wholesale, so a `synchronize` on an
+    // opted-in repo naturally re-arms on the new SHA with no separate disarm
+    // step and no comment.
+    if (payload.action === "closed") {
+      if (mergeArms.get.get({ $repo: fullName, $pr: number })) {
         mergeArms.disarm.run({ $repo: fullName, $pr: number });
-        if (payload.action === "synchronize") {
-          const installationId = payload.installation?.id;
-          if (installationId) {
-            const [owner, repo] = fullName.split("/");
-            getInstallationOctokit(installationId)
-              .then((octokit) =>
-                octokit.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: number,
-                  body: "🦡 New push — merge disarmed. Comment `/fouine merge` again once you're ready.",
-                }),
-              )
-              .catch((err) =>
-                log.warn("merge disarm comment failed", { repo: fullName, number, error: String(err) }),
-              );
-          }
-          // `closed` drops the arm silently — the PR is done either way.
-        }
       }
     }
 
@@ -233,6 +140,19 @@ export function registerHandlers(): void {
     if (!repoRow.enabled) {
       log.debug("pull_request skipped", { repo: fullName, number, reason: "repo disabled" });
       return;
+    }
+
+    // Arm (or re-arm) automatically for the merger (#117) — no comment
+    // command. `arm` replaces the row wholesale, so `synchronize` naturally
+    // re-arms on the new SHA. Not evaluated here: the review hasn't happened
+    // yet, the pull_request_review handler kicks the first evaluation.
+    if (resolveAutoMerge(repoRow.auto_merge)) {
+      mergeArms.arm.run({
+        $repo: fullName,
+        $pr: number,
+        $sha: payload.pull_request.head.sha,
+        $by: "fouine",
+      });
     }
 
     const pr: PullRequestInfo = {
@@ -312,16 +232,6 @@ export function registerHandlers(): void {
         // rather than a reply comment: the same ack without the PR noise.
         stopped > 0 ? "+1" : "confused",
       );
-      return;
-    }
-
-    // `/fouine merge` arms the PR — checked and evaluated once, immediately.
-    if (isMergeCommand(body, trigger)) {
-      try {
-        await handleMergeCommand(payload, fullName, prNumber, trigger);
-      } catch (err) {
-        log.error(`${trigger} merge failed`, { repo: fullName, number: prNumber, error: String(err) });
-      }
       return;
     }
 

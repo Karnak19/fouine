@@ -7,8 +7,6 @@ import type { MergeMethod } from "~/settings";
 export interface RecapData {
   method: MergeMethod;
   mergeSha: string;
-  armedBy: string;
-  armedAt: string; // ISO timestamp
   approvingReviewUrl: string;
   approvingReviewSummary: string; // first line of fouine's approving review body
   findingsCount: number;
@@ -25,15 +23,9 @@ const METHOD_LABEL: Record<MergeMethod, string> = {
   rebase: "Rebased",
 };
 
-function formatUtc(iso: string): string {
-  const d = new Date(iso);
-  return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
-
 export function renderRecap(data: RecapData): string {
   const lines: string[] = [
     `🦡 ${METHOD_LABEL[data.method]} as \`${data.mergeSha.slice(0, 7)}\`.`,
-    `Armed by @${data.armedBy} on ${formatUtc(data.armedAt)}.`,
     `Review: [approved](${data.approvingReviewUrl}) — "${data.approvingReviewSummary.trim() || "(no summary)"}"`,
     `Findings: ${data.findingsCount} reported, cleared in ${data.pushesCount} push${data.pushesCount === 1 ? "" : "es"}.`,
     `Checks: ${data.checksPassed} passed (${data.checksMode}).`,

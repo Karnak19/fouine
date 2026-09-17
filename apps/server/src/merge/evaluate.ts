@@ -160,7 +160,7 @@ export function evaluatePipeline(
         owner,
         repoName,
         prNumber,
-        "🦡 The PR's head moved right before merging — disarmed. Comment `/fouine merge` again once you're ready.",
+        "🦡 The PR's head moved right before merging — disarmed. It'll re-arm automatically on the next push.",
       );
       yield* Effect.sync(() =>
         mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
@@ -175,7 +175,7 @@ export function evaluatePipeline(
         owner,
         repoName,
         prNumber,
-        `🦡 Merge failed (${mergeResult.status}): ${mergeResult.message}. Disarmed — fix the issue and comment \`/fouine merge\` again.`,
+        `🦡 Merge failed (${mergeResult.status}): ${mergeResult.message}. Disarmed — fix the issue; a new push will re-arm it.`,
       );
       yield* Effect.sync(() =>
         mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
@@ -202,8 +202,6 @@ export function evaluatePipeline(
     const recap = renderRecap({
       method,
       mergeSha,
-      armedBy: arm.armed_by,
-      armedAt: new Date(arm.armed_at * 1000).toISOString(),
       approvingReviewUrl: approving.html_url,
       approvingReviewSummary: approving.body.split("\n")[0] ?? "",
       findingsCount: allFindings.filter((f) => f.kind === "inline").length,

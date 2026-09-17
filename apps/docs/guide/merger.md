@@ -2,18 +2,17 @@
 
 The merger clicks "merge" for you once fouine has approved a PR and CI is green — the last step of the review loop that otherwise sits waiting on a human.
 
-It is off by default, and a setting alone never merges anything: a PR only merges after someone types `/fouine merge` on it.
+It is off by default. Once a repo opts in, every non-draft PR on that repo merges itself — there's nothing to type, nothing to remember.
 
-## The six conditions
+## The five conditions
 
-The merger checks all of the following, re-checked at the moment of merge, not just when you arm it:
+The merger checks all of the following, re-checked at the moment of merge, not just when a PR is armed:
 
 1. **fouine's latest review on the armed head SHA is `APPROVED`.** Read straight from GitHub, not from fouine's own database — never `PENDING`, never a stale comment/changes-requested state, and never a review left on a commit that was later superseded by a push.
 2. **No human review is `CHANGES_REQUESTED`.** A human's later `APPROVED` clears their own earlier `CHANGES_REQUESTED`; fouine's approval never overrides one that's still standing.
 3. **Every check run and commit status on the head SHA has completed**, and none concluded `failure`, `cancelled`, `timed_out` or `action_required`. `neutral` and `skipped` count as passing. If GitHub reports required status checks for the branch, only those count; otherwise every check on the commit does.
-4. **The PR's head SHA still equals the SHA that was armed.** A new push disarms it (see below); this is the belt-and-braces re-check right before merging.
-5. **The PR is not a draft.**
-6. **The PR is `mergeable`** — GitHub's own computed field, polled briefly if it's still `null`.
+4. **The PR's head SHA still equals the SHA that was armed.** A new push re-arms it against the new commit (see below); this is the belt-and-braces re-check right before merging.
+5. **The PR is `mergeable`** — GitHub's own computed field, polled briefly if it's still `null`.
 
 If any condition is false, the merger does nothing and waits for the next relevant event (a new review, a check finishing, a new commit status). It never retries on a timer.
 
@@ -26,23 +25,23 @@ Two settings, global with a per-repo override — same pattern as the deny-test-
 
 Both live in the dashboard's settings page and on each repo's detail page.
 
-## Arming: `/fouine merge`
+## Arming: automatic
 
-Opting a repo in only makes the merger *available*; a human still has to ask for it, per PR, every time:
+Once a repo is opted in, fouine arms every non-draft PR against its current head SHA the moment it's opened, pushed to, reopened, or marked ready for review. There's no command:
 
-1. Comment `/fouine merge` on the PR (the deprecated `/review merge` alias also works).
-2. fouine checks you have `write`, `maintain`, or `admin` access to the repo (via GitHub's collaborator permission API). Anyone who can comment could otherwise type the command, so this is the gate.
-3. If you're opted in and have access, the PR is armed against its current head SHA, and the merger evaluates it immediately.
-4. **A new push disarms it.** fouine comments to say so; re-arm with `/fouine merge` again once you're ready.
+1. Open a PR (or push to one) on an opted-in repo — it's armed immediately.
+2. The merger evaluates it whenever something relevant happens: fouine's review lands, a check finishes, a commit status reports.
+3. **A new push re-arms it against the new commit** — no disarm step, no comment, it just moves to the new SHA.
+4. **Draft PRs are never armed.** Marking a PR ready for review arms it.
 5. An arm left untouched for 7 days is dropped automatically.
 
 ## The recap comment
 
-Once merged, fouine posts one short comment on the PR: the merge method and commit SHA, who armed it and when, a link to the approving review, how many findings it raised and how many pushes it took to clear them, how many checks passed and whether required or all checks applied, fixer commits if any, and fouine's total cost on that PR. A retried evaluation never posts a second recap: once the PR shows as merged, evaluation short-circuits before ever reaching the recap step.
+Once merged, fouine posts one short comment on the PR: the merge method and commit SHA, a link to the approving review, how many findings it raised and how many pushes it took to clear them, how many checks passed and whether required or all checks applied, fixer commits if any, and fouine's total cost on that PR. A retried evaluation never posts a second recap: once the PR shows as merged, evaluation short-circuits before ever reaching the recap step.
 
 ## What it never does
 
-- **Never merges without a per-PR `/fouine merge`.** The auto-merge setting only makes the command available; it never merges anything by itself.
+- **Never merges a repo that hasn't opted into auto-merge.** The setting is what turns this on at all.
 - **Never merges over a standing human `CHANGES_REQUESTED`**, even with fouine's approval.
 - **Never merges a draft PR**, an unmergeable PR, or a PR whose head has moved since it was armed.
 - **Never deletes the head branch.** Use GitHub's own "automatically delete head branches" repo setting for that.

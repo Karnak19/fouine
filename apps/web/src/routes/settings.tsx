@@ -262,10 +262,11 @@ export default function SettingsPage() {
                   checked={autoMerge}
                   onChange={(e) => setAutoMerge(e.target.checked)}
                 />
-                Allow merging PRs on <code>/fouine merge</code>
+                Auto-merge PRs once fouine approves
               </label>
               <p className="text-xs text-zinc-500">
-                Only merges when fouine approved, CI is green, and a collaborator armed the PR.
+                Merges automatically once fouine approved, CI is green, and no human requested changes. A
+                new push re-arms it on the new commit; draft PRs are skipped.
               </p>
             </div>
             <div className="space-y-1.5">

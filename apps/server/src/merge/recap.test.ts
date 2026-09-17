@@ -5,8 +5,6 @@ function baseData(overrides: Partial<RecapData> = {}): RecapData {
   return {
     method: "squash",
     mergeSha: "abc1234567",
-    armedBy: "author",
-    armedAt: "2026-09-15T14:02:00Z",
     approvingReviewUrl: "https://github.com/acme/repo/pull/1#pullrequestreview-1",
     approvingReviewSummary: "LGTM, ship it.",
     findingsCount: 3,
@@ -24,7 +22,6 @@ test("renders the recap within 12 lines, no fixer credit", () => {
   const lines = recap.split("\n");
   expect(lines.length).toBeLessThanOrEqual(12);
   expect(recap).toContain("Squashed as `abc1234`");
-  expect(recap).toContain("Armed by @author on 2026-09-15 14:02 UTC");
   expect(recap).toContain("[approved](https://github.com/acme/repo/pull/1#pullrequestreview-1)");
   expect(recap).toContain("LGTM, ship it.");
   expect(recap).toContain("Findings: 3 reported, cleared in 2 pushes.");

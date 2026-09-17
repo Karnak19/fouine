@@ -423,7 +423,7 @@ export default function RepoDetailPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="auto_merge">Allow merging PRs on <code>/fouine merge</code></Label>
+              <Label htmlFor="auto_merge">Auto-merge PRs once fouine approves</Label>
               <select
                 id="auto_merge"
                 className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
