@@ -70,7 +70,7 @@ export function shouldMerge(state: MergeState): MergeDecision {
   // 6. Head must still be the armed SHA — a new push disarms elsewhere, but
   // re-checking here is the last line of defence against a race.
   if (state.headSha !== state.armedSha) {
-    return blocked("PR head has moved since it was armed — re-run /fouine merge");
+    return blocked("PR head has moved since it was armed");
   }
   if (state.draft) return blocked("PR is a draft");
   if (state.mergeable === false) return blocked("PR is not mergeable (conflicts with base branch)");
