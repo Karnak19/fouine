@@ -599,7 +599,7 @@ test("merge_arms: arm, re-arm replaces the row, disarm removes it", () => {
   expect(armed?.head_sha).toBe("sha1");
   expect(armed?.armed_by).toBe("alice");
 
-  // Re-arming (a fresh /fouine merge) replaces the sha/armer.
+  // Re-arming (a new push) replaces the sha/armer.
   mergeArms.arm.run({ $repo: full, $pr: 1, $sha: "sha2", $by: "bob" });
   const rearmed = mergeArms.get.get({ $repo: full, $pr: 1 });
   expect(rearmed?.head_sha).toBe("sha2");

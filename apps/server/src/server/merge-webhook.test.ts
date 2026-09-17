@@ -104,10 +104,7 @@ test("opened on an opted-in repo arms the PR with the head sha", async () => {
   const full = "acme/auto-armed";
   enableAutoMerge(full);
 
-  await dispatch(
-    "pull_request",
-    pullRequestPayload(full, { pull_request: { ...pullRequestPayload(full).pull_request, number: 1 } }),
-  );
+  await dispatch("pull_request", pullRequestPayload(full));
 
   const arm = mergeArms.get.get({ $repo: full, $pr: 1 });
   expect(arm?.head_sha).toBe("sha-1");
