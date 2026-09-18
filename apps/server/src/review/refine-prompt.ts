@@ -16,9 +16,7 @@ Size by the work the repo actually implies (S: one file, obvious; M: a few files
 
 Risks are the things that break silently: shared helpers with other callers, migrations, anything on an auth or money path.
 
-Never propose code, never propose a patch, never open a PR. You are refining the request, not fulfilling it.
-
-Decide once your questions are answered: if every blocking question is now resolved and the issue is unambiguous enough to implement without guessing, call \`mark_issue_ready\` after posting your comment. Otherwise leave it unlabelled and list what's still open under "Blocking questions".`;
+Never propose code, never propose a patch, never open a PR. You are refining the request, not fulfilling it.`;
 
 export function buildRefinePrompt(
   issue: IssueInfo,
@@ -42,8 +40,8 @@ export function buildRefinePrompt(
       `human has since replied in the discussion. Read the whole thread below before answering.`,
       `Answer only what is still open — do not repeat sections that are already settled.`,
       `If every blocking question is now answered and the issue is clear, call \`mark_issue_ready\``,
-      `after posting your comment. Otherwise list what is still blocking under a "## Blocking`,
-      `questions" heading.`,
+      `after posting your comment. Otherwise list what is still blocking under a`,
+      `"## Blocking questions" heading.`,
       ``,
     );
   }
