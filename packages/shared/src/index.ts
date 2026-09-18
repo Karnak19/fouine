@@ -20,6 +20,12 @@ export interface RepoRow {
   auto_merge: number | null;
   // Per-repo override for the merge method. NULL = inherit the global setting.
   merge_method: "merge" | "squash" | "rebase" | null;
+  // Per-repo override for auto-refinement of newly opened issues. NULL =
+  // inherit the global setting, 1 = on, 0 = explicitly off. Only gates the
+  // automatic trigger; `/fouine refine` works on any enabled repo.
+  refine_enabled: number | null;
+  // Per-repo refiner prompt override. NULL = inherit the global default.
+  refine_prompt: string | null;
   created_at: number;
 }
 

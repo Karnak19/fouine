@@ -33,6 +33,8 @@ export default function SettingsPage() {
   const [denyTestCommands, setDenyTestCommands] = useState(false);
   const [autoMerge, setAutoMerge] = useState(false);
   const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
+  const [refineEnabled, setRefineEnabled] = useState(false);
+  const [refinePrompt, setRefinePrompt] = useState("");
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
@@ -44,6 +46,8 @@ export default function SettingsPage() {
     denyTestCommands: false,
     autoMerge: false,
     mergeMethod: "squash" as "merge" | "squash" | "rebase",
+    refineEnabled: false,
+    refinePrompt: "",
   });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
@@ -59,12 +63,16 @@ export default function SettingsPage() {
       const d = settings.deny_test_commands === "1";
       const am = settings.auto_merge === "1";
       const mm = settings.merge_method ?? "squash";
+      const re = settings.refine_enabled === "1";
+      const rp = settings.default_refine_prompt ?? "";
       setModel(m);
       setPrompt(p);
       setImproverModel(im);
       setDenyTestCommands(d);
       setAutoMerge(am);
       setMergeMethod(mm);
+      setRefineEnabled(re);
+      setRefinePrompt(rp);
       setBaseline({
         model: m,
         prompt: p,
@@ -72,6 +80,8 @@ export default function SettingsPage() {
         denyTestCommands: d,
         autoMerge: am,
         mergeMethod: mm,
+        refineEnabled: re,
+        refinePrompt: rp,
       });
     }
   }, [settings]);
@@ -84,7 +94,9 @@ export default function SettingsPage() {
     improverModel !== baseline.improverModel ||
     denyTestCommands !== baseline.denyTestCommands ||
     autoMerge !== baseline.autoMerge ||
-    mergeMethod !== baseline.mergeMethod;
+    mergeMethod !== baseline.mergeMethod ||
+    refineEnabled !== baseline.refineEnabled ||
+    refinePrompt !== baseline.refinePrompt;
 
   const reset = () => {
     setApiKey("");
@@ -95,6 +107,8 @@ export default function SettingsPage() {
     setDenyTestCommands(baseline.denyTestCommands);
     setAutoMerge(baseline.autoMerge);
     setMergeMethod(baseline.mergeMethod);
+    setRefineEnabled(baseline.refineEnabled);
+    setRefinePrompt(baseline.refinePrompt);
   };
 
   useEffect(() => {
@@ -123,13 +137,24 @@ export default function SettingsPage() {
       data.deny_test_commands = denyTestCommands ? "1" : "";
       data.auto_merge = autoMerge ? "1" : "";
       data.merge_method = mergeMethod;
+      data.refine_enabled = refineEnabled ? "1" : "";
+      if (refinePrompt.trim()) data.default_refine_prompt = refinePrompt.trim();
       return api.settings.update(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
-      setBaseline({ model, prompt, improverModel, denyTestCommands, autoMerge, mergeMethod });
+      setBaseline({
+        model,
+        prompt,
+        improverModel,
+        denyTestCommands,
+        autoMerge,
+        mergeMethod,
+        refineEnabled,
+        refinePrompt,
+      });
       toast.success("Settings saved");
     },
     onError: (e: Error) => toast.error("Couldn't save settings", { description: e.message }),
@@ -283,6 +308,23 @@ export default function SettingsPage() {
               </select>
             </div>
             <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="refine_enabled"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={refineEnabled}
+                  onChange={(e) => setRefineEnabled(e.target.checked)}
+                />
+                Refine issues automatically when opened
+              </label>
+              <p className="text-xs text-zinc-500">
+                Default for every repo. Always available on demand via{" "}
+                <span className="font-mono">/fouine refine</span> on an issue. A repo can override
+                this.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="prompt">Default review prompt</Label>
               <Textarea
                 id="prompt"
@@ -290,6 +332,16 @@ export default function SettingsPage() {
                 placeholder="Reviewer instructions applied when a repo has no override..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="default_refine_prompt">Default refine prompt</Label>
+              <Textarea
+                id="default_refine_prompt"
+                rows={10}
+                placeholder="Refiner instructions applied when a repo has no override..."
+                value={refinePrompt}
+                onChange={(e) => setRefinePrompt(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">

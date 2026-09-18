@@ -87,10 +87,15 @@ export default function ReviewDetailPage() {
   const retryMut = useMutation({
     // Improver runs aren't bound to a PR — retrying one re-runs the improver
     // for its repo, not the PR-review pipeline (which would fetch PR #0).
+    // Refine runs are bound to an issue, not a PR — same story, different route.
     mutationFn: () => {
       if (review?.trigger === "improve") {
         const [owner, name] = review.repo_full_name.split("/");
         return api.repos.improve(owner, name);
+      }
+      if (review?.trigger === "refine") {
+        const [owner, name] = review.repo_full_name.split("/");
+        return api.repos.refine(owner, name, review.pr_number);
       }
       return api.reviews.retry(numId);
     },
@@ -219,8 +224,13 @@ export default function ReviewDetailPage() {
   const wasInProgress = useRef(false);
   useEffect(() => {
     if (!review) return;
-    // Improver runs post no findings — the transcript is the whole story.
-    setTab(inProgress || review.trigger === "improve" ? "transcript" : "review");
+    // Improver and refiner runs post no structured findings — the transcript
+    // is the whole story.
+    setTab(
+      inProgress || review.trigger === "improve" || review.trigger === "refine"
+        ? "transcript"
+        : "review",
+    );
     if (wasInProgress.current && !inProgress) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId, "session"] });
       queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
@@ -250,6 +260,7 @@ export default function ReviewDetailPage() {
 
   const [owner, name] = review.repo_full_name.split("/");
   const isImprover = review.trigger === "improve";
+  const isRefiner = review.trigger === "refine";
   const messages = session?.messages ?? [];
 
   return (
@@ -275,6 +286,16 @@ export default function ReviewDetailPage() {
               >
                 {review.repo_full_name}
               </Link>
+            ) : isRefiner ? (
+              <a
+                href={`https://github.com/${owner}/${name}/issues/${review.pr_number}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-zinc-400 hover:text-zinc-200"
+              >
+                {review.repo_full_name}#{review.pr_number}
+                <ExternalLink size={12} className="opacity-50" />
+              </a>
             ) : (
               <a
                 href={`https://github.com/${owner}/${name}/pull/${review.pr_number}`}
@@ -318,7 +339,7 @@ export default function ReviewDetailPage() {
           onClick={() => retryMut.mutate()}
         >
           <RotateCw size={14} />
-          {isImprover ? "Re-run" : "Retry"}
+          {isImprover || isRefiner ? "Re-run" : "Retry"}
         </Button>
       </div>
 
@@ -358,7 +379,7 @@ export default function ReviewDetailPage() {
           <div
             role="tablist"
             className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
-              isImprover ? "hidden" : ""
+              isImprover || isRefiner ? "hidden" : ""
             }`}
           >
             <Button

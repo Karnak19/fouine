@@ -32,11 +32,11 @@ All timestamps are unix epoch seconds. Bucket a day with \`date(created_at, 'uni
 ### reviews — one row per review run
 - \`id\` INTEGER
 - \`repo_full_name\` TEXT — "owner/name"
-- \`pr_number\` INTEGER — 0 means an improver run, not a real PR. Exclude with \`pr_number > 0\` unless the question is about the improver.
+- \`pr_number\` INTEGER — a PR number, the ISSUE number when \`trigger = 'refine'\`, or 0 for improver runs. Filter PR reviews with \`(trigger IS NULL OR trigger NOT IN ('improve', 'refine'))\`.
 - \`session_id\` TEXT NULL
 - \`status\` TEXT — pending | running | completed | failed. There is no separate aborted/killed status: a user stop and a watchdog kill are both recorded as failed with an \`error\` message.
 - \`error\` TEXT NULL
-- \`trigger\` TEXT NULL — opened | synchronize | reopened | command | retry; NULL on rows predating the column
+- \`trigger\` TEXT NULL — opened | synchronize | reopened | ready_for_review | command | retry | improve | refine; NULL on rows predating the column
 - \`cost\` REAL NULL, \`tokens\` INTEGER NULL — NULL for failures and for anything still running. SUM skips NULLs; use \`COALESCE(SUM(cost), 0)\` when you want a zero.
 - \`model\` TEXT NULL — the resolved model spec; NULL for failures and older rows
 - \`title\` TEXT NULL, \`check_run_id\` INTEGER NULL

@@ -11,7 +11,7 @@ import {
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
-import { runReviewForPR, abortReview, runImproverForRepo } from "~/review";
+import { runReviewForPR, abortReview, runImproverForRepo, runRefine } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
@@ -287,6 +287,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
             : body.deny_test_commands,
         $auto_merge: body.auto_merge === undefined ? existing.auto_merge : body.auto_merge,
         $merge_method: body.merge_method === undefined ? existing.merge_method : body.merge_method,
+        $refine_enabled:
+          body.refine_enabled === undefined ? existing.refine_enabled : body.refine_enabled,
+        $refine_prompt: body.refine_prompt === undefined ? existing.refine_prompt : body.refine_prompt,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -302,6 +305,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),
+        refine_enabled: t.Optional(t.Union([t.Number(), t.Null()])),
+        refine_prompt: t.Optional(t.Union([t.String(), t.Null()])),
       }),
     },
   )
@@ -324,6 +329,25 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         if (!out.started) log.info("improver skipped", { repo: full, reason: out.reason });
       })
       .catch((err) => log.error("improver failed", { repo: full, error: String(err) }));
+    set.status = 202;
+    return { ok: true };
+  })
+
+  // Manual/dashboard re-run of the issue refiner. Fire-and-forget like improve:
+  // 202 means "queued".
+  .post("/repos/:owner/:name/refine/:issue", ({ params, set }) => {
+    const full = `${params.owner}/${params.name}`;
+    const repo = repos.get.get({ $full_name: full });
+    if (!repo) return new Response("Not found", { status: 404 });
+    runRefine({
+      repoFullName: full,
+      installationId: repo.installation_id,
+      issueNumber: Number(params.issue),
+      // No payload to read a real title from here — the refiner prompt itself
+      // still sees the actual title via fetchIssueInfo; this is only the
+      // reviews-row label.
+      issueTitle: `Issue #${params.issue}`,
+    }).catch((err) => log.error("refine failed", { repo: full, error: String(err) }));
     set.status = 202;
     return { ok: true };
   })
@@ -549,6 +573,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.DENY_TEST_COMMANDS, body.deny_test_commands);
       setKey(SETTINGS.AUTO_MERGE, body.auto_merge);
       setKey(SETTINGS.MERGE_METHOD, body.merge_method);
+      setKey(SETTINGS.REFINE_ENABLED, body.refine_enabled);
+      setKey(SETTINGS.DEFAULT_REFINE_PROMPT, body.default_refine_prompt);
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }
@@ -570,6 +596,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         improver_model: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
+        refine_enabled: t.Optional(t.String()),
+        default_refine_prompt: t.Optional(t.String()),
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),

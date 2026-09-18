@@ -145,6 +145,9 @@ export interface Settings {
   auto_merge?: string;
   // Default "squash".
   merge_method?: "merge" | "squash" | "rebase";
+  // "1" = on, "" = delete the row (off). Default off.
+  refine_enabled?: string;
+  default_refine_prompt?: string;
 }
 
 // Route query objects go straight to Eden — it drops null/undefined keys
@@ -174,6 +177,9 @@ export const api = {
         // 1/0, null = inherit the global default. Absent leaves it unchanged.
         auto_merge?: number | null;
         merge_method?: "merge" | "squash" | "rebase" | null;
+        // 1/0, null = inherit the global default. Absent leaves it unchanged.
+        refine_enabled?: number | null;
+        refine_prompt?: string;
       },
     ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>
@@ -184,6 +190,8 @@ export const api = {
       unwrap<ReviewRow[]>(await c.repos({ owner })({ name }).pr({ number }).get()),
     improve: async (owner: string, name: string) =>
       unwrap<{ ok: boolean }>(await c.repos({ owner })({ name }).improve.post()),
+    refine: async (owner: string, name: string, issue: number) =>
+      unwrap<{ ok: boolean }>(await c.repos({ owner })({ name }).refine({ issue }).post()),
   },
   reviews: {
     list: async () => unwrap<ReviewRow[]>(await c.reviews.get()),

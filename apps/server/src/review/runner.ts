@@ -3,6 +3,7 @@ import { reviews } from "~/db";
 import type { PullRequestInfo } from "~/review/types";
 import { AppLayer, reviewPipeline } from "~/effect";
 import { improvePipeline, type ImproveTarget } from "~/effect/improve";
+import { refinePipeline, type RefineTarget } from "~/effect/refine";
 import { log } from "~/server/log";
 
 // ponytail: tracks live reviews so the dashboard Stop button can abort the
@@ -20,19 +21,34 @@ export function abortReview(id: number): boolean {
   return true;
 }
 
-// `/review stop` on a PR: the commenter knows the PR, not the review id, so the
-// lookup goes through the same repo#pr key supersession uses. Returns how many
-// runs were aborted (0 = nothing was running, worth telling the user).
-export function abortReviewsForPR(repoFullName: string, prNumber: number): number {
+// `/fouine stop`: the commenter knows the PR (or issue), not the review id, so
+// the lookup goes through the same key supersession uses. Returns how many runs
+// were aborted (0 = nothing was running, worth telling the user).
+function abortByKey(key: string): number {
   let n = 0;
   for (const [id, entry] of activeReviews) {
-    if (entry.key === `${repoFullName}#${prNumber}`) {
+    if (entry.key === key) {
       log.info("stopping review by comment", { review: id, pr: entry.key });
       entry.ctrl.abort();
       n++;
     }
   }
   return n;
+}
+
+export function abortReviewsForPR(repoFullName: string, prNumber: number): number {
+  return abortByKey(`${repoFullName}#${prNumber}`);
+}
+
+// Issues get their own key namespace: a PR and an issue can never share a
+// number in one repo, but keeping `#issue#` explicit means a future numbering
+// change can't make `/fouine stop` on an issue kill a PR review.
+export function abortRefinesForIssue(repoFullName: string, issueNumber: number): number {
+  return abortByKey(refineKey(repoFullName, issueNumber));
+}
+
+function refineKey(repoFullName: string, issueNumber: number): string {
+  return `${repoFullName}#issue#${issueNumber}`;
 }
 
 function prKey(pr: PullRequestInfo): string {
@@ -145,6 +161,25 @@ export function runImprove(target: ImproveTarget): Promise<void> {
   const ctrl = new AbortController();
   let id: number | undefined;
   const program = improvePipeline(target, ctrl.signal, (rid) => {
+    id = rid;
+    activeReviews.set(rid, { ctrl, key });
+  }).pipe(Effect.provide(AppLayer));
+
+  return Effect.runPromise(program).finally(() => {
+    if (id !== undefined) activeReviews.delete(id);
+  });
+}
+
+// Same bridge for the issue refiner. Registers in the same map, so the dashboard
+// Stop button, `/fouine stop` and re-trigger supersession all work like for
+// reviews.
+export function runRefine(target: RefineTarget): Promise<void> {
+  const key = refineKey(target.repoFullName, target.issueNumber);
+  supersedeInFlight(key);
+
+  const ctrl = new AbortController();
+  let id: number | undefined;
+  const program = refinePipeline(target, ctrl.signal, (rid) => {
     id = rid;
     activeReviews.set(rid, { ctrl, key });
   }).pipe(Effect.provide(AppLayer));

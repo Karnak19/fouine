@@ -23,3 +23,4 @@ test("shouldAutoRetry: stands down when a newer review row owns the PR", () => {
 test("shouldAutoRetry: a successful run never retries", () => {
   expect(shouldAutoRetry({ failed: false, aborted: false, attempt: 0, ownsPR: true })).toBe(false);
 });
+

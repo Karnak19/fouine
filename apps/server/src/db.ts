@@ -165,11 +165,16 @@ for (const def of [
 // repos.auto_merge / repos.merge_method are the merger's per-repo overrides,
 // same NULL-means-inherit shape as deny_test_commands. repos.upsert never
 // touches either — re-sighting a repo must not clobber a dashboard override.
+// repos.refine_enabled / repos.refine_prompt are the issue refiner's per-repo
+// overrides, same NULL-means-inherit shape again. refine_enabled only gates the
+// automatic trigger (issue opened) — `/fouine refine` works on any enabled repo.
 for (const def of [
   "enabled INTEGER NOT NULL DEFAULT 0",
   "deny_test_commands INTEGER",
   "auto_merge INTEGER",
   "merge_method TEXT",
+  "refine_enabled INTEGER",
+  "refine_prompt TEXT",
 ])
   addColumn("repos", def);
 
@@ -248,11 +253,14 @@ export const repos = {
       $deny_test_commands: number | null;
       $auto_merge: number | null;
       $merge_method: string | null;
+      $refine_enabled: number | null;
+      $refine_prompt: string | null;
     }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
        deny_test_commands = $deny_test_commands, auto_merge = $auto_merge,
-       merge_method = $merge_method WHERE full_name = $full_name`,
+       merge_method = $merge_method, refine_enabled = $refine_enabled,
+       refine_prompt = $refine_prompt WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",
@@ -464,7 +472,9 @@ export const reviews = {
                AND ($model IS NULL OR model = $model))`,
   ),
   // PRs with a completed review since a timestamp — the improver's work list.
-  // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0).
+  // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0);
+  // the trigger filter excludes refiner runs, which DO carry a real number (the
+  // issue's) and would otherwise be handed to the improver as PRs to learn from.
   // `status = 'completed'` also excludes skips: a skip must never make the
   // improver think a PR was reviewed in this window — there is no session to learn from.
   // LIMIT keeps one improver session's context bounded on a busy repo; the
@@ -474,6 +484,7 @@ export const reviews = {
      FROM reviews
      WHERE repo_full_name = $repo AND status = 'completed'
        AND pr_number > 0 AND created_at > $since
+       AND (trigger IS NULL OR trigger NOT IN ('improve', 'refine'))
      GROUP BY pr_number
      ORDER BY last DESC
      LIMIT 20`,

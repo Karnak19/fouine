@@ -1,11 +1,11 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
-import { abortReviewsForPR, runReviewForPR } from "~/review";
+import { abortRefinesForIssue, abortReviewsForPR, runRefine, runReviewForPR } from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
 import { mergeArms, repos } from "~/db";
-import { resolveAutoMerge } from "~/settings";
+import { resolveAutoMerge, resolveRefineEnabled } from "~/settings";
 import { evaluateArm } from "~/merge/evaluate";
 
 // `ready_for_review` matters: draft PRs are skipped below, so without it a PR
@@ -30,6 +30,13 @@ export function matchTrigger(body: string): string | undefined {
 export function isStopCommand(body: string, trigger = matchTrigger(body)): boolean {
   if (!trigger) return false;
   return body.trim().slice(trigger.length).trim() === "stop";
+}
+
+// `<trigger> refine` and nothing else, same exact-argument rule as isStopCommand
+// so `/fouine refinery` doesn't quietly trigger a refinement.
+export function isRefineCommand(body: string, trigger = matchTrigger(body)): boolean {
+  if (!trigger) return false;
+  return body.trim().slice(trigger.length).trim() === "refine";
 }
 
 // Repo enabled + opted into auto-merge, read straight from the DB — no GitHub
@@ -181,7 +188,7 @@ export function registerHandlers(): void {
         installation?: { id: number };
         repository: { full_name: string };
         comment: { id: number; body: string; user?: { login: string } };
-        issue: { number: number; pull_request?: unknown };
+        issue: { number: number; title: string; pull_request?: unknown };
       };
     };
 
@@ -198,14 +205,6 @@ export function registerHandlers(): void {
       });
       return;
     }
-    if (!payload.issue.pull_request) {
-      log.debug("issue_comment skipped", {
-        repo: fullName,
-        number: prNumber,
-        reason: "not on a pull request",
-      });
-      return;
-    }
     const body = payload.comment.body.trim();
     const trigger = matchTrigger(body);
     if (!trigger) {
@@ -215,6 +214,56 @@ export function registerHandlers(): void {
         reason: "not a fouine command",
         body: body.slice(0, 80),
       });
+      return;
+    }
+
+    // A true issue (no `pull_request` key) takes the refiner path: the only
+    // commands that mean anything there are `refine` and `stop`.
+    if (!payload.issue.pull_request) {
+      const installationId = payload.installation?.id;
+      if (isStopCommand(body, trigger)) {
+        const stopped = abortRefinesForIssue(fullName, prNumber);
+        log.info(`${trigger} stop (issue)`, { repo: fullName, number: prNumber, stopped });
+        await react(installationId, fullName, payload.comment.id, stopped > 0 ? "+1" : "confused");
+        return;
+      }
+      if (!isRefineCommand(body, trigger)) {
+        log.debug("issue_comment skipped", {
+          repo: fullName,
+          number: prNumber,
+          reason: "not a fouine command for an issue",
+          body: body.slice(0, 80),
+        });
+        return;
+      }
+      if (!installationId) {
+        log.warn(`${trigger} refine skipped`, {
+          repo: fullName,
+          number: prNumber,
+          reason: "no installation id",
+        });
+        return;
+      }
+      const repoRow = upsertRepoAndPublish(fullName, installationId);
+      // Deliberately not gated on refine_enabled: that toggle only governs the
+      // automatic trigger. Typing the command IS the consent.
+      if (!repoRow.enabled) {
+        log.debug(`${trigger} refine skipped`, {
+          repo: fullName,
+          number: prNumber,
+          reason: "repo disabled",
+        });
+        return;
+      }
+      log.info(`${trigger} refine queued`, { repo: fullName, number: prNumber });
+      runRefine({
+        repoFullName: fullName,
+        installationId,
+        issueNumber: prNumber,
+        issueTitle: payload.issue.title,
+      }).catch((err) =>
+        log.error("refine failed", { repo: fullName, number: prNumber, error: String(err) }),
+      );
       return;
     }
 
@@ -269,6 +318,52 @@ export function registerHandlers(): void {
         error: String(err),
       });
     }
+  });
+
+  // Auto-refinement of newly opened issues. Opt-in per repo (refine_enabled,
+  // global fallback), default OFF — commenting on every issue a project opens is
+  // not something to turn on for someone.
+  webhooks.on("issues", async (event: EmitterWebhookEvent) => {
+    const e = event as unknown as {
+      payload: {
+        action: string;
+        installation?: { id: number };
+        repository: { full_name: string };
+        issue: { number: number; title: string; pull_request?: unknown };
+      };
+    };
+    const { payload } = e;
+    const fullName = payload.repository.full_name;
+    const number = payload.issue.number;
+
+    if (payload.action !== "opened") return;
+    // GitHub delivers `issues` only for real issues, but the payload shape is
+    // shared with issue_comment's — check anyway, a PR must never be refined.
+    if (payload.issue.pull_request) return;
+    const installationId = payload.installation?.id;
+    if (!installationId) {
+      log.warn("issues skipped", { repo: fullName, number, reason: "no installation id" });
+      return;
+    }
+    const repoRow = upsertRepoAndPublish(fullName, installationId);
+    if (!repoRow.enabled) {
+      log.debug("issues skipped", { repo: fullName, number, reason: "repo disabled" });
+      return;
+    }
+    if (!resolveRefineEnabled(repoRow.refine_enabled)) {
+      log.debug("issues skipped", { repo: fullName, number, reason: "refine disabled" });
+      return;
+    }
+
+    log.info("issue refine queued", { repo: fullName, number });
+    runRefine({
+      repoFullName: fullName,
+      installationId,
+      issueNumber: number,
+      issueTitle: payload.issue.title,
+    }).catch((err) =>
+      log.error("refine failed", { repo: fullName, number, error: String(err) }),
+    );
   });
 
   // The four merger re-evaluation triggers (#117). Every one short-circuits on
