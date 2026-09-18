@@ -137,7 +137,7 @@ test("happy path implements, commits, pushes and opens a PR", async () => {
   expect(calls.completed).toBe(1);
   expect(calls.failed).toEqual([]);
   expect(calls.agent).toBe("fouine-implementer");
-  expect(calls.inserted).toEqual({ pr: 12, trigger: "implement", title: issue.title });
+  expect(calls.inserted).toEqual({ pr: 12, trigger: "implement", title: "#12" });
   expect(calls.env?.FOUINE_PR_NUMBER).toBe("12");
   // No existing branch → checked out off the default branch.
   expect(calls.fetchedRef).toBe("refs/heads/main");
@@ -198,6 +198,49 @@ test("a non-404 getRef error fails the run before ever fetching a ref", async ()
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.fetchedRef).toBeUndefined();
   expect(calls.completed).toBe(0);
+});
+
+test("the row is inserted and onStart fires before fetchIssueInfo — the abort window", async () => {
+  fetchIssueInfo.mockClear();
+  const { layer, calls } = makeLayer();
+  let startedId: number | undefined;
+  await Effect.runPromise(
+    implementPipeline(target, noAbort(), (id) => (startedId = id)).pipe(Effect.provide(layer)),
+  );
+  expect(startedId).toBe(7);
+  expect(calls.inserted).toBeDefined();
+});
+
+test("a fetchIssueInfo rejection inserts the row, marks it failed, and never runs the agent", async () => {
+  fetchIssueInfo.mockImplementationOnce(async () => {
+    throw new Error("issue not found");
+  });
+  const { layer, calls } = makeLayer();
+
+  const exit = await Effect.runPromiseExit(
+    implementPipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.inserted).toBeDefined();
+  expect(calls.failed).toHaveLength(1);
+  expect(calls.failed[0]).toContain("issue not found");
+  expect(calls.completed).toBe(0);
+  expect(calls.agent).toBeUndefined();
+});
+
+test("the inserted title comes from target.title, falling back to #<issue>", async () => {
+  const { layer, calls } = makeLayer();
+  await Effect.runPromise(
+    implementPipeline({ ...target, title: "Add dark mode" }, noAbort(), () => {}).pipe(
+      Effect.provide(layer),
+    ),
+  );
+  expect(calls.inserted?.title).toBe("Add dark mode");
+
+  const { layer: layer2, calls: calls2 } = makeLayer();
+  await Effect.runPromise(implementPipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer2)));
+  expect(calls2.inserted?.title).toBe("#12");
 });
 
 test("buildImplementPrompt embeds the issue body, a comment author, the branch and asks for a 3-line summary", () => {

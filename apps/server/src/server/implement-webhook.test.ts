@@ -69,7 +69,7 @@ const issueLabeled = (label: string, number = 42) => ({
   action: "labeled",
   installation: { id: 1 },
   repository: { full_name: REPO },
-  issue: { number },
+  issue: { number, title: "Add dark mode" },
   label: { name: label },
 });
 
@@ -78,7 +78,7 @@ const comment = (body: string, isPR: boolean, number = 42) => ({
   installation: { id: 1 },
   repository: { full_name: REPO },
   comment: { id: 99, body },
-  issue: { number, ...(isPR ? { pull_request: { url: "x" } } : {}) },
+  issue: { number, title: "Add dark mode", ...(isPR ? { pull_request: { url: "x" } } : {}) },
 });
 
 beforeEach(() => {
@@ -103,7 +103,11 @@ test("issue labeled with the default label implements when the repo opted in", a
   setRepo(1, 1);
   await dispatch("issues", issueLabeled("fouine-ready"));
   expect(runImplement).toHaveBeenCalledTimes(1);
-  expect(runImplement.mock.calls[0][0]).toMatchObject({ repoFullName: REPO, issueNumber: 42 });
+  expect(runImplement.mock.calls[0][0]).toMatchObject({
+    repoFullName: REPO,
+    issueNumber: 42,
+    title: "Add dark mode",
+  });
 });
 
 test("a different label does nothing", async () => {
@@ -144,6 +148,7 @@ test("`/fouine implement` on a true issue runs regardless of the implement toggl
   setRepo(1, 0);
   await dispatch("issue_comment", comment("/fouine implement", false));
   expect(runImplement).toHaveBeenCalledTimes(1);
+  expect(runImplement.mock.calls[0][0]).toMatchObject({ issueNumber: 42, title: "Add dark mode" });
   expect(runReviewForPR).not.toHaveBeenCalled();
 });
 

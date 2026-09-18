@@ -19,6 +19,9 @@ export interface ImplementTarget {
   repoFullName: string;
   installationId: number;
   issueNumber: number;
+  // The issue title, when the caller already has it from the webhook payload
+  // (avoids showing "#n" in the dashboard until the issue is fetched).
+  title?: string;
 }
 
 export const implementBranch = (n: number): string => `fouine/issue-${n}`;
@@ -43,17 +46,16 @@ export function implementPipeline(
     const [owner, repoName] = target.repoFullName.split("/");
     const branch = implementBranch(target.issueNumber);
 
-    const octokit = yield* gh.installationClient(target.installationId);
-    const issue = yield* Effect.tryPromise({
-      try: () =>
-        fetchIssueInfo(octokit, target.installationId, target.repoFullName, target.issueNumber),
-      catch: (cause) => new GitHubError({ op: "issues.get", cause }),
-    });
-
+    // Insert the row and call onStart FIRST, before any network round-trip —
+    // same reasoning as the improver. Until onStart runs, the runner hasn't
+    // registered this signal's AbortController in activeReviews, so
+    // supersedeInFlight and /fouine stop are dead. Fetching the issue over the
+    // network first would leave that window open for two round-trips instead
+    // of zero, letting two triggers both run to completion.
     const id = yield* db.insertReview({
       repo: target.repoFullName,
       pr: target.issueNumber,
-      title: issue.title,
+      title: target.title ?? `#${target.issueNumber}`,
       trigger: "implement",
     });
     yield* Effect.sync(() => onStart(id));
@@ -66,6 +68,13 @@ export function implementPipeline(
           issue: target.issueNumber,
         });
         yield* db.setRunning(id);
+
+        const octokit = yield* gh.installationClient(target.installationId);
+        const issue = yield* Effect.tryPromise({
+          try: () =>
+            fetchIssueInfo(octokit, target.installationId, target.repoFullName, target.issueNumber),
+          catch: (cause) => new GitHubError({ op: "issues.get", cause }),
+        });
 
         const token = yield* gh.installationToken(octokit);
         const base = yield* gh.defaultBranch(octokit, owner, repoName);
