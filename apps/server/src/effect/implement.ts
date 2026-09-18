@@ -19,9 +19,10 @@ export interface ImplementTarget {
   repoFullName: string;
   installationId: number;
   issueNumber: number;
-  // The issue title, when the caller already has it from the webhook payload
-  // (avoids showing "#n" in the dashboard until the issue is fetched).
-  title?: string;
+  // Row title, from the webhook payload (or a placeholder from the API route):
+  // the row is inserted before the issue is fetched, so it cannot use the real
+  // title yet — see the ordering note below.
+  issueTitle: string;
 }
 
 export const implementBranch = (n: number): string => `fouine/issue-${n}`;
@@ -55,7 +56,7 @@ export function implementPipeline(
     const id = yield* db.insertReview({
       repo: target.repoFullName,
       pr: target.issueNumber,
-      title: target.title ?? `#${target.issueNumber}`,
+      title: target.issueTitle,
       trigger: "implement",
     });
     yield* Effect.sync(() => onStart(id));
@@ -72,7 +73,7 @@ export function implementPipeline(
         const octokit = yield* gh.installationClient(target.installationId);
         const issue = yield* Effect.tryPromise({
           try: () =>
-            fetchIssueInfo(octokit, target.installationId, target.repoFullName, target.issueNumber),
+            fetchIssueInfo(octokit, target.repoFullName, target.issueNumber),
           catch: (cause) => new GitHubError({ op: "issues.get", cause }),
         });
 

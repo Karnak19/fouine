@@ -106,7 +106,7 @@ test("issue labeled with the default label implements when the repo opted in", a
   expect(runImplement.mock.calls[0][0]).toMatchObject({
     repoFullName: REPO,
     issueNumber: 42,
-    title: "Add dark mode",
+    issueTitle: "Add dark mode",
   });
 });
 
@@ -148,7 +148,7 @@ test("`/fouine implement` on a true issue runs regardless of the implement toggl
   setRepo(1, 0);
   await dispatch("issue_comment", comment("/fouine implement", false));
   expect(runImplement).toHaveBeenCalledTimes(1);
-  expect(runImplement.mock.calls[0][0]).toMatchObject({ issueNumber: 42, title: "Add dark mode" });
+  expect(runImplement.mock.calls[0][0]).toMatchObject({ issueNumber: 42, issueTitle: "Add dark mode" });
   expect(runReviewForPR).not.toHaveBeenCalled();
 });
 

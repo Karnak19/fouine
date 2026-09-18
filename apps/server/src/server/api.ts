@@ -371,6 +371,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       repoFullName: full,
       installationId: repo.installation_id,
       issueNumber: Number(params.issue),
+      issueTitle: `Issue #${params.issue}`,
     }).catch((err) => log.error("implement failed", { repo: full, error: String(err) }));
     set.status = 202;
     return { ok: true };
