@@ -130,6 +130,9 @@ export default function RepoDetailPage() {
   const [autoMerge, setAutoMerge] = useState<number | null>(null);
   // null = inherit the global merge method.
   const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase" | null>(null);
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [refineEnabled, setRefineEnabled] = useState<number | null>(null);
+  const [refinePrompt, setRefinePrompt] = useState("");
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
@@ -138,6 +141,8 @@ export default function RepoDetailPage() {
     denyTestCommands: null as number | null,
     autoMerge: null as number | null,
     mergeMethod: null as "merge" | "squash" | "rebase" | null,
+    refineEnabled: null as number | null,
+    refinePrompt: "",
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -159,12 +164,16 @@ export default function RepoDetailPage() {
       const d = repo.deny_test_commands ?? null;
       const am = repo.auto_merge ?? null;
       const mm = repo.merge_method ?? null;
+      const re = repo.refine_enabled ?? null;
+      const rp = repo.refine_prompt ?? "";
       setModel(m);
       setPrompt(p);
       setEnabled(e);
       setDenyTestCommands(d);
       setAutoMerge(am);
       setMergeMethod(mm);
+      setRefineEnabled(re);
+      setRefinePrompt(rp);
       setBaseline({
         model: m,
         prompt: p,
@@ -172,6 +181,8 @@ export default function RepoDetailPage() {
         denyTestCommands: d,
         autoMerge: am,
         mergeMethod: mm,
+        refineEnabled: re,
+        refinePrompt: rp,
       });
     }
   }, [repo]);
@@ -182,7 +193,9 @@ export default function RepoDetailPage() {
     enabled !== baseline.enabled ||
     denyTestCommands !== baseline.denyTestCommands ||
     autoMerge !== baseline.autoMerge ||
-    mergeMethod !== baseline.mergeMethod;
+    mergeMethod !== baseline.mergeMethod ||
+    refineEnabled !== baseline.refineEnabled ||
+    refinePrompt !== baseline.refinePrompt;
 
   const resetForm = () => {
     setModel(baseline.model);
@@ -191,6 +204,8 @@ export default function RepoDetailPage() {
     setDenyTestCommands(baseline.denyTestCommands);
     setAutoMerge(baseline.autoMerge);
     setMergeMethod(baseline.mergeMethod);
+    setRefineEnabled(baseline.refineEnabled);
+    setRefinePrompt(baseline.refinePrompt);
   };
 
   useEffect(() => {
@@ -221,10 +236,21 @@ export default function RepoDetailPage() {
         deny_test_commands: denyTestCommands,
         auto_merge: autoMerge,
         merge_method: mergeMethod,
+        refine_enabled: refineEnabled,
+        refine_prompt: refinePrompt.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
-      setBaseline({ model, prompt, enabled, denyTestCommands, autoMerge, mergeMethod });
+      setBaseline({
+        model,
+        prompt,
+        enabled,
+        denyTestCommands,
+        autoMerge,
+        mergeMethod,
+        refineEnabled,
+        refinePrompt,
+      });
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
   });
@@ -460,6 +486,38 @@ export default function RepoDetailPage() {
                 <option value="merge">Create a merge commit</option>
                 <option value="rebase">Rebase and merge</option>
               </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="refine_enabled">Auto-refine issues on open</Label>
+              <select
+                id="refine_enabled"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={refineEnabled === null ? "inherit" : String(refineEnabled)}
+                onChange={(e) =>
+                  setRefineEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                }
+              >
+                <option value="inherit">
+                  Use global default (inherit: currently{" "}
+                  {settings?.refine_enabled === "1" ? "on" : "off"})
+                </option>
+                <option value="1">On for this repo</option>
+                <option value="0">Off for this repo</option>
+              </select>
+              <p className="text-xs text-zinc-500">
+                Refines a newly opened issue automatically. Always available on demand via{" "}
+                <span className="font-mono">/fouine refine</span>.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="refine_prompt">Refine prompt override</Label>
+              <Textarea
+                id="refine_prompt"
+                rows={8}
+                placeholder="Custom issue-refinement instructions for this repo..."
+                value={refinePrompt}
+                onChange={(e) => setRefinePrompt(e.target.value)}
+              />
             </div>
             <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
               <input

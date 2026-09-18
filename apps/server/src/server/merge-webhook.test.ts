@@ -51,7 +51,7 @@ function enableAutoMerge(full: string) {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: null,
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null
   });
 }
 
@@ -64,7 +64,7 @@ function disableAutoMerge(full: string) {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 0,
-    $merge_method: null,
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null
   });
 }
 

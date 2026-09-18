@@ -1,6 +1,7 @@
 import { config } from "~/config";
 import { settingValue } from "~/db";
 import { DEFAULT_PROMPT } from "~/review/prompt";
+import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
 
 export const SETTINGS = {
   API_KEY: "opencode_api_key",
@@ -11,6 +12,8 @@ export const SETTINGS = {
   DENY_TEST_COMMANDS: "deny_test_commands",
   AUTO_MERGE: "auto_merge",
   MERGE_METHOD: "merge_method",
+  REFINE_ENABLED: "refine_enabled",
+  DEFAULT_REFINE_PROMPT: "default_refine_prompt",
 } as const;
 
 export type MergeMethod = "merge" | "squash" | "rebase";
@@ -81,4 +84,17 @@ export function resolveMergeMethod(repoValue: string | null): MergeMethod {
   const global = settingValue(SETTINGS.MERGE_METHOD);
   if (global && (MERGE_METHODS as readonly string[]).includes(global)) return global as MergeMethod;
   return "squash";
+}
+
+// Auto-refine opt-in, same repo-wins, 0-included shape as resolveAutoMerge.
+// Default OFF: commenting on every new issue is noisy enough that it must be
+// asked for. Only gates the AUTOMATIC trigger — `/fouine refine` works on any
+// enabled repo.
+export function resolveRefineEnabled(repoValue: number | null): boolean {
+  if (repoValue !== null) return repoValue === 1;
+  return settingValue(SETTINGS.REFINE_ENABLED) === "1";
+}
+
+export function resolveRefinePrompt(repoPrompt: string | null): string {
+  return repoPrompt?.trim() || settingValue(SETTINGS.DEFAULT_REFINE_PROMPT) || DEFAULT_REFINE_PROMPT;
 }

@@ -1,6 +1,6 @@
 import { App, Octokit } from "octokit";
 import { config, assertGitHubConfig } from "~/config";
-import type { PullRequestInfo } from "~/review/types";
+import type { IssueInfo, PullRequestInfo } from "~/review/types";
 
 let app: App | undefined;
 
@@ -37,5 +37,43 @@ export async function fetchPRInfo(
     baseRef: data.base.ref,
     headSha: data.head.sha,
     baseSha: data.base.sha,
+  };
+}
+
+// The refiner's context window is the budget here, not GitHub's: an issue with
+// hundreds of comments would drown the prompt, and a pasted stack trace can be
+// megabytes.
+const MAX_COMMENTS = 30;
+const MAX_BODY = 8000;
+
+const truncate = (text: string): string =>
+  text.length > MAX_BODY ? text.slice(0, MAX_BODY) + "\n\n_(truncated)_" : text;
+
+export async function fetchIssueInfo(
+  octokit: Octokit,
+  installationId: number,
+  fullName: string,
+  number: number,
+): Promise<IssueInfo> {
+  const [owner, repo] = fullName.split("/");
+  const { data } = await octokit.rest.issues.get({ owner, repo, issue_number: number });
+  // ponytail: first page only, keep the last MAX_COMMENTS. The endpoint has no
+  // sort param and returns oldest-first, and the tail is where the current
+  // state of a discussion lives. Paginate if 100-comment issues ever matter.
+  const { data: raw } = await octokit.rest.issues.listComments({
+    owner,
+    repo,
+    issue_number: number,
+    per_page: 100,
+  });
+  return {
+    installationId,
+    repoFullName: fullName,
+    number,
+    title: data.title,
+    body: truncate(data.body ?? ""),
+    comments: raw
+      .slice(-MAX_COMMENTS)
+      .map((c) => ({ author: c.user?.login ?? "unknown", body: truncate(c.body ?? "") })),
   };
 }

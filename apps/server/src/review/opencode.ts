@@ -87,6 +87,18 @@ export function improveToolEnv(ctx: Omit<ReviewToolContext, "prNumber">): Record
   return env;
 }
 
+// Env for the refiner. Unlike the improver this KEEPS FOUINE_PR_NUMBER, set to
+// the ISSUE number: post_comment posts to /issues/{n}/comments, which is the
+// same endpoint for issues and PRs, so the refiner needs no tool of its own.
+// (Issue and PR numbers share one sequence per repo, so the number is
+// unambiguous.)
+export function refineToolEnv(
+  ctx: Omit<ReviewToolContext, "prNumber"> & { issueNumber: number },
+): Record<string, string> {
+  const { issueNumber, ...rest } = ctx;
+  return reviewToolEnv({ ...rest, prNumber: issueNumber });
+}
+
 export interface RunResult {
   sessionId: string;
   text: string;

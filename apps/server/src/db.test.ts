@@ -25,7 +25,7 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
     $enabled: 0,
     $deny_test_commands: 1,
     $auto_merge: null,
-    $merge_method: null,
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null
   });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
@@ -580,7 +580,7 @@ test("repos.upsert never clobbers auto_merge/merge_method overrides", () => {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: "rebase",
+    $merge_method: "rebase", $refine_enabled: null, $refine_prompt: null
   });
 
   // A re-sighting webhook re-upserts: installation_id updates, the merger
@@ -646,4 +646,60 @@ test("merge_arms.listForRepo scopes to one repo", () => {
   const rows = mergeArms.listForRepo.all({ $repo: "acme/list-a" });
   expect(rows).toHaveLength(1);
   expect(rows[0]?.head_sha).toBe("a");
+});
+
+test("repos: refine_enabled / refine_prompt round-trip and survive upsert", () => {
+  const full = "acme/refine-cols";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  // Default is NULL = inherit the global setting.
+  expect(repos.get.get({ $full_name: full })?.refine_enabled).toBe(null);
+  expect(repos.get.get({ $full_name: full })?.refine_prompt).toBe(null);
+
+  repos.update.run({
+    $full_name: full,
+    $prompt: null,
+    $model: null,
+    $enabled: 1,
+    $deny_test_commands: null,
+    $auto_merge: null,
+    $merge_method: null,
+    $refine_enabled: 1,
+    $refine_prompt: "ask about migrations",
+  });
+  // Re-sighting the repo must not clobber a dashboard override.
+  repos.upsert.run({ $full_name: full, $installation_id: 2, $prompt: null, $model: null });
+  const row = repos.get.get({ $full_name: full });
+  expect(row?.refine_enabled).toBe(1);
+  expect(row?.refine_prompt).toBe("ask about migrations");
+});
+
+// A refine row carries a real pr_number (the issue's), so the old `pr_number > 0`
+// guard alone would hand issues to the improver as PRs to learn from.
+test("reviewedPRsSince excludes refiner and improver rows", () => {
+  const full = "acme/refine-improver";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  const done = (pr: number, trigger: string | null) => {
+    const row = reviews.insert.get({
+      $repo: full,
+      $pr: pr,
+      $title: "t",
+      $session: null,
+      $status: "pending",
+      $trigger: trigger,
+      $attempt: 0,
+    })!;
+    reviews.complete.run({
+      $id: row.id,
+      $cost: 0,
+      $tokens: 0,
+      $model: "m",
+      $patch: null,
+    });
+  };
+  done(11, "opened");
+  done(12, "refine");
+  done(0, "improve");
+  expect(
+    reviews.reviewedPRsSince.all({ $repo: full, $since: 0 }).map((r) => r.pr_number),
+  ).toEqual([11]);
 });
