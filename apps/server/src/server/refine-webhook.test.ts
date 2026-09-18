@@ -1,6 +1,6 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { createHmac } from "node:crypto";
-import { repos, settings } from "~/db";
+import { repos, reviews, settings } from "~/db";
 import { SETTINGS } from "~/settings";
 
 const REPO = "acme/refine-test";
@@ -38,7 +38,11 @@ mock.module("~/github", () => ({ ...actualGithub, getInstallationOctokit, fetchP
 const { verifyAndDispatch, isRefineCommand } = await import("~/server/webhook");
 
 
-function setRepo(enabled: number, refineEnabled: number | null) {
+function setRepo(
+  enabled: number,
+  refineEnabled: number | null,
+  opts: { autoReady?: number | null } = {},
+) {
   repos.upsert.run({ $full_name: REPO, $installation_id: 1, $prompt: null, $model: null });
   repos.update.run({
     $full_name: REPO,
@@ -49,8 +53,23 @@ function setRepo(enabled: number, refineEnabled: number | null) {
     $auto_merge: null,
     $merge_method: null,
     $refine_enabled: refineEnabled,
-    $refine_prompt: null,
+    $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null,
+    $auto_ready: opts.autoReady ?? null,
   });
+}
+
+function seedRefineRows(repo: string, issueNumber: number, count: number) {
+  for (let i = 0; i < count; i++) {
+    reviews.insert.get({
+      $repo: repo,
+      $pr: issueNumber,
+      $title: "t",
+      $session: null,
+      $status: "pending",
+      $trigger: "refine",
+      $attempt: 0,
+    });
+  }
 }
 
 async function dispatch(name: string, payload: object): Promise<void> {
@@ -73,11 +92,23 @@ const comment = (body: string, isPR: boolean, number = 42) => ({
   issue: { number, ...(isPR ? { pull_request: { url: "x" } } : {}) },
 });
 
+// A non-command comment on a true issue — the follow-up path, keyed on
+// author login and current labels.
+const humanReply = (author: string, number = 42, labels: string[] = []) => ({
+  action: "created",
+  installation: { id: 1 },
+  repository: { full_name: REPO },
+  comment: { id: 99, body: "sounds good, per-account is fine", user: { login: author } },
+  issue: { number, title: "Add dark mode", labels: labels.map((name) => ({ name })) },
+});
+
 beforeEach(() => {
   runRefine.mockClear();
   runReviewForPR.mockClear();
   abortRefinesForIssue.mockClear();
+  createComment.mockClear();
   settings.del.run({ $key: SETTINGS.REFINE_ENABLED });
+  settings.del.run({ $key: SETTINGS.AUTO_READY });
 });
 
 test("isRefineCommand: exactly `refine`, nothing else", () => {
@@ -143,4 +174,54 @@ test("`/fouine` on a pull request still queues a review", async () => {
   await dispatch("issue_comment", comment("/fouine", true));
   expect(runRefine).not.toHaveBeenCalled();
   expect(runReviewForPR).toHaveBeenCalledTimes(1);
+});
+
+// ── Follow-up path (a non-command human reply on a true issue) ─────────────
+
+test("a human reply with a prior refine and auto_ready on queues round 2", async () => {
+  setRepo(1, 0, { autoReady: 1 });
+  seedRefineRows(REPO, 101, 1);
+  await dispatch("issue_comment", humanReply("ana", 101));
+  expect(runRefine).toHaveBeenCalledTimes(1);
+  expect(runRefine.mock.calls[0][0]).toMatchObject({ issueNumber: 101, round: 2 });
+});
+
+test("auto_ready off does nothing on a plain reply", async () => {
+  setRepo(1, 0, { autoReady: 0 });
+  seedRefineRows(REPO, 102, 1);
+  await dispatch("issue_comment", humanReply("ana", 102));
+  expect(runRefine).not.toHaveBeenCalled();
+});
+
+test("a reply from fouine's own bot account never re-triggers", async () => {
+  setRepo(1, 0, { autoReady: 1 });
+  seedRefineRows(REPO, 103, 1);
+  await dispatch("issue_comment", humanReply("fouine[bot]", 103));
+  expect(runRefine).not.toHaveBeenCalled();
+});
+
+test("a reply once the ready label is already on does nothing", async () => {
+  setRepo(1, 0, { autoReady: 1 });
+  seedRefineRows(REPO, 104, 1);
+  await dispatch("issue_comment", humanReply("ana", 104, ["fouine-ready"]));
+  expect(runRefine).not.toHaveBeenCalled();
+});
+
+test("no prior refine at all: a reply does nothing", async () => {
+  setRepo(1, 0, { autoReady: 1 });
+  await dispatch("issue_comment", humanReply("ana", 105));
+  expect(runRefine).not.toHaveBeenCalled();
+});
+
+test("hitting the round cap posts one comment and stops running the refiner again", async () => {
+  setRepo(1, 0, { autoReady: 1 });
+  seedRefineRows(REPO, 106, 3);
+  await dispatch("issue_comment", humanReply("ana", 106));
+  expect(runRefine).not.toHaveBeenCalled();
+  expect(createComment).toHaveBeenCalledTimes(1);
+  // A later reply must not re-post the cap comment (the marker row it left
+  // behind pushes refineCount to 4, which the decision skips).
+  await dispatch("issue_comment", humanReply("ana", 106));
+  expect(createComment).toHaveBeenCalledTimes(1);
+  expect(runRefine).not.toHaveBeenCalled();
 });

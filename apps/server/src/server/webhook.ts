@@ -1,12 +1,26 @@
 import type { EmitterWebhookEvent } from "@octokit/webhooks";
 import { getApp, getInstallationOctokit, fetchPRInfo } from "~/github";
-import { abortRefinesForIssue, abortReviewsForPR, runRefine, runReviewForPR } from "~/review";
+import {
+  abortImplementsForIssue,
+  abortRefinesForIssue,
+  abortReviewsForPR,
+  runImplement,
+  runRefine,
+  runReviewForPR,
+} from "~/review";
 import type { PullRequestInfo } from "~/review/types";
 import { publishWebhook, upsertRepoAndPublish } from "~/server/events";
 import { log } from "~/server/log";
-import { mergeArms, repos } from "~/db";
-import { resolveAutoMerge, resolveRefineEnabled } from "~/settings";
+import { mergeArms, repos, reviews } from "~/db";
+import {
+  resolveAutoMerge,
+  resolveAutoReady,
+  resolveImplementEnabled,
+  resolveImplementLabel,
+  resolveRefineEnabled,
+} from "~/settings";
 import { evaluateArm } from "~/merge/evaluate";
+import { isBotLogin } from "~/merge/decide";
 
 // `ready_for_review` matters: draft PRs are skipped below, so without it a PR
 // opened as a draft (what `gh stack submit` does) is never reviewed at all.
@@ -37,6 +51,48 @@ export function isStopCommand(body: string, trigger = matchTrigger(body)): boole
 export function isRefineCommand(body: string, trigger = matchTrigger(body)): boolean {
   if (!trigger) return false;
   return body.trim().slice(trigger.length).trim() === "refine";
+}
+
+// `<trigger> implement` and nothing else, same exact-argument rule as
+// isRefineCommand.
+export function isImplementCommand(body: string, trigger = matchTrigger(body)): boolean {
+  if (!trigger) return false;
+  return body.trim().slice(trigger.length).trim() === "implement";
+}
+
+// How many refine rounds a human can trigger by just replying before fouine
+// stops and asks a human to take the wheel — see refineFollowUpDecision.
+const REFINE_ROUND_CAP = 3;
+
+export type FollowUpDecision = "run" | "cap" | "skip";
+
+// Pure decision for a comment on a TRUE issue that isn't a `/fouine` command:
+// should it kick off another refine round? No GitHub/DB calls, so it's
+// unit-testable against plain objects — same convention as isBotLogin/
+// shouldAutoRetry.
+export function refineFollowUpDecision(input: {
+  authorLogin: string | undefined;
+  autoReady: boolean;
+  labels: string[];
+  readyLabel: string;
+  refineCount: number; // prior refine rows for this issue (cap marker included)
+}): FollowUpDecision {
+  // Without this, fouine's own refinement comment (posted by the App, i.e. a
+  // bot login) would itself be a "human reply" and re-trigger refinement —
+  // an infinite loop.
+  if (isBotLogin(input.authorLogin, undefined)) return "skip";
+  if (!input.autoReady) return "skip";
+  // Already ready: the implementer may already be running. A human comment
+  // must not restart refinement out from under it.
+  if (input.labels.includes(input.readyLabel)) return "skip";
+  // No refinement ever ran on this issue — nothing to follow up on.
+  if (input.refineCount === 0) return "skip";
+  // >= 4: the cap marker row (inserted by the "cap" branch below) is itself
+  // counted, so a 4th-round comment lands here and stays quiet — the cap was
+  // already announced once.
+  if (input.refineCount >= REFINE_ROUND_CAP + 1) return "skip";
+  if (input.refineCount === REFINE_ROUND_CAP) return "cap";
+  return "run";
 }
 
 // Repo enabled + opted into auto-merge, read straight from the DB — no GitHub
@@ -79,6 +135,115 @@ async function react(
   } catch (err) {
     log.warn("comment reaction failed", { repo: fullName, comment: commentId, error: String(err) });
   }
+}
+
+// The follow-up path for a comment with no `/fouine` trigger on a true issue:
+// maybe a human just answered the refiner's questions. Pulled out of the
+// handler body so the (already long) issue_comment callback stays readable.
+async function handleRefineFollowUp(
+  payload: {
+    installation?: { id: number };
+    comment: { user?: { login: string } };
+    issue: { title: string; labels?: { name: string }[] };
+  },
+  fullName: string,
+  issueNumber: number,
+): Promise<void> {
+  const installationId = payload.installation?.id;
+  if (!installationId) {
+    log.warn("issue_comment follow-up skipped", {
+      repo: fullName,
+      number: issueNumber,
+      reason: "no installation id",
+    });
+    return;
+  }
+  const repoRow = upsertRepoAndPublish(fullName, installationId);
+  if (!repoRow.enabled) {
+    log.debug("issue_comment follow-up skipped", {
+      repo: fullName,
+      number: issueNumber,
+      reason: "repo disabled",
+    });
+    return;
+  }
+  const readyLabel = resolveImplementLabel(repoRow.implement_label);
+  const refineCount =
+    reviews.countRefinesForIssue.get({ $repo: fullName, $pr: issueNumber })?.count ?? 0;
+  const decision = refineFollowUpDecision({
+    authorLogin: payload.comment.user?.login,
+    autoReady: resolveAutoReady(repoRow.auto_ready),
+    labels: (payload.issue.labels ?? []).map((l) => l.name),
+    readyLabel,
+    refineCount,
+  });
+
+  if (decision === "skip") {
+    log.debug("issue_comment follow-up skipped", {
+      repo: fullName,
+      number: issueNumber,
+      reason: "refineFollowUpDecision: skip",
+      refineCount,
+    });
+    return;
+  }
+
+  if (decision === "cap") {
+    log.info("issue refine follow-up capped", { repo: fullName, number: issueNumber, refineCount });
+    try {
+      const octokit = await getInstallationOctokit(installationId);
+      const [owner, repo] = fullName.split("/");
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        body:
+          `fouine has reached its refinement limit (${REFINE_ROUND_CAP} rounds) on this issue. ` +
+          `A human should add the \`${readyLabel}\` label when it's ready, or comment ` +
+          `\`/fouine refine\` to force another round.`,
+      });
+    } catch (err) {
+      log.warn("issue refine cap comment failed", {
+        repo: fullName,
+        number: issueNumber,
+        error: String(err),
+      });
+    }
+    // ponytail: no dedicated "cap announced" flag/table — a fake 'failed'
+    // reviews row (trigger 'refine') is the marker that keeps this comment from
+    // reposting on every later human reply (it makes refineCount >= 4 forever).
+    // Upgrade path: a real column/table if this fake row ever confuses the
+    // dashboard's reviews list or stats.
+    const row = reviews.insert.get({
+      $repo: fullName,
+      $pr: issueNumber,
+      $title: payload.issue.title,
+      $session: null,
+      $status: "pending",
+      $trigger: "refine",
+      $attempt: 0,
+    });
+    if (row) {
+      reviews.fail.run({
+        $id: row.id,
+        $error: "Refinement limit reached — a human must add the ready label",
+      });
+    }
+    return;
+  }
+
+  // decision === "run"
+  const round = refineCount + 1;
+  log.info("issue refine follow-up queued", { repo: fullName, number: issueNumber, round });
+  runRefine({
+    repoFullName: fullName,
+    installationId,
+    issueNumber,
+    issueTitle: payload.issue.title,
+    round,
+  }).catch((err) =>
+    log.error("refine follow-up failed", { repo: fullName, number: issueNumber, error: String(err) }),
+  );
 }
 
 let handlersRegistered = false;
@@ -188,13 +353,19 @@ export function registerHandlers(): void {
         installation?: { id: number };
         repository: { full_name: string };
         comment: { id: number; body: string; user?: { login: string } };
-        issue: { number: number; title: string; pull_request?: unknown };
+        issue: {
+          number: number;
+          title: string;
+          pull_request?: unknown;
+          labels?: { name: string }[];
+        };
       };
     };
 
     const { payload } = e;
     const fullName = payload.repository.full_name;
     const prNumber = payload.issue.number;
+    const isTrueIssue = !payload.issue.pull_request;
 
     if (payload.action !== "created") {
       log.debug("issue_comment skipped", {
@@ -208,26 +379,40 @@ export function registerHandlers(): void {
     const body = payload.comment.body.trim();
     const trigger = matchTrigger(body);
     if (!trigger) {
-      log.debug("issue_comment skipped", {
-        repo: fullName,
-        number: prNumber,
-        reason: "not a fouine command",
-        body: body.slice(0, 80),
-      });
+      // No `/fouine` command: on a PR this is just discussion, nothing to do.
+      // On a true issue it may still be a human answering the refiner's
+      // questions — that's the follow-up path, handled on its own so it never
+      // touches the PR review flow below.
+      if (isTrueIssue) {
+        await handleRefineFollowUp(payload, fullName, prNumber);
+      } else {
+        log.debug("issue_comment skipped", {
+          repo: fullName,
+          number: prNumber,
+          reason: "not a fouine command",
+          body: body.slice(0, 80),
+        });
+      }
       return;
     }
 
-    // A true issue (no `pull_request` key) takes the refiner path: the only
-    // commands that mean anything there are `refine` and `stop`.
-    if (!payload.issue.pull_request) {
+    // A true issue (no `pull_request` key) takes the refiner/implementer path:
+    // the only commands that mean anything there are `refine`, `implement` and
+    // `stop`.
+    if (isTrueIssue) {
       const installationId = payload.installation?.id;
       if (isStopCommand(body, trigger)) {
-        const stopped = abortRefinesForIssue(fullName, prNumber);
+        // `stop` on an issue aborts both pipelines — the caller shouldn't
+        // have to know which one is running.
+        const stopped =
+          abortRefinesForIssue(fullName, prNumber) + abortImplementsForIssue(fullName, prNumber);
         log.info(`${trigger} stop (issue)`, { repo: fullName, number: prNumber, stopped });
         await react(installationId, fullName, payload.comment.id, stopped > 0 ? "+1" : "confused");
         return;
       }
-      if (!isRefineCommand(body, trigger)) {
+      const wantsRefine = isRefineCommand(body, trigger);
+      const wantsImplement = isImplementCommand(body, trigger);
+      if (!wantsRefine && !wantsImplement) {
         log.debug("issue_comment skipped", {
           repo: fullName,
           number: prNumber,
@@ -236,8 +421,9 @@ export function registerHandlers(): void {
         });
         return;
       }
+      const action = wantsRefine ? "refine" : "implement";
       if (!installationId) {
-        log.warn(`${trigger} refine skipped`, {
+        log.warn(`${trigger} ${action} skipped`, {
           repo: fullName,
           number: prNumber,
           reason: "no installation id",
@@ -245,25 +431,33 @@ export function registerHandlers(): void {
         return;
       }
       const repoRow = upsertRepoAndPublish(fullName, installationId);
-      // Deliberately not gated on refine_enabled: that toggle only governs the
-      // automatic trigger. Typing the command IS the consent.
+      // Deliberately not gated on refine_enabled/implement_enabled: those
+      // toggles only govern the automatic triggers. Typing the command IS the
+      // consent.
       if (!repoRow.enabled) {
-        log.debug(`${trigger} refine skipped`, {
+        log.debug(`${trigger} ${action} skipped`, {
           repo: fullName,
           number: prNumber,
           reason: "repo disabled",
         });
         return;
       }
-      log.info(`${trigger} refine queued`, { repo: fullName, number: prNumber });
-      runRefine({
+      log.info(`${trigger} ${action} queued`, { repo: fullName, number: prNumber });
+      const issueTarget = {
         repoFullName: fullName,
         installationId,
         issueNumber: prNumber,
         issueTitle: payload.issue.title,
-      }).catch((err) =>
-        log.error("refine failed", { repo: fullName, number: prNumber, error: String(err) }),
-      );
+      };
+      if (wantsRefine) {
+        runRefine(issueTarget).catch((err) =>
+          log.error("refine failed", { repo: fullName, number: prNumber, error: String(err) }),
+        );
+      } else {
+        runImplement(issueTarget).catch((err) =>
+          log.error("implement failed", { repo: fullName, number: prNumber, error: String(err) }),
+        );
+      }
       return;
     }
 
@@ -320,9 +514,10 @@ export function registerHandlers(): void {
     }
   });
 
-  // Auto-refinement of newly opened issues. Opt-in per repo (refine_enabled,
-  // global fallback), default OFF — commenting on every issue a project opens is
-  // not something to turn on for someone.
+  // Auto-refinement of newly opened issues, and auto-implementation of issues
+  // labeled ready. Both opt-in per repo (refine_enabled / implement_enabled,
+  // global fallback), default OFF — acting on every issue a project opens or
+  // labels is not something to turn on for someone.
   webhooks.on("issues", async (event: EmitterWebhookEvent) => {
     const e = event as unknown as {
       payload: {
@@ -330,15 +525,17 @@ export function registerHandlers(): void {
         installation?: { id: number };
         repository: { full_name: string };
         issue: { number: number; title: string; pull_request?: unknown };
+        label?: { name: string };
       };
     };
     const { payload } = e;
     const fullName = payload.repository.full_name;
     const number = payload.issue.number;
 
-    if (payload.action !== "opened") return;
+    if (payload.action !== "opened" && payload.action !== "labeled") return;
     // GitHub delivers `issues` only for real issues, but the payload shape is
-    // shared with issue_comment's — check anyway, a PR must never be refined.
+    // shared with issue_comment's — check anyway, a PR must never be refined
+    // or implemented.
     if (payload.issue.pull_request) return;
     const installationId = payload.installation?.id;
     if (!installationId) {
@@ -350,19 +547,44 @@ export function registerHandlers(): void {
       log.debug("issues skipped", { repo: fullName, number, reason: "repo disabled" });
       return;
     }
-    if (!resolveRefineEnabled(repoRow.refine_enabled)) {
-      log.debug("issues skipped", { repo: fullName, number, reason: "refine disabled" });
+
+    if (payload.action === "opened") {
+      if (!resolveRefineEnabled(repoRow.refine_enabled)) {
+        log.debug("issues skipped", { repo: fullName, number, reason: "refine disabled" });
+        return;
+      }
+      log.info("issue refine queued", { repo: fullName, number });
+      runRefine({
+        repoFullName: fullName,
+        installationId,
+        issueNumber: number,
+        issueTitle: payload.issue.title,
+      }).catch((err) => log.error("refine failed", { repo: fullName, number, error: String(err) }));
       return;
     }
 
-    log.info("issue refine queued", { repo: fullName, number });
-    runRefine({
+    // labeled
+    // No check on payload.sender/author here, deliberately: fouine's own
+    // refiner adds this label itself (via mark_issue_ready) when auto_ready is
+    // on, and it must fire the implementer exactly like a human labeling it
+    // would. implement_enabled (checked just below) still gates the
+    // implementer either way — auto_ready alone only labels the issue.
+    if (payload.label?.name !== resolveImplementLabel(repoRow.implement_label)) {
+      log.debug("issues skipped", { repo: fullName, number, reason: "not the implement label" });
+      return;
+    }
+    if (!resolveImplementEnabled(repoRow.implement_enabled)) {
+      log.debug("issues skipped", { repo: fullName, number, reason: "implement disabled" });
+      return;
+    }
+    log.info("issue implement queued", { repo: fullName, number });
+    runImplement({
       repoFullName: fullName,
       installationId,
       issueNumber: number,
       issueTitle: payload.issue.title,
     }).catch((err) =>
-      log.error("refine failed", { repo: fullName, number, error: String(err) }),
+      log.error("implement failed", { repo: fullName, number, error: String(err) }),
     );
   });
 

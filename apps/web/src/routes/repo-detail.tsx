@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +29,7 @@ import {
 import { ArrowLeft, Trash2, ExternalLink, ChevronRight, Sparkles, FolderX } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
+import { AUTOMATION_LEVELS, automationLevel, presetFlags } from "@/lib/automation";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { cn } from "@/lib/utils";
@@ -98,7 +100,7 @@ export default function RepoDetailPage() {
   const prGroups = useMemo(() => {
     const map = new Map<number, ReviewRow[]>();
     for (const r of reviews) {
-      if (r.trigger === "improve" || r.trigger === "refine") continue;
+      if (r.trigger === "improve" || r.trigger === "refine" || r.trigger === "implement") continue;
       const arr = map.get(r.pr_number);
       if (arr) arr.push(r);
       else map.set(r.pr_number, [r]);
@@ -107,10 +109,12 @@ export default function RepoDetailPage() {
   }, [reviews]);
 
   // Repo-level insight computed from the reviews we already fetch — same shape as
-  // the dashboard's stat strip, scoped to this repo. Improver and refine runs
+  // the dashboard's stat strip, scoped to this repo. Improver, refine and implement runs
   // don't count — neither is a PR review.
   const insight = useMemo(() => {
-    const prReviews = reviews.filter((r) => r.trigger !== "improve" && r.trigger !== "refine");
+    const prReviews = reviews.filter(
+      (r) => r.trigger !== "improve" && r.trigger !== "refine" && r.trigger !== "implement",
+    );
     const completed = prReviews.filter((r) => r.status === "completed");
     const finished = completed.length + prReviews.filter((r) => r.status === "failed").length;
     const durations = completed
@@ -136,6 +140,17 @@ export default function RepoDetailPage() {
   // null = inherit; 1 = on; 0 = explicitly off.
   const [refineEnabled, setRefineEnabled] = useState<number | null>(null);
   const [refinePrompt, setRefinePrompt] = useState("");
+  // Empty string = inherit the review model override, then the global default.
+  const [refineModel, setRefineModel] = useState("");
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [implementEnabled, setImplementEnabled] = useState<number | null>(null);
+  // Empty string = inherit the global label.
+  const [implementLabel, setImplementLabel] = useState("");
+  const [implementPrompt, setImplementPrompt] = useState("");
+  // Empty string = inherit the review model override, then the global default.
+  const [implementModel, setImplementModel] = useState("");
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [autoReady, setAutoReady] = useState<number | null>(null);
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
@@ -146,12 +161,35 @@ export default function RepoDetailPage() {
     mergeMethod: null as "merge" | "squash" | "rebase" | null,
     refineEnabled: null as number | null,
     refinePrompt: "",
+    refineModel: "",
+    implementEnabled: null as number | null,
+    implementLabel: "",
+    implementPrompt: "",
+    implementModel: "",
+    autoReady: null as number | null,
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Only to show which way "inherit" currently resolves. Same query key as the
   // settings page, so it's usually already cached.
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+
+  const globals = {
+    auto_merge: settings?.auto_merge === "1",
+    refine_enabled: settings?.refine_enabled === "1",
+    implement_enabled: settings?.implement_enabled === "1",
+    auto_ready: settings?.auto_ready === "1",
+  };
+  const currentLevel = automationLevel(
+    {
+      enabled: enabled ? 1 : 0,
+      auto_merge: autoMerge,
+      refine_enabled: refineEnabled,
+      implement_enabled: implementEnabled,
+      auto_ready: autoReady,
+    },
+    globals,
+  );
 
   // Hydrate once per repo, not on every refetch (SSE invalidation, polling)
   // — otherwise those clobber whatever the user is typing. Keyed on full_name
@@ -169,6 +207,12 @@ export default function RepoDetailPage() {
       const mm = repo.merge_method ?? null;
       const re = repo.refine_enabled ?? null;
       const rp = repo.refine_prompt ?? "";
+      const rm = repo.refine_model ?? "";
+      const ie = repo.implement_enabled ?? null;
+      const il = repo.implement_label ?? "";
+      const ip = repo.implement_prompt ?? "";
+      const im = repo.implement_model ?? "";
+      const ar = repo.auto_ready ?? null;
       setModel(m);
       setPrompt(p);
       setEnabled(e);
@@ -177,6 +221,12 @@ export default function RepoDetailPage() {
       setMergeMethod(mm);
       setRefineEnabled(re);
       setRefinePrompt(rp);
+      setRefineModel(rm);
+      setImplementEnabled(ie);
+      setImplementLabel(il);
+      setImplementPrompt(ip);
+      setImplementModel(im);
+      setAutoReady(ar);
       setBaseline({
         model: m,
         prompt: p,
@@ -186,6 +236,12 @@ export default function RepoDetailPage() {
         mergeMethod: mm,
         refineEnabled: re,
         refinePrompt: rp,
+        refineModel: rm,
+        implementEnabled: ie,
+        implementLabel: il,
+        implementPrompt: ip,
+        implementModel: im,
+        autoReady: ar,
       });
     }
   }, [repo]);
@@ -198,7 +254,13 @@ export default function RepoDetailPage() {
     autoMerge !== baseline.autoMerge ||
     mergeMethod !== baseline.mergeMethod ||
     refineEnabled !== baseline.refineEnabled ||
-    refinePrompt !== baseline.refinePrompt;
+    refinePrompt !== baseline.refinePrompt ||
+    refineModel !== baseline.refineModel ||
+    implementEnabled !== baseline.implementEnabled ||
+    implementLabel !== baseline.implementLabel ||
+    implementPrompt !== baseline.implementPrompt ||
+    implementModel !== baseline.implementModel ||
+    autoReady !== baseline.autoReady;
 
   const resetForm = () => {
     setModel(baseline.model);
@@ -209,6 +271,12 @@ export default function RepoDetailPage() {
     setMergeMethod(baseline.mergeMethod);
     setRefineEnabled(baseline.refineEnabled);
     setRefinePrompt(baseline.refinePrompt);
+    setRefineModel(baseline.refineModel);
+    setImplementEnabled(baseline.implementEnabled);
+    setImplementLabel(baseline.implementLabel);
+    setImplementPrompt(baseline.implementPrompt);
+    setImplementModel(baseline.implementModel);
+    setAutoReady(baseline.autoReady);
   };
 
   useEffect(() => {
@@ -241,6 +309,12 @@ export default function RepoDetailPage() {
         merge_method: mergeMethod,
         refine_enabled: refineEnabled,
         refine_prompt: refinePrompt.trim() || undefined,
+        refine_model: refineModel.trim() || null,
+        implement_enabled: implementEnabled,
+        implement_label: implementLabel.trim() || null,
+        implement_prompt: implementPrompt.trim() || undefined,
+        implement_model: implementModel.trim() || null,
+        auto_ready: autoReady,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
@@ -253,6 +327,12 @@ export default function RepoDetailPage() {
         mergeMethod,
         refineEnabled,
         refinePrompt,
+        refineModel,
+        implementEnabled,
+        implementLabel,
+        implementPrompt,
+        implementModel,
+        autoReady,
       });
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
@@ -414,6 +494,153 @@ export default function RepoDetailPage() {
             }}
             className="space-y-4"
           >
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-medium text-zinc-300 mb-1.5">Automation</legend>
+              <div className="rounded-md border border-zinc-800 divide-y divide-zinc-800">
+                {AUTOMATION_LEVELS.map((l) => (
+                  <label
+                    key={l.value}
+                    className="flex gap-3 p-3 has-[:checked]:bg-zinc-800/60 cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="automation"
+                      className="mt-0.5 h-4 w-4 accent-ember-500"
+                      checked={currentLevel === l.value}
+                      onChange={() => {
+                        const flags = presetFlags(l.value);
+                        setEnabled(flags.enabled === 1);
+                        setAutoMerge(flags.auto_merge);
+                        setRefineEnabled(flags.refine_enabled);
+                        setImplementEnabled(flags.implement_enabled);
+                        setAutoReady(flags.auto_ready);
+                      }}
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm text-zinc-200">{l.label}</span>
+                      <span className="block text-xs text-zinc-500">{l.hint}</span>
+                    </span>
+                  </label>
+                ))}
+                <label className="flex gap-3 p-3 has-[:checked]:bg-zinc-800/60">
+                  <input
+                    type="radio"
+                    name="automation"
+                    disabled
+                    className="mt-0.5 h-4 w-4 accent-ember-500"
+                    checked={currentLevel === "custom"}
+                  />
+                  <span className="space-y-0.5">
+                    <span className="block text-sm text-zinc-200">Custom</span>
+                    <span className="block text-xs text-zinc-500">
+                      Flags don't match a preset. Adjust below.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <details className="space-y-1.5 rounded-md border border-zinc-800 p-3">
+              <summary className="cursor-pointer text-sm text-zinc-400">
+                Advanced: individual switches
+              </summary>
+              <div className="mt-3 space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_merge">Auto-merge PRs once fouine approves</Label>
+                  <select
+                    id="auto_merge"
+                    className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    value={autoMerge === null ? "inherit" : String(autoMerge)}
+                    onChange={(e) =>
+                      setAutoMerge(e.target.value === "inherit" ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="inherit">
+                      Use global default (inherit: currently {settings?.auto_merge === "1" ? "on" : "off"})
+                    </option>
+                    <option value="1">On for this repo</option>
+                    <option value="0">Off for this repo</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="refine_enabled">Auto-refine issues on open</Label>
+                  <select
+                    id="refine_enabled"
+                    className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    value={refineEnabled === null ? "inherit" : String(refineEnabled)}
+                    onChange={(e) =>
+                      setRefineEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="inherit">
+                      Use global default (inherit: currently{" "}
+                      {settings?.refine_enabled === "1" ? "on" : "off"})
+                    </option>
+                    <option value="1">On for this repo</option>
+                    <option value="0">Off for this repo</option>
+                  </select>
+                  <p className="text-xs text-zinc-500">
+                    Refines a newly opened issue automatically. Always available on demand via{" "}
+                    <span className="font-mono">/fouine refine</span>.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="implement_enabled">Implement issues when labelled</Label>
+                  <select
+                    id="implement_enabled"
+                    className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    value={implementEnabled === null ? "inherit" : String(implementEnabled)}
+                    onChange={(e) =>
+                      setImplementEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="inherit">
+                      Use global default (inherit: currently{" "}
+                      {settings?.implement_enabled === "1" ? "on" : "off"})
+                    </option>
+                    <option value="1">On for this repo</option>
+                    <option value="0">Off for this repo</option>
+                  </select>
+                  <p className="text-xs text-zinc-500">
+                    Implements an issue once it's labelled. Always available on demand via{" "}
+                    <span className="font-mono">/fouine implement</span>.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_ready">Mark issues ready itself</Label>
+                  <select
+                    id="auto_ready"
+                    className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    value={autoReady === null ? "inherit" : String(autoReady)}
+                    onChange={(e) =>
+                      setAutoReady(e.target.value === "inherit" ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="inherit">
+                      Use global default (inherit: currently{" "}
+                      {settings?.auto_ready === "1" ? "on" : "off"})
+                    </option>
+                    <option value="1">On for this repo</option>
+                    <option value="0">Off for this repo</option>
+                  </select>
+                  <p className="text-xs text-zinc-500">
+                    fouine adds the ready label itself when the issue is clear; humans can still add
+                    it.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                  <input
+                    id="enabled"
+                    type="checkbox"
+                    className="h-4 w-4 accent-zinc-200"
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                  />
+                  Auto-review new PRs on this repo
+                </label>
+              </div>
+            </details>
+
             <div className="space-y-1.5">
               <Label htmlFor="model">Model override</Label>
               <ModelInput
@@ -452,23 +679,6 @@ export default function RepoDetailPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="auto_merge">Auto-merge PRs once fouine approves</Label>
-              <select
-                id="auto_merge"
-                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
-                value={autoMerge === null ? "inherit" : String(autoMerge)}
-                onChange={(e) =>
-                  setAutoMerge(e.target.value === "inherit" ? null : Number(e.target.value))
-                }
-              >
-                <option value="inherit">
-                  Use global default (inherit: currently {settings?.auto_merge === "1" ? "on" : "off"})
-                </option>
-                <option value="1">On for this repo</option>
-                <option value="0">Off for this repo</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
               <Label htmlFor="merge_method">Merge method</Label>
               <select
                 id="merge_method"
@@ -491,26 +701,13 @@ export default function RepoDetailPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="refine_enabled">Auto-refine issues on open</Label>
-              <select
-                id="refine_enabled"
-                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
-                value={refineEnabled === null ? "inherit" : String(refineEnabled)}
-                onChange={(e) =>
-                  setRefineEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
-                }
-              >
-                <option value="inherit">
-                  Use global default (inherit: currently{" "}
-                  {settings?.refine_enabled === "1" ? "on" : "off"})
-                </option>
-                <option value="1">On for this repo</option>
-                <option value="0">Off for this repo</option>
-              </select>
-              <p className="text-xs text-zinc-500">
-                Refines a newly opened issue automatically. Always available on demand via{" "}
-                <span className="font-mono">/fouine refine</span>.
-              </p>
+              <Label htmlFor="refine_model">Refine model override</Label>
+              <ModelInput
+                id="refine_model"
+                placeholder="provider/model (leave empty to inherit the review model)"
+                value={refineModel}
+                onChange={setRefineModel}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="refine_prompt">Refine prompt override</Label>
@@ -522,16 +719,37 @@ export default function RepoDetailPage() {
                 onChange={(e) => setRefinePrompt(e.target.value)}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
-              <input
-                id="enabled"
-                type="checkbox"
-                className="h-4 w-4 accent-zinc-200"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_label">Implement label</Label>
+              <Input
+                id="implement_label"
+                placeholder="fouine-ready"
+                value={implementLabel}
+                onChange={(e) => setImplementLabel(e.target.value)}
               />
-              Auto-review new PRs on this repo
-            </label>
+              <p className="text-xs text-zinc-500">
+                Label that triggers the implementer. Empty = inherit the global label.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_model">Implement model override</Label>
+              <ModelInput
+                id="implement_model"
+                placeholder="provider/model (leave empty to inherit the review model)"
+                value={implementModel}
+                onChange={setImplementModel}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_prompt">Implement prompt override</Label>
+              <Textarea
+                id="implement_prompt"
+                rows={8}
+                placeholder="Custom issue-implementation instructions for this repo..."
+                value={implementPrompt}
+                onChange={(e) => setImplementPrompt(e.target.value)}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={!dirty || updateMut.isPending}>
                 Save

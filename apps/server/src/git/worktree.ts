@@ -55,6 +55,49 @@ export async function removeWorktree(fullName: string, targetPath: string): Prom
   await git(["worktree", "prune", "--quiet"], bare).catch(() => {});
 }
 
+export async function hasChanges(worktreePath: string): Promise<boolean> {
+  const status = await git(["status", "--porcelain"], worktreePath);
+  return status.length > 0;
+}
+
+// Resets tracked files to HEAD, discarding any working-tree changes — used
+// right after `bun install` so a lockfile rewrite (no --frozen-lockfile, see
+// install.ts) never leaks into the agent's diff and ends up in the PR.
+export async function discardChanges(worktreePath: string): Promise<void> {
+  await git(["checkout", "--", "."], worktreePath);
+}
+
+export async function commitAll(
+  worktreePath: string,
+  message: string,
+  author: { name: string; email: string },
+): Promise<string> {
+  await git(["add", "-A"], worktreePath);
+  await git(
+    [
+      "-c",
+      `user.name=${author.name}`,
+      "-c",
+      `user.email=${author.email}`,
+      "commit",
+      "-q",
+      "-m",
+      message,
+    ],
+    worktreePath,
+  );
+  return git(["rev-parse", "HEAD"], worktreePath);
+}
+
+// Auth needs no extra plumbing — ensureBare refreshes origin's URL with the
+// installation token every run, and the worktree shares the bare's config (a
+// worktree has no origin remote of its own). Worktrees are `--detach`, so
+// pushing HEAD:refs/heads/<branch> is how the branch gets created or updated —
+// there is no local branch to push otherwise.
+export async function pushHead(worktreePath: string, branch: string): Promise<void> {
+  await git(["push", "--quiet", "origin", `HEAD:refs/heads/${branch}`], worktreePath);
+}
+
 export async function fetchRef(fullName: string, ref: string): Promise<string> {
   const bare = barePath(fullName);
   await git(["fetch", "origin", `${ref}:ref`, "--quiet", "--force"], bare).catch(() =>

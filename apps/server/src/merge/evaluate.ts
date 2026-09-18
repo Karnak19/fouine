@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { findings, mergeArms, repos, reviews } from "~/db";
 import { resolveAutoMerge, resolveMergeMethod } from "~/settings";
 import { GitHubService } from "~/effect/github";
-import { shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
+import { isBotLogin, shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
 import { renderRecap } from "~/merge/recap";
 import { log } from "~/server/log";
 
@@ -113,8 +113,12 @@ export function evaluatePipeline(
     const fouineRaw = reviewsList.filter(
       (r) => r.user && r.user === botLogin && r.commit_id === arm.head_sha,
     );
+    // "Human" means not-a-bot, not merely not-fouine: an auto-approve workflow
+    // (github-actions[bot]) or another review bot submits real APPROVED
+    // reviews, and letting those satisfy the bot-authored-PR guard would be
+    // the bot-ships-its-own-code case that guard exists to prevent.
     const humanReviews: MergeReview[] = reviewsList
-      .filter((r) => r.user && r.user !== botLogin)
+      .filter((r) => r.user && !isBotLogin(r.user, botLogin))
       .map((r) => ({ user: r.user!, state: r.state, submitted_at: r.submitted_at }));
     const fouineReviews: MergeReview[] = fouineRaw.map((r) => ({
       user: r.user!,
@@ -132,6 +136,7 @@ export function evaluatePipeline(
       checks: checkData.checks,
       statuses: checkData.statuses,
       requiredChecks,
+      authorIsBot: isBotLogin(pull.author, botLogin),
     };
 
     const decision = shouldMerge(state);

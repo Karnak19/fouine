@@ -168,6 +168,17 @@ for (const def of [
 // repos.refine_enabled / repos.refine_prompt are the issue refiner's per-repo
 // overrides, same NULL-means-inherit shape again. refine_enabled only gates the
 // automatic trigger (issue opened) — `/fouine refine` works on any enabled repo.
+// repos.implement_enabled / repos.implement_label / repos.implement_prompt are
+// the issue implementer's per-repo overrides, same NULL-means-inherit shape.
+// implement_enabled only gates the automatic trigger (issue labeled with
+// implement_label) — `/fouine implement` works on any enabled repo.
+// repos.refine_model / repos.implement_model are per-repo model overrides for
+// the refiner/implementer. NULL falls back to repos.model (the review
+// override), then the global default — see resolveRefineModel/resolveImplementModel.
+// repos.auto_ready is the per-repo opt-in for the refiner labeling an issue
+// ready itself (via mark_issue_ready), same NULL-means-inherit shape. It only
+// lets the refiner ADD the label; a human adding it always works, and
+// implement_enabled still gates the implementer — auto_ready alone just labels.
 for (const def of [
   "enabled INTEGER NOT NULL DEFAULT 0",
   "deny_test_commands INTEGER",
@@ -175,6 +186,12 @@ for (const def of [
   "merge_method TEXT",
   "refine_enabled INTEGER",
   "refine_prompt TEXT",
+  "implement_enabled INTEGER",
+  "implement_label TEXT",
+  "implement_prompt TEXT",
+  "refine_model TEXT",
+  "implement_model TEXT",
+  "auto_ready INTEGER",
 ])
   addColumn("repos", def);
 
@@ -255,12 +272,22 @@ export const repos = {
       $merge_method: string | null;
       $refine_enabled: number | null;
       $refine_prompt: string | null;
+      $implement_enabled: number | null;
+      $implement_label: string | null;
+      $implement_prompt: string | null;
+      $refine_model: string | null;
+      $implement_model: string | null;
+      $auto_ready: number | null;
     }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
        deny_test_commands = $deny_test_commands, auto_merge = $auto_merge,
        merge_method = $merge_method, refine_enabled = $refine_enabled,
-       refine_prompt = $refine_prompt WHERE full_name = $full_name`,
+       refine_prompt = $refine_prompt, implement_enabled = $implement_enabled,
+       implement_label = $implement_label, implement_prompt = $implement_prompt,
+       refine_model = $refine_model, implement_model = $implement_model,
+       auto_ready = $auto_ready
+     WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",
@@ -337,6 +364,14 @@ export const reviews = {
   ),
   byRepoPR: db.prepare<ReviewRow, { $repo: string; $pr: number; $limit: number }>(
     "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
+  ),
+  // How many refine rows this issue has ever had — the webhook's follow-up path
+  // uses this as the round counter and the cap (see refineFollowUpDecision in
+  // server/webhook.ts). Counts every status, including the cap's own fake
+  // 'failed' marker row, deliberately: that's what makes the >= 4 rule stop
+  // re-announcing the cap on every later human comment.
+  countRefinesForIssue: db.prepare<{ count: number }, { $repo: string; $pr: number }>(
+    `SELECT COUNT(*) AS count FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr AND trigger = 'refine'`,
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
   // Rows still claiming to be in flight. At boot these are necessarily orphans:
@@ -473,8 +508,9 @@ export const reviews = {
   ),
   // PRs with a completed review since a timestamp — the improver's work list.
   // pr_number > 0 excludes improver runs themselves (stored with pr_number = 0);
-  // the trigger filter excludes refiner runs, which DO carry a real number (the
-  // issue's) and would otherwise be handed to the improver as PRs to learn from.
+  // the trigger filter excludes refiner and implementer runs, which DO carry a
+  // real number (the issue's) and would otherwise be handed to the improver as
+  // PRs to learn from.
   // `status = 'completed'` also excludes skips: a skip must never make the
   // improver think a PR was reviewed in this window — there is no session to learn from.
   // LIMIT keeps one improver session's context bounded on a busy repo; the
@@ -484,7 +520,7 @@ export const reviews = {
      FROM reviews
      WHERE repo_full_name = $repo AND status = 'completed'
        AND pr_number > 0 AND created_at > $since
-       AND (trigger IS NULL OR trigger NOT IN ('improve', 'refine'))
+       AND (trigger IS NULL OR trigger NOT IN ('improve', 'refine', 'implement'))
      GROUP BY pr_number
      ORDER BY last DESC
      LIMIT 20`,

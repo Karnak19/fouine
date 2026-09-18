@@ -1,7 +1,9 @@
 import { config } from "~/config";
 import { settingValue } from "~/db";
+import type { RepoRow } from "@fouine/shared";
 import { DEFAULT_PROMPT } from "~/review/prompt";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
+import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
 
 export const SETTINGS = {
   API_KEY: "opencode_api_key",
@@ -14,7 +16,15 @@ export const SETTINGS = {
   MERGE_METHOD: "merge_method",
   REFINE_ENABLED: "refine_enabled",
   DEFAULT_REFINE_PROMPT: "default_refine_prompt",
+  IMPLEMENT_ENABLED: "implement_enabled",
+  IMPLEMENT_LABEL: "implement_label",
+  DEFAULT_IMPLEMENT_PROMPT: "default_implement_prompt",
+  AUTO_READY: "auto_ready",
 } as const;
+
+// The label that, applied to an issue, triggers the implementer when
+// implement_enabled is on. Overridable per-repo and globally.
+export const DEFAULT_IMPLEMENT_LABEL = "fouine-ready";
 
 export type MergeMethod = "merge" | "squash" | "rebase";
 export const MERGE_METHODS: readonly MergeMethod[] = ["merge", "squash", "rebase"];
@@ -97,4 +107,52 @@ export function resolveRefineEnabled(repoValue: number | null): boolean {
 
 export function resolveRefinePrompt(repoPrompt: string | null): string {
   return repoPrompt?.trim() || settingValue(SETTINGS.DEFAULT_REFINE_PROMPT) || DEFAULT_REFINE_PROMPT;
+}
+
+// Auto-implement opt-in, same repo-wins, 0-included shape as resolveRefineEnabled.
+// Default OFF: a label alone must never start pushing code for someone. Only
+// gates the AUTOMATIC trigger (issue labeled) — `/fouine implement` works on
+// any enabled repo.
+export function resolveImplementEnabled(repoValue: number | null): boolean {
+  if (repoValue !== null) return repoValue === 1;
+  return settingValue(SETTINGS.IMPLEMENT_ENABLED) === "1";
+}
+
+// The label that triggers auto-implement: repo override, then the global
+// setting, then the built-in default.
+export function resolveImplementLabel(repoValue: string | null): string {
+  return repoValue?.trim() || settingValue(SETTINGS.IMPLEMENT_LABEL) || DEFAULT_IMPLEMENT_LABEL;
+}
+
+export function resolveImplementPrompt(repoPrompt: string | null): string {
+  return (
+    repoPrompt?.trim() || settingValue(SETTINGS.DEFAULT_IMPLEMENT_PROMPT) || DEFAULT_IMPLEMENT_PROMPT
+  );
+}
+
+// Auto-ready opt-in, same repo-wins, 0-included shape as resolveRefineEnabled.
+// Default OFF: this only lets the refiner add the implement label itself (via
+// mark_issue_ready) once it judges an issue unambiguous. A human adding the
+// label always works regardless of this flag. implement_enabled still gates
+// the implementer, so auto_ready alone just labels the issue — it never starts
+// code being written on its own.
+export function resolveAutoReady(repoValue: number | null): boolean {
+  if (repoValue !== null) return repoValue === 1;
+  return settingValue(SETTINGS.AUTO_READY) === "1";
+}
+
+// Refiner model: per-repo refiner override, else the repo's review model
+// override, else the global default.
+export function resolveRefineModel(
+  repo: Pick<RepoRow, "refine_model" | "model"> | null | undefined,
+): string {
+  return repo?.refine_model || repo?.model || resolveDefaultModel();
+}
+
+// Implementer model: per-repo implementer override, else the repo's review
+// model override, else the global default.
+export function resolveImplementModel(
+  repo: Pick<RepoRow, "implement_model" | "model"> | null | undefined,
+): string {
+  return repo?.implement_model || repo?.model || resolveDefaultModel();
 }

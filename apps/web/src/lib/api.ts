@@ -148,6 +148,13 @@ export interface Settings {
   // "1" = on, "" = delete the row (off). Default off.
   refine_enabled?: string;
   default_refine_prompt?: string;
+  // "1" = on, "" = delete the row (off). Default off.
+  implement_enabled?: string;
+  // Empty string = use the built-in default ("fouine-ready").
+  implement_label?: string;
+  default_implement_prompt?: string;
+  // "1" = on, "" = delete the row (off). Default off.
+  auto_ready?: string;
 }
 
 // Route query objects go straight to Eden — it drops null/undefined keys
@@ -180,6 +187,16 @@ export const api = {
         // 1/0, null = inherit the global default. Absent leaves it unchanged.
         refine_enabled?: number | null;
         refine_prompt?: string;
+        // 1/0, null = inherit the global default. Absent leaves it unchanged.
+        implement_enabled?: number | null;
+        // null = inherit the global label. Absent leaves it unchanged.
+        implement_label?: string | null;
+        // 1/0, null = inherit the global default. Absent leaves it unchanged.
+        auto_ready?: number | null;
+        implement_prompt?: string;
+        // null = inherit the review model override (then the global default). Absent leaves it unchanged.
+        refine_model?: string | null;
+        implement_model?: string | null;
       },
     ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>
@@ -192,6 +209,8 @@ export const api = {
       unwrap<{ ok: boolean }>(await c.repos({ owner })({ name }).improve.post()),
     refine: async (owner: string, name: string, issue: number) =>
       unwrap<{ ok: boolean }>(await c.repos({ owner })({ name }).refine({ issue }).post()),
+    implement: async (owner: string, name: string, issue: number) =>
+      unwrap<{ ok: boolean }>(await c.repos({ owner })({ name }).implement({ issue }).post()),
   },
   reviews: {
     list: async () => unwrap<ReviewRow[]>(await c.reviews.get()),

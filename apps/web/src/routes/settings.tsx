@@ -35,6 +35,10 @@ export default function SettingsPage() {
   const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
   const [refineEnabled, setRefineEnabled] = useState(false);
   const [refinePrompt, setRefinePrompt] = useState("");
+  const [implementEnabled, setImplementEnabled] = useState(false);
+  const [implementLabel, setImplementLabel] = useState("");
+  const [implementPrompt, setImplementPrompt] = useState("");
+  const [autoReady, setAutoReady] = useState(false);
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
@@ -48,6 +52,10 @@ export default function SettingsPage() {
     mergeMethod: "squash" as "merge" | "squash" | "rebase",
     refineEnabled: false,
     refinePrompt: "",
+    implementEnabled: false,
+    implementLabel: "",
+    implementPrompt: "",
+    autoReady: false,
   });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
@@ -65,6 +73,10 @@ export default function SettingsPage() {
       const mm = settings.merge_method ?? "squash";
       const re = settings.refine_enabled === "1";
       const rp = settings.default_refine_prompt ?? "";
+      const ie = settings.implement_enabled === "1";
+      const il = settings.implement_label ?? "";
+      const ip = settings.default_implement_prompt ?? "";
+      const ar = settings.auto_ready === "1";
       setModel(m);
       setPrompt(p);
       setImproverModel(im);
@@ -73,6 +85,10 @@ export default function SettingsPage() {
       setMergeMethod(mm);
       setRefineEnabled(re);
       setRefinePrompt(rp);
+      setImplementEnabled(ie);
+      setImplementLabel(il);
+      setImplementPrompt(ip);
+      setAutoReady(ar);
       setBaseline({
         model: m,
         prompt: p,
@@ -82,6 +98,10 @@ export default function SettingsPage() {
         mergeMethod: mm,
         refineEnabled: re,
         refinePrompt: rp,
+        implementEnabled: ie,
+        implementLabel: il,
+        implementPrompt: ip,
+        autoReady: ar,
       });
     }
   }, [settings]);
@@ -96,7 +116,11 @@ export default function SettingsPage() {
     autoMerge !== baseline.autoMerge ||
     mergeMethod !== baseline.mergeMethod ||
     refineEnabled !== baseline.refineEnabled ||
-    refinePrompt !== baseline.refinePrompt;
+    refinePrompt !== baseline.refinePrompt ||
+    implementEnabled !== baseline.implementEnabled ||
+    implementLabel !== baseline.implementLabel ||
+    implementPrompt !== baseline.implementPrompt ||
+    autoReady !== baseline.autoReady;
 
   const reset = () => {
     setApiKey("");
@@ -109,6 +133,10 @@ export default function SettingsPage() {
     setMergeMethod(baseline.mergeMethod);
     setRefineEnabled(baseline.refineEnabled);
     setRefinePrompt(baseline.refinePrompt);
+    setImplementEnabled(baseline.implementEnabled);
+    setImplementLabel(baseline.implementLabel);
+    setImplementPrompt(baseline.implementPrompt);
+    setAutoReady(baseline.autoReady);
   };
 
   useEffect(() => {
@@ -139,6 +167,10 @@ export default function SettingsPage() {
       data.merge_method = mergeMethod;
       data.refine_enabled = refineEnabled ? "1" : "";
       if (refinePrompt.trim()) data.default_refine_prompt = refinePrompt.trim();
+      data.implement_enabled = implementEnabled ? "1" : "";
+      data.implement_label = implementLabel.trim();
+      if (implementPrompt.trim()) data.default_implement_prompt = implementPrompt.trim();
+      data.auto_ready = autoReady ? "1" : "";
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -154,6 +186,10 @@ export default function SettingsPage() {
         mergeMethod,
         refineEnabled,
         refinePrompt,
+        implementEnabled,
+        implementLabel,
+        implementPrompt,
+        autoReady,
       });
       toast.success("Settings saved");
     },
@@ -325,6 +361,50 @@ export default function SettingsPage() {
               </p>
             </div>
             <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="implement_enabled"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={implementEnabled}
+                  onChange={(e) => setImplementEnabled(e.target.checked)}
+                />
+                Implement issues automatically when labelled
+              </label>
+              <p className="text-xs text-zinc-500">
+                Default for every repo. Always available on demand via{" "}
+                <span className="font-mono">/fouine implement</span> on an issue. A repo can
+                override this.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="auto_ready"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={autoReady}
+                  onChange={(e) => setAutoReady(e.target.checked)}
+                />
+                Refiner marks issues ready
+              </label>
+              <p className="text-xs text-zinc-500">
+                fouine adds the ready label itself when the issue is clear; humans can still add it.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_label">Implement label</Label>
+              <Input
+                id="implement_label"
+                placeholder="fouine-ready"
+                value={implementLabel}
+                onChange={(e) => setImplementLabel(e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                Label that triggers the implementer. A repo can override this.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="prompt">Default review prompt</Label>
               <Textarea
                 id="prompt"
@@ -342,6 +422,16 @@ export default function SettingsPage() {
                 placeholder="Refiner instructions applied when a repo has no override..."
                 value={refinePrompt}
                 onChange={(e) => setRefinePrompt(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="default_implement_prompt">Default implement prompt</Label>
+              <Textarea
+                id="default_implement_prompt"
+                rows={10}
+                placeholder="Implementer instructions applied when a repo has no override..."
+                value={implementPrompt}
+                onChange={(e) => setImplementPrompt(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">

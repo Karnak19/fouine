@@ -18,7 +18,7 @@ const FULL = "acme/improver";
 
 function seedRepo(enabled = 1) {
   repos.upsert.run({ $full_name: FULL, $installation_id: 5, $prompt: null, $model: null });
-  repos.update.run({ $full_name: FULL, $prompt: null, $model: null, $enabled: enabled, $deny_test_commands: null, $auto_merge: null, $merge_method: null , $refine_enabled: null, $refine_prompt: null});
+  repos.update.run({ $full_name: FULL, $prompt: null, $model: null, $enabled: enabled, $deny_test_commands: null, $auto_merge: null, $merge_method: null , $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null, $auto_ready: null});
 }
 
 // agoSeconds backdates created_at: the marker and unixepoch() share second
@@ -80,7 +80,7 @@ test("improver gating: runs on fresh feedback, then once a day, never without re
 test("improver gating: failed run does not advance the marker", async () => {
   const full = "acme/improver-fail";
   repos.upsert.run({ $full_name: full, $installation_id: 5, $prompt: null, $model: null });
-  repos.update.run({ $full_name: full, $prompt: null, $model: null, $enabled: 1, $deny_test_commands: null, $auto_merge: null, $merge_method: null , $refine_enabled: null, $refine_prompt: null});
+  repos.update.run({ $full_name: full, $prompt: null, $model: null, $enabled: 1, $deny_test_commands: null, $auto_merge: null, $merge_method: null , $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null, $auto_ready: null});
   const row = reviews.insert.get({
     $repo: full,
     $pr: 1,

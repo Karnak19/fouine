@@ -18,21 +18,41 @@ Risks are the things that break silently: shared helpers with other callers, mig
 
 Never propose code, never propose a patch, never open a PR. You are refining the request, not fulfilling it.`;
 
-export function buildRefinePrompt(issue: IssueInfo, userPrompt: string | null): string {
+export function buildRefinePrompt(
+  issue: IssueInfo,
+  userPrompt: string | null,
+  round = 1,
+): string {
   const focus = userPrompt?.trim() || DEFAULT_REFINE_PROMPT;
   const lines = [
     `# Issue refinement request`,
     ``,
     `- Repository: ${issue.repoFullName}`,
     `- Issue #${issue.number}: ${issue.title}`,
+    `- Round: ${round}`,
     ``,
+  ];
+  if (round > 1) {
+    lines.push(
+      `## Follow-up`,
+      ``,
+      `This is a follow-up round: you already posted a refinement comment on this issue, and a`,
+      `human has since replied in the discussion. Read the whole thread below before answering.`,
+      `Answer only what is still open — do not repeat sections that are already settled.`,
+      `If every blocking question is now answered and the issue is clear, call \`mark_issue_ready\``,
+      `after posting your comment. Otherwise list what is still blocking under a`,
+      `"## Blocking questions" heading.`,
+      ``,
+    );
+  }
+  lines.push(
     `The repository is checked out at the default branch in the current directory. Explore it —`,
     `read the code this issue would touch before you write a single question.`,
     ``,
     `## Issue body`,
     ``,
     issue.body.trim() || "_(no description provided)_",
-  ];
+  );
   if (issue.comments.length > 0) {
     lines.push(``, `## Discussion (oldest first, last ${issue.comments.length} comments)`, ``);
     for (const c of issue.comments) {
