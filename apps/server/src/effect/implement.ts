@@ -155,7 +155,7 @@ export function implementPipeline(
             owner,
             repoName,
             target.issueNumber,
-            `🦡 I didn't change anything for this issue.\n\n${result.text.trim().slice(0, 4000)}`,
+            `🦡 I didn't change anything for this issue.\n\n${summary}`,
           );
           yield* db.complete(id, result.cost, result.tokens, model, null);
           return;
