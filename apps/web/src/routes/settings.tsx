@@ -38,6 +38,7 @@ export default function SettingsPage() {
   const [implementEnabled, setImplementEnabled] = useState(false);
   const [implementLabel, setImplementLabel] = useState("");
   const [implementPrompt, setImplementPrompt] = useState("");
+  const [autoReady, setAutoReady] = useState(false);
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
@@ -54,6 +55,7 @@ export default function SettingsPage() {
     implementEnabled: false,
     implementLabel: "",
     implementPrompt: "",
+    autoReady: false,
   });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
@@ -74,6 +76,7 @@ export default function SettingsPage() {
       const ie = settings.implement_enabled === "1";
       const il = settings.implement_label ?? "";
       const ip = settings.default_implement_prompt ?? "";
+      const ar = settings.auto_ready === "1";
       setModel(m);
       setPrompt(p);
       setImproverModel(im);
@@ -85,6 +88,7 @@ export default function SettingsPage() {
       setImplementEnabled(ie);
       setImplementLabel(il);
       setImplementPrompt(ip);
+      setAutoReady(ar);
       setBaseline({
         model: m,
         prompt: p,
@@ -97,6 +101,7 @@ export default function SettingsPage() {
         implementEnabled: ie,
         implementLabel: il,
         implementPrompt: ip,
+        autoReady: ar,
       });
     }
   }, [settings]);
@@ -114,7 +119,8 @@ export default function SettingsPage() {
     refinePrompt !== baseline.refinePrompt ||
     implementEnabled !== baseline.implementEnabled ||
     implementLabel !== baseline.implementLabel ||
-    implementPrompt !== baseline.implementPrompt;
+    implementPrompt !== baseline.implementPrompt ||
+    autoReady !== baseline.autoReady;
 
   const reset = () => {
     setApiKey("");
@@ -130,6 +136,7 @@ export default function SettingsPage() {
     setImplementEnabled(baseline.implementEnabled);
     setImplementLabel(baseline.implementLabel);
     setImplementPrompt(baseline.implementPrompt);
+    setAutoReady(baseline.autoReady);
   };
 
   useEffect(() => {
@@ -163,6 +170,7 @@ export default function SettingsPage() {
       data.implement_enabled = implementEnabled ? "1" : "";
       data.implement_label = implementLabel.trim();
       if (implementPrompt.trim()) data.default_implement_prompt = implementPrompt.trim();
+      data.auto_ready = autoReady ? "1" : "";
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -181,6 +189,7 @@ export default function SettingsPage() {
         implementEnabled,
         implementLabel,
         implementPrompt,
+        autoReady,
       });
       toast.success("Settings saved");
     },
@@ -366,6 +375,21 @@ export default function SettingsPage() {
                 Default for every repo. Always available on demand via{" "}
                 <span className="font-mono">/fouine implement</span> on an issue. A repo can
                 override this.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="auto_ready"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={autoReady}
+                  onChange={(e) => setAutoReady(e.target.checked)}
+                />
+                Refiner marks issues ready
+              </label>
+              <p className="text-xs text-zinc-500">
+                fouine adds the ready label itself when the issue is clear; humans can still add it.
               </p>
             </div>
             <div className="space-y-1.5">

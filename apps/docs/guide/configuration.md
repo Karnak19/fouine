@@ -46,6 +46,7 @@ The dashboard (accessible at your server URL) allows setting:
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 - **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).
 - **Merge method** — `merge` / `squash` / `rebase`, default `squash`. See the [merger guide](/guide/merger).
+- **Refiner marks issues ready** — on/off, default off. Global default for the per-repo "Mark issues ready itself" switch; see [Per-repo settings](#per-repo-settings) below.
 
 ::: warning Chat needs an OpenAI-compatible model
 The opencode-go gateway is not uniformly OpenAI-shaped: each model declares which SDK it needs, and a few use the Anthropic API shape.
@@ -84,15 +85,18 @@ Each registered repo can have:
 - **Enabled/disabled** — toggle reviews without removing the repo
 - **Auto-merge** and **merge method** — inherit the global setting, or override per repo. See the [merger guide](/guide/merger).
 - **Refine model** and **implement model** — the refiner and the implementer can each have their own model override for that repo, falling back to the repo's review model override, then the global default.
+- **Mark issues ready itself** (`auto_ready`) — on/off, or unset to inherit the global default. Under "Advanced" on the repo page. When on, the refiner decides on its own whether an issue is clear enough to implement, and if so adds the repo's implement label (`fouine-ready` by default) right after posting its refinement comment. If something is still unclear, the comment lists it under "Blocking questions" and no label is added. It won't label an issue it thinks is harmful or out of scope for the repo, it says so in the comment instead.
 
-The repo page shows an **automation level**, derived from the repo's four
-flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled`) — there
-is no stored mode, just the flags:
+  When a human replies on an issue that already has a refinement comment but no ready label, fouine runs another refinement round on the thread and answers only what's still open (bot comments and `/fouine` commands don't trigger this). This can happen up to 3 times; past that, fouine posts one comment asking a human to add the label, or to comment `/fouine refine` to force one more round. A human can add the label directly at any point, with or without this flag. Turning `auto_ready` on without `implement_enabled` just gets issues labelled, nothing gets implemented.
 
-- **Off** — all four flags off. Nothing runs automatically; slash commands still work.
+The repo page shows an **automation level**, derived from the repo's five
+flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled`,
+`auto_ready`) — there is no stored mode, just the flags:
+
+- **Off** — all five flags off. Nothing runs automatically; slash commands still work.
 - **Review** — `enabled` on, the rest off. Reviews PRs, never merges, never touches issues.
 - **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges PRs once approved and CI is green.
-- **Autonomous** — all four flags on. Reviews and merges PRs, refines new issues, implements labelled issues.
+- **Autonomous** — all five flags on. Reviews and merges PRs, refines new issues, marks them ready itself, and implements them, so nothing needs a human between opening the issue and approving the PR.
 
 **Custom** shows up when a repo's flags don't match any of the above — set the
 individual switches under "Advanced" on the repo page.

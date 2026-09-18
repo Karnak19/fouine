@@ -175,6 +175,10 @@ for (const def of [
 // repos.refine_model / repos.implement_model are per-repo model overrides for
 // the refiner/implementer. NULL falls back to repos.model (the review
 // override), then the global default — see resolveRefineModel/resolveImplementModel.
+// repos.auto_ready is the per-repo opt-in for the refiner labeling an issue
+// ready itself (via mark_issue_ready), same NULL-means-inherit shape. It only
+// lets the refiner ADD the label; a human adding it always works, and
+// implement_enabled still gates the implementer — auto_ready alone just labels.
 for (const def of [
   "enabled INTEGER NOT NULL DEFAULT 0",
   "deny_test_commands INTEGER",
@@ -187,6 +191,7 @@ for (const def of [
   "implement_prompt TEXT",
   "refine_model TEXT",
   "implement_model TEXT",
+  "auto_ready INTEGER",
 ])
   addColumn("repos", def);
 
@@ -272,6 +277,7 @@ export const repos = {
       $implement_prompt: string | null;
       $refine_model: string | null;
       $implement_model: string | null;
+      $auto_ready: number | null;
     }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
@@ -279,7 +285,8 @@ export const repos = {
        merge_method = $merge_method, refine_enabled = $refine_enabled,
        refine_prompt = $refine_prompt, implement_enabled = $implement_enabled,
        implement_label = $implement_label, implement_prompt = $implement_prompt,
-       refine_model = $refine_model, implement_model = $implement_model
+       refine_model = $refine_model, implement_model = $implement_model,
+       auto_ready = $auto_ready
      WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(
@@ -357,6 +364,14 @@ export const reviews = {
   ),
   byRepoPR: db.prepare<ReviewRow, { $repo: string; $pr: number; $limit: number }>(
     "SELECT * FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id DESC LIMIT $limit",
+  ),
+  // How many refine rows this issue has ever had — the webhook's follow-up path
+  // uses this as the round counter and the cap (see refineFollowUpDecision in
+  // server/webhook.ts). Counts every status, including the cap's own fake
+  // 'failed' marker row, deliberately: that's what makes the >= 4 rule stop
+  // re-announcing the cap on every later human comment.
+  countRefinesForIssue: db.prepare<{ count: number }, { $repo: string; $pr: number }>(
+    `SELECT COUNT(*) AS count FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr AND trigger = 'refine'`,
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
   // Rows still claiming to be in flight. At boot these are necessarily orphans:

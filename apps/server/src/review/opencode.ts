@@ -93,10 +93,18 @@ export function improveToolEnv(ctx: Omit<ReviewToolContext, "prNumber">): Record
 // (Issue and PR numbers share one sequence per repo, so the number is
 // unambiguous.)
 export function refineToolEnv(
-  ctx: Omit<ReviewToolContext, "prNumber"> & { issueNumber: number },
+  ctx: Omit<ReviewToolContext, "prNumber"> & { issueNumber: number; readyLabel?: string },
 ): Record<string, string> {
-  const { issueNumber, ...rest } = ctx;
-  return reviewToolEnv({ ...rest, prNumber: issueNumber });
+  const { issueNumber, readyLabel, ...rest } = ctx;
+  const env = reviewToolEnv({ ...rest, prNumber: issueNumber });
+  // Read by mark_issue_ready.ts — the label the refiner applies to hand the
+  // issue to the implementer. Resolved per-repo before the run starts (see
+  // refinePipeline), same NULL-means-inherit precedence as the implement label.
+  // Optional: effect/implement.ts also reuses this helper (for the
+  // FOUINE_PR_NUMBER trick) but its agent has no mark_issue_ready tool, so it
+  // has no reason to pass one.
+  if (readyLabel) env.FOUINE_READY_LABEL = readyLabel;
+  return env;
 }
 
 export interface RunResult {

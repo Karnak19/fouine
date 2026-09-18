@@ -1,7 +1,12 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import { resolveRefinePrompt, resolveRefineModel } from "~/settings";
+import {
+  resolveAutoReady,
+  resolveImplementLabel,
+  resolveRefineModel,
+  resolveRefinePrompt,
+} from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { internalSecret, internalBaseUrl } from "~/server/internal";
@@ -19,6 +24,10 @@ export interface RefineTarget {
   installationId: number;
   issueNumber: number;
   issueTitle: string;
+  // Which refine round this is: 1 for the first (default when omitted), 2+ for
+  // a follow-up after a human replied in the issue discussion — see
+  // refineFollowUpDecision in server/webhook.ts.
+  round?: number;
 }
 
 // The third pipeline on the reviews table: refine an incoming ISSUE instead of
@@ -78,7 +87,11 @@ export function refinePipeline(
         yield* git.addWorktree(target.repoFullName, sha, worktree);
 
         const repoRow = yield* db.getRepo(target.repoFullName);
-        const prompt = buildRefinePrompt(issue, resolveRefinePrompt(repoRow?.refine_prompt ?? null));
+        const prompt = buildRefinePrompt(
+          issue,
+          resolveRefinePrompt(repoRow?.refine_prompt ?? null),
+          target.round ?? 1,
+        );
         const model = resolveRefineModel(repoRow);
 
         const result = yield* oc.runReview(
@@ -97,6 +110,12 @@ export function refinePipeline(
               reviewId: id,
               internalUrl: internalBaseUrl,
               internalSecret,
+              // Only when the repo opted in: without the env var,
+              // mark_issue_ready is a no-op that tells the agent a human must
+              // label — the flag stays the single switch for auto-labelling.
+              readyLabel: resolveAutoReady(repoRow?.auto_ready ?? null)
+                ? resolveImplementLabel(repoRow?.implement_label ?? null)
+                : undefined,
             }),
           },
           (sessionId) =>

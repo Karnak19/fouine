@@ -41,6 +41,7 @@ export default function ReposPage() {
     auto_merge: settings?.auto_merge === "1",
     refine_enabled: settings?.refine_enabled === "1",
     implement_enabled: settings?.implement_enabled === "1",
+    auto_ready: settings?.auto_ready === "1",
   };
 
   // Global scope: repo CRUD can happen for any repo, not just one we're viewing.
@@ -171,7 +172,12 @@ function RepoRow({
   globals,
 }: {
   repo: RepoRow;
-  globals: { auto_merge: boolean; refine_enabled: boolean; implement_enabled: boolean };
+  globals: {
+    auto_merge: boolean;
+    refine_enabled: boolean;
+    implement_enabled: boolean;
+    auto_ready: boolean;
+  };
 }) {
   const [owner, name] = repo.full_name.split("/");
   const queryClient = useQueryClient();
