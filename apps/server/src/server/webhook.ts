@@ -237,9 +237,8 @@ export function registerHandlers(): void {
     if (!payload.issue.pull_request) {
       const installationId = payload.installation?.id;
       if (isStopCommand(body, trigger)) {
-        // `stop` on an issue must abort both — a refine and an implement can
-        // never both be running for the same issue, but the caller shouldn't
-        // have to know that.
+        // `stop` on an issue aborts both pipelines — the caller shouldn't
+        // have to know which one is running.
         const stopped =
           abortRefinesForIssue(fullName, prNumber) + abortImplementsForIssue(fullName, prNumber);
         log.info(`${trigger} stop (issue)`, { repo: fullName, number: prNumber, stopped });
