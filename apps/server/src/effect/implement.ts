@@ -113,7 +113,6 @@ export function implementPipeline(
           branch,
           resolveImplementPrompt(repoRow?.implement_prompt ?? null),
         );
-        // Precedence: repo.implement_model -> repo.model (review override) -> global default.
         const model = resolveImplementModel(repoRow);
 
         const result = yield* oc.runReview(

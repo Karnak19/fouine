@@ -25,26 +25,19 @@ export function automationLevel(
   globals?: { auto_merge: boolean; refine_enabled: boolean; implement_enabled: boolean },
 ): AutomationLevel {
   const resolve = (value: number | null, global: boolean | undefined): number =>
-    value !== null ? value : globals && global ? 1 : 0;
+    value !== null ? value : global ? 1 : 0;
   const flags: Flags = {
     enabled: repo.enabled === 1 ? 1 : 0,
     auto_merge: resolve(repo.auto_merge, globals?.auto_merge),
     refine_enabled: resolve(repo.refine_enabled, globals?.refine_enabled),
     implement_enabled: resolve(repo.implement_enabled, globals?.implement_enabled),
   };
-  const levels: Exclude<AutomationLevel, "custom">[] = ["off", "review", "review+merge", "autonomous"];
-  for (const level of levels) {
-    const p = presetFlags(level);
-    if (
-      p.enabled === flags.enabled &&
-      p.auto_merge === flags.auto_merge &&
-      p.refine_enabled === flags.refine_enabled &&
-      p.implement_enabled === flags.implement_enabled
-    ) {
-      return level;
-    }
-  }
-  return "custom";
+  // Both literals are built in this file with the same key order, so string
+  // equality is flag equality.
+  return (
+    AUTOMATION_LEVELS.find((l) => JSON.stringify(presetFlags(l.value)) === JSON.stringify(flags))
+      ?.value ?? "custom"
+  );
 }
 
 export const AUTOMATION_LEVELS: {
