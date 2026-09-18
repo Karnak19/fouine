@@ -25,7 +25,7 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
     $enabled: 0,
     $deny_test_commands: 1,
     $auto_merge: null,
-    $merge_method: null, $refine_enabled: null, $refine_prompt: null
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
   });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
@@ -580,7 +580,7 @@ test("repos.upsert never clobbers auto_merge/merge_method overrides", () => {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: "rebase", $refine_enabled: null, $refine_prompt: null
+    $merge_method: "rebase", $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
   });
 
   // A re-sighting webhook re-upserts: installation_id updates, the merger
@@ -665,6 +665,9 @@ test("repos: refine_enabled / refine_prompt round-trip and survive upsert", () =
     $merge_method: null,
     $refine_enabled: 1,
     $refine_prompt: "ask about migrations",
+    $implement_enabled: null,
+    $implement_label: null,
+    $implement_prompt: null,
   });
   // Re-sighting the repo must not clobber a dashboard override.
   repos.upsert.run({ $full_name: full, $installation_id: 2, $prompt: null, $model: null });
@@ -698,6 +701,7 @@ test("reviewedPRsSince excludes refiner and improver rows", () => {
   };
   done(11, "opened");
   done(12, "refine");
+  done(13, "implement");
   done(0, "improve");
   expect(
     reviews.reviewedPRsSince.all({ $repo: full, $since: 0 }).map((r) => r.pr_number),

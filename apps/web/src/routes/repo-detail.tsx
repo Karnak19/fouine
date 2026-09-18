@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,6 +137,11 @@ export default function RepoDetailPage() {
   // null = inherit; 1 = on; 0 = explicitly off.
   const [refineEnabled, setRefineEnabled] = useState<number | null>(null);
   const [refinePrompt, setRefinePrompt] = useState("");
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [implementEnabled, setImplementEnabled] = useState<number | null>(null);
+  // Empty string = inherit the global label.
+  const [implementLabel, setImplementLabel] = useState("");
+  const [implementPrompt, setImplementPrompt] = useState("");
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
@@ -146,6 +152,9 @@ export default function RepoDetailPage() {
     mergeMethod: null as "merge" | "squash" | "rebase" | null,
     refineEnabled: null as number | null,
     refinePrompt: "",
+    implementEnabled: null as number | null,
+    implementLabel: "",
+    implementPrompt: "",
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -169,6 +178,9 @@ export default function RepoDetailPage() {
       const mm = repo.merge_method ?? null;
       const re = repo.refine_enabled ?? null;
       const rp = repo.refine_prompt ?? "";
+      const ie = repo.implement_enabled ?? null;
+      const il = repo.implement_label ?? "";
+      const ip = repo.implement_prompt ?? "";
       setModel(m);
       setPrompt(p);
       setEnabled(e);
@@ -177,6 +189,9 @@ export default function RepoDetailPage() {
       setMergeMethod(mm);
       setRefineEnabled(re);
       setRefinePrompt(rp);
+      setImplementEnabled(ie);
+      setImplementLabel(il);
+      setImplementPrompt(ip);
       setBaseline({
         model: m,
         prompt: p,
@@ -186,6 +201,9 @@ export default function RepoDetailPage() {
         mergeMethod: mm,
         refineEnabled: re,
         refinePrompt: rp,
+        implementEnabled: ie,
+        implementLabel: il,
+        implementPrompt: ip,
       });
     }
   }, [repo]);
@@ -198,7 +216,10 @@ export default function RepoDetailPage() {
     autoMerge !== baseline.autoMerge ||
     mergeMethod !== baseline.mergeMethod ||
     refineEnabled !== baseline.refineEnabled ||
-    refinePrompt !== baseline.refinePrompt;
+    refinePrompt !== baseline.refinePrompt ||
+    implementEnabled !== baseline.implementEnabled ||
+    implementLabel !== baseline.implementLabel ||
+    implementPrompt !== baseline.implementPrompt;
 
   const resetForm = () => {
     setModel(baseline.model);
@@ -209,6 +230,9 @@ export default function RepoDetailPage() {
     setMergeMethod(baseline.mergeMethod);
     setRefineEnabled(baseline.refineEnabled);
     setRefinePrompt(baseline.refinePrompt);
+    setImplementEnabled(baseline.implementEnabled);
+    setImplementLabel(baseline.implementLabel);
+    setImplementPrompt(baseline.implementPrompt);
   };
 
   useEffect(() => {
@@ -241,6 +265,9 @@ export default function RepoDetailPage() {
         merge_method: mergeMethod,
         refine_enabled: refineEnabled,
         refine_prompt: refinePrompt.trim() || undefined,
+        implement_enabled: implementEnabled,
+        implement_label: implementLabel.trim() || null,
+        implement_prompt: implementPrompt.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
@@ -253,6 +280,9 @@ export default function RepoDetailPage() {
         mergeMethod,
         refineEnabled,
         refinePrompt,
+        implementEnabled,
+        implementLabel,
+        implementPrompt,
       });
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
@@ -520,6 +550,50 @@ export default function RepoDetailPage() {
                 placeholder="Custom issue-refinement instructions for this repo..."
                 value={refinePrompt}
                 onChange={(e) => setRefinePrompt(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_enabled">Implement issues when labelled</Label>
+              <select
+                id="implement_enabled"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={implementEnabled === null ? "inherit" : String(implementEnabled)}
+                onChange={(e) =>
+                  setImplementEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                }
+              >
+                <option value="inherit">
+                  Use global default (inherit: currently{" "}
+                  {settings?.implement_enabled === "1" ? "on" : "off"})
+                </option>
+                <option value="1">On for this repo</option>
+                <option value="0">Off for this repo</option>
+              </select>
+              <p className="text-xs text-zinc-500">
+                Implements an issue once it's labelled. Always available on demand via{" "}
+                <span className="font-mono">/fouine implement</span>.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_label">Implement label</Label>
+              <Input
+                id="implement_label"
+                placeholder="fouine-ready"
+                value={implementLabel}
+                onChange={(e) => setImplementLabel(e.target.value)}
+              />
+              <p className="text-xs text-zinc-500">
+                Label that triggers the implementer. Empty = inherit the global label.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="implement_prompt">Implement prompt override</Label>
+              <Textarea
+                id="implement_prompt"
+                rows={8}
+                placeholder="Custom issue-implementation instructions for this repo..."
+                value={implementPrompt}
+                onChange={(e) => setImplementPrompt(e.target.value)}
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">

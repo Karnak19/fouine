@@ -87,7 +87,8 @@ export default function ReviewDetailPage() {
   const retryMut = useMutation({
     // Improver runs aren't bound to a PR — retrying one re-runs the improver
     // for its repo, not the PR-review pipeline (which would fetch PR #0).
-    // Refine runs are bound to an issue, not a PR — same story, different route.
+    // Refine and implement runs are bound to an issue, not a PR — same story,
+    // different routes.
     mutationFn: () => {
       if (review?.trigger === "improve") {
         const [owner, name] = review.repo_full_name.split("/");
@@ -96,6 +97,10 @@ export default function ReviewDetailPage() {
       if (review?.trigger === "refine") {
         const [owner, name] = review.repo_full_name.split("/");
         return api.repos.refine(owner, name, review.pr_number);
+      }
+      if (review?.trigger === "implement") {
+        const [owner, name] = review.repo_full_name.split("/");
+        return api.repos.implement(owner, name, review.pr_number);
       }
       return api.reviews.retry(numId);
     },
@@ -224,10 +229,13 @@ export default function ReviewDetailPage() {
   const wasInProgress = useRef(false);
   useEffect(() => {
     if (!review) return;
-    // Improver and refiner runs post no structured findings — the transcript
-    // is the whole story.
+    // Improver, refiner and implementer runs post no structured findings —
+    // the transcript is the whole story.
     setTab(
-      inProgress || review.trigger === "improve" || review.trigger === "refine"
+      inProgress ||
+        review.trigger === "improve" ||
+        review.trigger === "refine" ||
+        review.trigger === "implement"
         ? "transcript"
         : "review",
     );
@@ -261,6 +269,7 @@ export default function ReviewDetailPage() {
   const [owner, name] = review.repo_full_name.split("/");
   const isImprover = review.trigger === "improve";
   const isRefiner = review.trigger === "refine";
+  const isImplementer = review.trigger === "implement";
   const messages = session?.messages ?? [];
 
   return (
@@ -286,7 +295,7 @@ export default function ReviewDetailPage() {
               >
                 {review.repo_full_name}
               </Link>
-            ) : isRefiner ? (
+            ) : isRefiner || isImplementer ? (
               <a
                 href={`https://github.com/${owner}/${name}/issues/${review.pr_number}`}
                 target="_blank"
@@ -339,7 +348,7 @@ export default function ReviewDetailPage() {
           onClick={() => retryMut.mutate()}
         >
           <RotateCw size={14} />
-          {isImprover || isRefiner ? "Re-run" : "Retry"}
+          {isImprover || isRefiner || isImplementer ? "Re-run" : "Retry"}
         </Button>
       </div>
 
@@ -379,7 +388,7 @@ export default function ReviewDetailPage() {
           <div
             role="tablist"
             className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
-              isImprover || isRefiner ? "hidden" : ""
+              isImprover || isRefiner || isImplementer ? "hidden" : ""
             }`}
           >
             <Button

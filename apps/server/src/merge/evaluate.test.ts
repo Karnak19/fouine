@@ -13,7 +13,7 @@ function armedRepo(full: string, pr: number, sha: string) {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: null, $refine_enabled: null, $refine_prompt: null
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
   });
   mergeArms.arm.run({ $repo: full, $pr: pr, $sha: sha, $by: "alice" });
 }

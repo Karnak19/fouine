@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { shouldMerge, latestFouineReview, type MergeState } from "~/merge/decide";
+import { shouldMerge, latestFouineReview, isBotLogin, type MergeState } from "~/merge/decide";
 
 const SHA = "abc1234";
 
@@ -14,6 +14,7 @@ function baseState(overrides: Partial<MergeState> = {}): MergeState {
     checks: [{ name: "ci", status: "completed", conclusion: "success" }],
     statuses: [],
     requiredChecks: null,
+    authorIsBot: false,
     ...overrides,
   };
 }
@@ -186,4 +187,51 @@ test("requiredChecks waits when a required check has not reported at all", () =>
   const d = shouldMerge(baseState({ checks: [], statuses: [], requiredChecks: ["required-ci"] }));
   expect(d.ok).toBe(false);
   if (!d.ok) expect(d.wait).toBe(true);
+});
+
+test("bot-authored PR with only fouine's approval is blocked", () => {
+  const d = shouldMerge(baseState({ authorIsBot: true }));
+  expect(d.ok).toBe(false);
+  if (!d.ok) expect(d.wait).toBe(false);
+});
+
+test("bot-authored PR merges once a human has approved", () => {
+  const d = shouldMerge(
+    baseState({
+      authorIsBot: true,
+      humanReviews: [{ user: "alice", state: "APPROVED", submitted_at: "2026-01-01" }],
+    }),
+  );
+  expect(d.ok).toBe(true);
+});
+
+test("bot-authored PR is blocked again if the approving human later requests changes", () => {
+  const d = shouldMerge(
+    baseState({
+      authorIsBot: true,
+      humanReviews: [
+        { user: "alice", state: "APPROVED", submitted_at: "2026-01-01T00:00:00Z" },
+        { user: "alice", state: "CHANGES_REQUESTED", submitted_at: "2026-01-02T00:00:00Z" },
+      ],
+    }),
+  );
+  expect(d.ok).toBe(false);
+});
+
+test("bot-authored PR is not satisfied by a human COMMENT-only review", () => {
+  const d = shouldMerge(
+    baseState({
+      authorIsBot: true,
+      humanReviews: [{ user: "alice", state: "COMMENT", submitted_at: "2026-01-01" }],
+    }),
+  );
+  expect(d.ok).toBe(false);
+});
+
+test("isBotLogin", () => {
+  expect(isBotLogin("fouine[bot]", undefined)).toBe(true);
+  expect(isBotLogin("dependabot[bot]", undefined)).toBe(true);
+  expect(isBotLogin("fouine-slug", "fouine-slug")).toBe(true);
+  expect(isBotLogin("alice", "fouine-slug")).toBe(false);
+  expect(isBotLogin(null, "fouine-slug")).toBe(false);
 });

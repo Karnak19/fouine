@@ -197,6 +197,20 @@ function ReviewTableRow({ r }: { r: ReviewRow }) {
               <ExternalLink size={12} className="inline ml-1" />
             </a>
           </div>
+        ) : r.trigger === "implement" ? (
+          <div className="flex items-center gap-1.5 relative z-10">
+            <span className="text-sm text-zinc-400">implementer</span>
+            <a
+              href={`https://github.com/${owner}/${name}/issues/${r.pr_number}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open issue #${r.pr_number} on GitHub`}
+              className="text-zinc-500 hover:text-zinc-300"
+            >
+              #{r.pr_number}
+              <ExternalLink size={12} className="inline ml-1" />
+            </a>
+          </div>
         ) : (
           <div className="flex items-center gap-1.5 relative z-10">
             <Link

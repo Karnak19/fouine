@@ -11,7 +11,7 @@ import {
 import { SETTINGS, resolveDefaultModel } from "~/settings";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
-import { runReviewForPR, abortReview, runImproverForRepo, runRefine } from "~/review";
+import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
 import { withOpencode, runReview } from "~/review/opencode";
 import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
@@ -290,6 +290,12 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $refine_enabled:
           body.refine_enabled === undefined ? existing.refine_enabled : body.refine_enabled,
         $refine_prompt: body.refine_prompt === undefined ? existing.refine_prompt : body.refine_prompt,
+        $implement_enabled:
+          body.implement_enabled === undefined ? existing.implement_enabled : body.implement_enabled,
+        $implement_label:
+          body.implement_label === undefined ? existing.implement_label : body.implement_label,
+        $implement_prompt:
+          body.implement_prompt === undefined ? existing.implement_prompt : body.implement_prompt,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -307,6 +313,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         ),
         refine_enabled: t.Optional(t.Union([t.Number(), t.Null()])),
         refine_prompt: t.Optional(t.Union([t.String(), t.Null()])),
+        implement_enabled: t.Optional(t.Union([t.Number(), t.Null()])),
+        implement_label: t.Optional(t.Union([t.String(), t.Null()])),
+        implement_prompt: t.Optional(t.Union([t.String(), t.Null()])),
       }),
     },
   )
@@ -348,6 +357,21 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       // reviews-row label.
       issueTitle: `Issue #${params.issue}`,
     }).catch((err) => log.error("refine failed", { repo: full, error: String(err) }));
+    set.status = 202;
+    return { ok: true };
+  })
+
+  // Manual/dashboard re-run of the issue implementer. Fire-and-forget like
+  // refine: 202 means "queued".
+  .post("/repos/:owner/:name/implement/:issue", ({ params, set }) => {
+    const full = `${params.owner}/${params.name}`;
+    const repo = repos.get.get({ $full_name: full });
+    if (!repo) return new Response("Not found", { status: 404 });
+    runImplement({
+      repoFullName: full,
+      installationId: repo.installation_id,
+      issueNumber: Number(params.issue),
+    }).catch((err) => log.error("implement failed", { repo: full, error: String(err) }));
     set.status = 202;
     return { ok: true };
   })
@@ -575,6 +599,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.MERGE_METHOD, body.merge_method);
       setKey(SETTINGS.REFINE_ENABLED, body.refine_enabled);
       setKey(SETTINGS.DEFAULT_REFINE_PROMPT, body.default_refine_prompt);
+      setKey(SETTINGS.IMPLEMENT_ENABLED, body.implement_enabled);
+      setKey(SETTINGS.IMPLEMENT_LABEL, body.implement_label);
+      setKey(SETTINGS.DEFAULT_IMPLEMENT_PROMPT, body.default_implement_prompt);
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }
@@ -598,6 +625,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),
         default_refine_prompt: t.Optional(t.String()),
+        implement_enabled: t.Optional(t.String()),
+        implement_label: t.Optional(t.String()),
+        default_implement_prompt: t.Optional(t.String()),
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),
