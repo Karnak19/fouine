@@ -79,7 +79,6 @@ export function refinePipeline(
 
         const repoRow = yield* db.getRepo(target.repoFullName);
         const prompt = buildRefinePrompt(issue, resolveRefinePrompt(repoRow?.refine_prompt ?? null));
-        // Precedence: repo.refine_model -> repo.model (review override) -> global default.
         const model = resolveRefineModel(repoRow);
 
         const result = yield* oc.runReview(
