@@ -4,6 +4,7 @@ import type { PullRequestInfo } from "~/review/types";
 import { AppLayer, reviewPipeline } from "~/effect";
 import { improvePipeline, type ImproveTarget } from "~/effect/improve";
 import { refinePipeline, type RefineTarget } from "~/effect/refine";
+import { implementPipeline, type ImplementTarget } from "~/effect/implement";
 import { log } from "~/server/log";
 
 // ponytail: tracks live reviews so the dashboard Stop button can abort the
@@ -47,8 +48,18 @@ export function abortRefinesForIssue(repoFullName: string, issueNumber: number):
   return abortByKey(refineKey(repoFullName, issueNumber));
 }
 
+// Same namespace idea, its own key so `/fouine stop` can target implement runs
+// independently of refine runs on the same issue.
+export function abortImplementsForIssue(repoFullName: string, issueNumber: number): number {
+  return abortByKey(implementKey(repoFullName, issueNumber));
+}
+
 function refineKey(repoFullName: string, issueNumber: number): string {
   return `${repoFullName}#issue#${issueNumber}`;
+}
+
+function implementKey(repoFullName: string, issueNumber: number): string {
+  return `${repoFullName}#implement#${issueNumber}`;
 }
 
 function prKey(pr: PullRequestInfo): string {
@@ -180,6 +191,25 @@ export function runRefine(target: RefineTarget): Promise<void> {
   const ctrl = new AbortController();
   let id: number | undefined;
   const program = refinePipeline(target, ctrl.signal, (rid) => {
+    id = rid;
+    activeReviews.set(rid, { ctrl, key });
+  }).pipe(Effect.provide(AppLayer));
+
+  return Effect.runPromise(program).finally(() => {
+    if (id !== undefined) activeReviews.delete(id);
+  });
+}
+
+// Same bridge for the issue implementer. Registers in the same map, so the
+// dashboard Stop button, `/fouine stop` and re-trigger supersession all work
+// like for reviews.
+export function runImplement(target: ImplementTarget): Promise<void> {
+  const key = implementKey(target.repoFullName, target.issueNumber);
+  supersedeInFlight(key);
+
+  const ctrl = new AbortController();
+  let id: number | undefined;
+  const program = implementPipeline(target, ctrl.signal, (rid) => {
     id = rid;
     activeReviews.set(rid, { ctrl, key });
   }).pipe(Effect.provide(AppLayer));

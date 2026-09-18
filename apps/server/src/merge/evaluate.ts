@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { findings, mergeArms, repos, reviews } from "~/db";
 import { resolveAutoMerge, resolveMergeMethod } from "~/settings";
 import { GitHubService } from "~/effect/github";
-import { shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
+import { isBotLogin, shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
 import { renderRecap } from "~/merge/recap";
 import { log } from "~/server/log";
 
@@ -132,6 +132,7 @@ export function evaluatePipeline(
       checks: checkData.checks,
       statuses: checkData.statuses,
       requiredChecks,
+      authorIsBot: isBotLogin(pull.author, botLogin),
     };
 
     const decision = shouldMerge(state);

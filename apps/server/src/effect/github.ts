@@ -234,6 +234,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         draft: boolean;
         mergeable: boolean | null;
         merged: boolean;
+        author: string | null;
       },
       GitHubError
     > =>
@@ -246,6 +247,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
             draft: !!data.draft,
             mergeable: data.mergeable ?? null,
             merged: !!data.merged,
+            author: data.user?.login ?? null,
           };
         },
         catch: (cause) => new GitHubError({ op: "pulls.get", cause }),

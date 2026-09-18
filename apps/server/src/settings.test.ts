@@ -8,8 +8,13 @@ import {
   resolveMergeMethod,
   resolveRefineEnabled,
   resolveRefinePrompt,
+  resolveImplementEnabled,
+  resolveImplementLabel,
+  resolveImplementPrompt,
+  DEFAULT_IMPLEMENT_LABEL,
 } from "~/settings";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
+import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
 
 afterEach(() => {
   settings.set.run({ $key: SETTINGS.API_KEY, $value: "" });
@@ -18,6 +23,9 @@ afterEach(() => {
   settings.del.run({ $key: SETTINGS.MERGE_METHOD });
   settings.del.run({ $key: SETTINGS.REFINE_ENABLED });
   settings.del.run({ $key: SETTINGS.DEFAULT_REFINE_PROMPT });
+  settings.del.run({ $key: SETTINGS.IMPLEMENT_ENABLED });
+  settings.del.run({ $key: SETTINGS.IMPLEMENT_LABEL });
+  settings.del.run({ $key: SETTINGS.DEFAULT_IMPLEMENT_PROMPT });
 });
 
 test("resolveAutoMerge: repo override wins whenever set, 0 included", () => {
@@ -73,4 +81,30 @@ test("resolveRefinePrompt: repo override, then global, then the built-in default
   expect(resolveRefinePrompt("repo focus")).toBe("repo focus");
   // Whitespace-only is not an override.
   expect(resolveRefinePrompt("   ")).toBe("global focus");
+});
+
+test("resolveImplementEnabled: default off, repo override wins whenever set", () => {
+  expect(resolveImplementEnabled(null)).toBe(false);
+  settings.set.run({ $key: SETTINGS.IMPLEMENT_ENABLED, $value: "1" });
+  expect(resolveImplementEnabled(null)).toBe(true);
+  expect(resolveImplementEnabled(0)).toBe(false); // explicit repo off beats a global on
+  expect(resolveImplementEnabled(1)).toBe(true);
+});
+
+test("resolveImplementLabel: repo override, then global, then the built-in default", () => {
+  expect(resolveImplementLabel(null)).toBe(DEFAULT_IMPLEMENT_LABEL);
+  settings.set.run({ $key: SETTINGS.IMPLEMENT_LABEL, $value: "ship-it" });
+  expect(resolveImplementLabel(null)).toBe("ship-it");
+  expect(resolveImplementLabel("go")).toBe("go");
+  // Whitespace-only is not an override.
+  expect(resolveImplementLabel("   ")).toBe("ship-it");
+});
+
+test("resolveImplementPrompt: repo override, then global, then the built-in default", () => {
+  expect(resolveImplementPrompt(null)).toBe(DEFAULT_IMPLEMENT_PROMPT);
+  settings.set.run({ $key: SETTINGS.DEFAULT_IMPLEMENT_PROMPT, $value: "global focus" });
+  expect(resolveImplementPrompt(null)).toBe("global focus");
+  expect(resolveImplementPrompt("repo focus")).toBe("repo focus");
+  // Whitespace-only is not an override.
+  expect(resolveImplementPrompt("   ")).toBe("global focus");
 });

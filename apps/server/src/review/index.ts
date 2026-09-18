@@ -4,6 +4,8 @@ export {
   abortReviewsForPR,
   abortRefinesForIssue,
   runRefine,
+  abortImplementsForIssue,
+  runImplement,
 } from "~/review/runner";
 export { runImproverForRepo, runImproverSweep } from "~/review/improver";
 export { reapOrphanReviews, reapStaleArms } from "~/review/reap";

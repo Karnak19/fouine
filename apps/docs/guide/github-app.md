@@ -14,12 +14,12 @@ fouine connects to GitHub as a GitHub App. This gives it per-repo access, webhoo
 3. Set **Repository permissions**:
    - **Pull requests**: Read & Write (to post comments and reviews)
    - **Contents**: Read & Write (Read to clone repos; Write so the self-improvement loop can propose `REVIEW.md` updates as a PR — Read alone works if you don't use it)
-   - **Issues**: Read & Write (only needed for issue refinement — comment on issues with `/fouine refine`)
+   - **Issues**: Read & Write (only needed for issue refinement/implementation — comment on issues with `/fouine refine` / `/fouine implement`)
 
 4. Set **Subscribe to events**:
    - **Pull request**
    - **Issue comment** (for `/fouine` triggers)
-   - **Issues** (only needed for issue refinement — auto-refine on issue opened when the per-repo toggle is on)
+   - **Issues** (only needed for issue refinement/implementation — auto-refine on issue opened, or auto-implement on `labeled`, when the per-repo toggle is on)
    - **Pull request review** (merger: re-evaluate an armed PR once a review is submitted)
    - **Check run** (merger: re-evaluate once a check completes)
    - **Check suite** (merger: re-evaluate once a suite completes)

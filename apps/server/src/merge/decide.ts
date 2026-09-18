@@ -31,6 +31,18 @@ export interface MergeState {
   // Names of required checks/statuses from branch protection, or null when
   // unreadable (403/404) — null means "all checks on the head SHA count".
   requiredChecks: string[] | null;
+  // Was this PR opened by a bot (e.g. fouine's own implementer)? If so, fouine
+  // approving and merging it alone would mean a bot reviewed and shipped its
+  // own code with no human in the loop — a human APPROVED is required too.
+  authorIsBot: boolean;
+}
+
+// True when `login` is a bot account: GitHub bot logins end in "[bot]", and
+// the App's own login (from GitHubService.botLogin()) is compared directly in
+// case a caller passes the bare slug. Missing login defaults to "not a bot".
+export function isBotLogin(login: string | null | undefined, botLogin: string | undefined): boolean {
+  if (!login) return false;
+  return login.endsWith("[bot]") || login === botLogin;
 }
 
 export type MergeDecision = { ok: true } | { ok: false; reason: string; wait: boolean };
@@ -94,6 +106,17 @@ export function shouldMerge(state: MergeState): MergeDecision {
     const latest = latestVerdict(reviews);
     if (latest?.state === "CHANGES_REQUESTED") {
       return blocked(`@${user} requested changes and hasn't approved since`);
+    }
+  }
+
+  // 4b. A bot-authored PR (fouine's own implementer output) must not merge on
+  // fouine's approval alone — that's a bot reviewing and shipping its own
+  // code with nobody watching. Require at least one human whose standing
+  // verdict is APPROVED.
+  if (state.authorIsBot) {
+    const humanApproved = [...humanByUser.values()].some((reviews) => latestVerdict(reviews)?.state === "APPROVED");
+    if (!humanApproved) {
+      return blocked("PR was authored by a bot — a human approval is required");
     }
   }
 

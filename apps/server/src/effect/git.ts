@@ -1,5 +1,15 @@
 import { Effect, Schedule } from "effect";
-import { addWorktree, ensureBare, fetchRef, patchId, removeWorktree } from "~/git/worktree";
+import {
+  addWorktree,
+  commitAll,
+  discardChanges,
+  ensureBare,
+  fetchRef,
+  hasChanges,
+  patchId,
+  pushHead,
+  removeWorktree,
+} from "~/git/worktree";
 import { log } from "~/server/log";
 import { GitError } from "~/effect/errors";
 
@@ -43,5 +53,32 @@ export class GitService extends Effect.Service<GitService>()("app/GitService", {
     // prunes and never rejects; a failure there must never mask the review.
     removeWorktree: (fullName: string, target: string): Effect.Effect<void> =>
       Effect.promise(() => removeWorktree(fullName, target)),
+
+    hasChanges: (worktreePath: string): Effect.Effect<boolean, GitError> =>
+      Effect.tryPromise({
+        try: () => hasChanges(worktreePath),
+        catch: (cause) => new GitError({ op: "hasChanges", cause }),
+      }),
+
+    discardChanges: (worktreePath: string): Effect.Effect<void, GitError> =>
+      Effect.tryPromise({
+        try: () => discardChanges(worktreePath),
+        catch: (cause) => new GitError({ op: "discardChanges", cause }),
+      }),
+
+    // No retry: an actual commit failure (nothing staged, bad author config) is
+    // a real problem, not a flaky network op.
+    commitAll: (
+      worktreePath: string,
+      message: string,
+      author: { name: string; email: string },
+    ): Effect.Effect<string, GitError> =>
+      Effect.tryPromise({
+        try: () => commitAll(worktreePath, message, author),
+        catch: (cause) => new GitError({ op: "commitAll", cause }),
+      }),
+
+    pushHead: (worktreePath: string, branch: string): Effect.Effect<void, GitError> =>
+      withRetry("pushHead", () => pushHead(worktreePath, branch)),
   }),
 }) {}
