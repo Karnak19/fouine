@@ -172,6 +172,9 @@ for (const def of [
 // the issue implementer's per-repo overrides, same NULL-means-inherit shape.
 // implement_enabled only gates the automatic trigger (issue labeled with
 // implement_label) — `/fouine implement` works on any enabled repo.
+// repos.refine_model / repos.implement_model are per-repo model overrides for
+// the refiner/implementer. NULL falls back to repos.model (the review
+// override), then the global default — see resolveRefineModel/resolveImplementModel.
 for (const def of [
   "enabled INTEGER NOT NULL DEFAULT 0",
   "deny_test_commands INTEGER",
@@ -182,6 +185,8 @@ for (const def of [
   "implement_enabled INTEGER",
   "implement_label TEXT",
   "implement_prompt TEXT",
+  "refine_model TEXT",
+  "implement_model TEXT",
 ])
   addColumn("repos", def);
 
@@ -265,13 +270,16 @@ export const repos = {
       $implement_enabled: number | null;
       $implement_label: string | null;
       $implement_prompt: string | null;
+      $refine_model: string | null;
+      $implement_model: string | null;
     }
   >(
     `UPDATE repos SET prompt = $prompt, model = $model, enabled = $enabled,
        deny_test_commands = $deny_test_commands, auto_merge = $auto_merge,
        merge_method = $merge_method, refine_enabled = $refine_enabled,
        refine_prompt = $refine_prompt, implement_enabled = $implement_enabled,
-       implement_label = $implement_label, implement_prompt = $implement_prompt
+       implement_label = $implement_label, implement_prompt = $implement_prompt,
+       refine_model = $refine_model, implement_model = $implement_model
      WHERE full_name = $full_name`,
   ),
   remove: db.prepare<null, { $full_name: string }>(

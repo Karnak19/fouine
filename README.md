@@ -40,6 +40,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 - **Self-improvement loop** — once a day (per repo, when there's new feedback), an outer-loop improver agent re-reads the review threads fouine participated in, distills how humans responded to its comments, and proposes an updated `REVIEW.md` as a PR on your repo. Merge it and every future review picks up the learning; close it to reject. Also triggerable on demand via `POST /api/repos/:owner/:name/improve`. Needs the `contents:write` App permission (branch + commit for the proposal PR)
 - **Issue refinement** — the refiner comments on a GitHub issue with clarifying questions, proposed acceptance criteria, the files it'll likely touch, a size estimate (S/M/L), and risks. Triggers on `/fouine refine` on an issue, or automatically when an issue is opened if the per-repo refine toggle is on (default off). `/fouine stop` aborts an in-progress refine. Needs the `issues:write` App permission
 - **Implementer** — `/fouine implement` or the `fouine-ready` label (per-repo toggle, default off) has fouine implement the issue on `fouine/issue-<n>`, open a PR with `Closes #<n>`, and the PR goes through the normal review. The merger requires a human approval on fouine-authored PRs
+- **Per-repo refiner/implementer model** — the refiner and the implementer can each have their own model override, falling back to the repo's review model override, then the global default
 
 ## Tech stack
 
@@ -80,6 +81,19 @@ with no login.
 See [`.env.example`](.env.example) for the annotated list, or the
 [Configuration guide](https://karnak19.github.io/fouine/guide/configuration) for
 the full reference (login setup, log levels, timeouts, data paths).
+
+### Automation levels
+
+Each repo's dashboard page shows an automation level, derived from its four
+flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled` — no
+stored mode):
+
+- **Off** — all four flags off. Does nothing automatically; slash commands still work.
+- **Review** — `enabled` on, the rest off. Reviews PRs, never merges, never touches issues.
+- **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges PRs once approved and CI is green.
+- **Autonomous** — all four flags on. Reviews and merges PRs, refines new issues, implements labelled issues.
+
+**Custom** shows up instead when a repo's flags don't match any of the above.
 
 ### AI observability (PostHog, optional)
 

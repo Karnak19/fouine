@@ -1,5 +1,6 @@
 import { config } from "~/config";
 import { settingValue } from "~/db";
+import type { RepoRow } from "@fouine/shared";
 import { DEFAULT_PROMPT } from "~/review/prompt";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
 import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
@@ -126,4 +127,20 @@ export function resolveImplementPrompt(repoPrompt: string | null): string {
   return (
     repoPrompt?.trim() || settingValue(SETTINGS.DEFAULT_IMPLEMENT_PROMPT) || DEFAULT_IMPLEMENT_PROMPT
   );
+}
+
+// Refiner model: per-repo refiner override, else the repo's review model
+// override, else the global default.
+export function resolveRefineModel(
+  repo: Pick<RepoRow, "refine_model" | "model"> | null | undefined,
+): string {
+  return repo?.refine_model || repo?.model || resolveDefaultModel();
+}
+
+// Implementer model: per-repo implementer override, else the repo's review
+// model override, else the global default.
+export function resolveImplementModel(
+  repo: Pick<RepoRow, "implement_model" | "model"> | null | undefined,
+): string {
+  return repo?.implement_model || repo?.model || resolveDefaultModel();
 }

@@ -56,7 +56,7 @@ function setRepo(
     $refine_prompt: null,
     $implement_enabled: implementEnabled,
     $implement_label: implementLabel,
-    $implement_prompt: null,
+    $implement_prompt: null, $refine_model: null, $implement_model: null
   });
 }
 

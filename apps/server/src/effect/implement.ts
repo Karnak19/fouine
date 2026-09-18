@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import { resolveDefaultModel, resolveImplementPrompt } from "~/settings";
+import { resolveImplementModel, resolveImplementPrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { internalSecret, internalBaseUrl } from "~/server/internal";
@@ -113,7 +113,8 @@ export function implementPipeline(
           branch,
           resolveImplementPrompt(repoRow?.implement_prompt ?? null),
         );
-        const model = repoRow?.model || resolveDefaultModel();
+        // Precedence: repo.implement_model -> repo.model (review override) -> global default.
+        const model = resolveImplementModel(repoRow);
 
         const result = yield* oc.runReview(
           {

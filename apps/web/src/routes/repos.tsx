@@ -20,6 +20,7 @@ import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { automationLevel } from "@/lib/automation";
 
 export default function ReposPage() {
   const queryClient = useQueryClient();
@@ -32,6 +33,15 @@ export default function ReposPage() {
     queryKey: ["repos"],
     queryFn: api.repos.list,
   });
+
+  // Same query key as the detail page's settings query, so it's usually
+  // already cached — resolves null (inherit) flags the same way there.
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const globals = {
+    auto_merge: settings?.auto_merge === "1",
+    refine_enabled: settings?.refine_enabled === "1",
+    implement_enabled: settings?.implement_enabled === "1",
+  };
 
   // Global scope: repo CRUD can happen for any repo, not just one we're viewing.
   const { status, resync } = useLiveEvents(null, (e) => {
@@ -146,7 +156,7 @@ export default function ReposPage() {
             </TableHeader>
             <TableBody>
               {repos.map((r) => (
-                <RepoRow key={r.full_name} repo={r} />
+                <RepoRow key={r.full_name} repo={r} globals={globals} />
               ))}
             </TableBody>
           </Table>
@@ -156,10 +166,17 @@ export default function ReposPage() {
   );
 }
 
-function RepoRow({ repo }: { repo: RepoRow }) {
+function RepoRow({
+  repo,
+  globals,
+}: {
+  repo: RepoRow;
+  globals: { auto_merge: boolean; refine_enabled: boolean; implement_enabled: boolean };
+}) {
   const [owner, name] = repo.full_name.split("/");
   const queryClient = useQueryClient();
   const enabled = repo.enabled === 1;
+  const level = automationLevel(repo, globals);
 
   const toggleMut = useMutation({
     // Resend the existing prompt/model — the PUT treats omitted fields as null,
@@ -198,6 +215,11 @@ function RepoRow({ repo }: { repo: RepoRow }) {
         >
           {repo.full_name}
         </Link>
+        {level !== "off" && (
+          <span className="ml-2 rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-400">
+            {level}
+          </span>
+        )}
       </TableCell>
       <TableCell>
         <Switch

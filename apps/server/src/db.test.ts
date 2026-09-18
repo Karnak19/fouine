@@ -25,7 +25,8 @@ test("upsert does not clobber a dashboard-edited prompt/model", () => {
     $enabled: 0,
     $deny_test_commands: 1,
     $auto_merge: null,
-    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null,
+    $refine_model: null, $implement_model: null,
   });
 
   // A subsequent webhook re-upserts the repo: installation_id updates, but the
@@ -580,7 +581,8 @@ test("repos.upsert never clobbers auto_merge/merge_method overrides", () => {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: "rebase", $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
+    $merge_method: "rebase", $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null,
+    $refine_model: null, $implement_model: null,
   });
 
   // A re-sighting webhook re-upserts: installation_id updates, the merger
@@ -668,12 +670,62 @@ test("repos: refine_enabled / refine_prompt round-trip and survive upsert", () =
     $implement_enabled: null,
     $implement_label: null,
     $implement_prompt: null,
+    $refine_model: null,
+    $implement_model: null,
   });
   // Re-sighting the repo must not clobber a dashboard override.
   repos.upsert.run({ $full_name: full, $installation_id: 2, $prompt: null, $model: null });
   const row = repos.get.get({ $full_name: full });
   expect(row?.refine_enabled).toBe(1);
   expect(row?.refine_prompt).toBe("ask about migrations");
+});
+
+test("repos: refine_model / implement_model round-trip and clear to null", () => {
+  const full = "acme/model-cols";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  // Default is NULL = inherit the review model override, then the global default.
+  expect(repos.get.get({ $full_name: full })?.refine_model).toBe(null);
+  expect(repos.get.get({ $full_name: full })?.implement_model).toBe(null);
+
+  repos.update.run({
+    $full_name: full,
+    $prompt: null,
+    $model: null,
+    $enabled: 1,
+    $deny_test_commands: null,
+    $auto_merge: null,
+    $merge_method: null,
+    $refine_enabled: null,
+    $refine_prompt: null,
+    $implement_enabled: null,
+    $implement_label: null,
+    $implement_prompt: null,
+    $refine_model: "opencode-go/glm-5.1",
+    $implement_model: "opencode-go/glm-5.2",
+  });
+  let row = repos.get.get({ $full_name: full });
+  expect(row?.refine_model).toBe("opencode-go/glm-5.1");
+  expect(row?.implement_model).toBe("opencode-go/glm-5.2");
+
+  repos.update.run({
+    $full_name: full,
+    $prompt: null,
+    $model: null,
+    $enabled: 1,
+    $deny_test_commands: null,
+    $auto_merge: null,
+    $merge_method: null,
+    $refine_enabled: null,
+    $refine_prompt: null,
+    $implement_enabled: null,
+    $implement_label: null,
+    $implement_prompt: null,
+    $refine_model: null,
+    $implement_model: null,
+  });
+  row = repos.get.get({ $full_name: full });
+  expect(row?.refine_model).toBe(null);
+  expect(row?.implement_model).toBe(null);
 });
 
 // A refine row carries a real pr_number (the issue's), so the old `pr_number > 0`
