@@ -13,6 +13,7 @@ import {
   resolveImplementPrompt,
   resolveRefineModel,
   resolveImplementModel,
+  resolveAutoReady,
   DEFAULT_IMPLEMENT_LABEL,
 } from "~/settings";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
@@ -29,6 +30,7 @@ afterEach(() => {
   settings.del.run({ $key: SETTINGS.IMPLEMENT_LABEL });
   settings.del.run({ $key: SETTINGS.DEFAULT_IMPLEMENT_PROMPT });
   settings.del.run({ $key: SETTINGS.MODEL });
+  settings.del.run({ $key: SETTINGS.AUTO_READY });
 });
 
 test("resolveAutoMerge: repo override wins whenever set, 0 included", () => {
@@ -75,6 +77,14 @@ test("resolveRefineEnabled: default off, repo override wins whenever set", () =>
   expect(resolveRefineEnabled(null)).toBe(true);
   expect(resolveRefineEnabled(0)).toBe(false); // explicit repo off beats a global on
   expect(resolveRefineEnabled(1)).toBe(true);
+});
+
+test("resolveAutoReady: default off, repo override wins whenever set", () => {
+  expect(resolveAutoReady(null)).toBe(false);
+  settings.set.run({ $key: SETTINGS.AUTO_READY, $value: "1" });
+  expect(resolveAutoReady(null)).toBe(true);
+  expect(resolveAutoReady(0)).toBe(false); // explicit repo off beats a global on
+  expect(resolveAutoReady(1)).toBe(true);
 });
 
 test("resolveRefinePrompt: repo override, then global, then the built-in default", () => {

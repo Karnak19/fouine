@@ -39,7 +39,8 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 - **Severity** — the reviewer uses `REQUEST_CHANGES` only for correctness/security/data-loss risks it's confident about; everything else is a non-blocking `COMMENT`. A re-review that clears its own earlier blockers posts `APPROVE`, since a `COMMENT` would leave the PR stuck in changes-requested
 - **Self-improvement loop** — once a day (per repo, when there's new feedback), an outer-loop improver agent re-reads the review threads fouine participated in, distills how humans responded to its comments, and proposes an updated `REVIEW.md` as a PR on your repo. Merge it and every future review picks up the learning; close it to reject. Also triggerable on demand via `POST /api/repos/:owner/:name/improve`. Needs the `contents:write` App permission (branch + commit for the proposal PR)
 - **Issue refinement** — the refiner comments on a GitHub issue with clarifying questions, proposed acceptance criteria, the files it'll likely touch, a size estimate (S/M/L), and risks. Triggers on `/fouine refine` on an issue, or automatically when an issue is opened if the per-repo refine toggle is on (default off). `/fouine stop` aborts an in-progress refine. Needs the `issues:write` App permission
-- **Implementer** — `/fouine implement` or the `fouine-ready` label (per-repo toggle, default off) has fouine implement the issue on `fouine/issue-<n>`, open a PR with `Closes #<n>`, and the PR goes through the normal review. The merger requires a human approval on fouine-authored PRs
+- **Refiner marks issues ready** — per-repo `auto_ready` flag (default off; the dashboard also has a global default). When on, the refiner decides for itself, after exploring the code, whether an issue is ready to implement. If the scope is clear enough (acceptance criteria derivable, no open product question), it adds the repo's implement label (`fouine-ready` by default) right after its comment. Otherwise the comment lists what's still open under "Blocking questions" and no label is added. It never labels an issue it judges harmful or out of scope, it says so instead. If a human then replies on an issue that has a refinement comment but no ready label, fouine runs another refinement round on the thread, answering only what's still open (bot replies and `/fouine` commands don't count as a reply). This caps at 3 rounds; after that fouine posts once asking a human to add the label, or comment `/fouine refine` to force one more round. A human can add the label directly at any time regardless of this flag
+- **Implementer** — `/fouine implement` or the implement label (per-repo toggle, default off) has fouine implement the issue on `fouine/issue-<n>`, open a PR with `Closes #<n>`, and the PR goes through the normal review. The merger requires a human approval on fouine-authored PRs. With `auto_ready` on but the implementer off, fouine only labels issues, it doesn't implement them
 - **Per-repo refiner/implementer model** — the refiner and the implementer can each have their own model override, falling back to the repo's review model override, then the global default
 
 ## Tech stack
@@ -84,14 +85,14 @@ the full reference (login setup, log levels, timeouts, data paths).
 
 ### Automation levels
 
-Each repo's dashboard page shows an automation level, derived from its four
-flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled` — no
-stored mode):
+Each repo's dashboard page shows an automation level, derived from its five
+flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled`,
+`auto_ready` — no stored mode):
 
-- **Off** — all four flags off. Does nothing automatically; slash commands still work.
+- **Off** — all five flags off. Does nothing automatically; slash commands still work.
 - **Review** — `enabled` on, the rest off. Reviews PRs, never merges, never touches issues.
 - **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges PRs once approved and CI is green.
-- **Autonomous** — all four flags on. Reviews and merges PRs, refines new issues, implements labelled issues.
+- **Autonomous** — all five flags on. Reviews and merges PRs, refines new issues, marks them ready itself, and implements them, so nothing needs a human between opening the issue and approving the PR.
 
 **Custom** shows up instead when a repo's flags don't match any of the above.
 

@@ -56,7 +56,7 @@ function setRepo(
     $refine_prompt: null,
     $implement_enabled: implementEnabled,
     $implement_label: implementLabel,
-    $implement_prompt: null, $refine_model: null, $implement_model: null
+    $implement_prompt: null, $refine_model: null, $implement_model: null, $auto_ready: null
   });
 }
 
@@ -65,12 +65,13 @@ async function dispatch(name: string, payload: object): Promise<void> {
   await verifyAndDispatch({ id: "1", name, payload: body, signature: sign(body) });
 }
 
-const issueLabeled = (label: string, number = 42) => ({
+const issueLabeled = (label: string, number = 42, sender?: string) => ({
   action: "labeled",
   installation: { id: 1 },
   repository: { full_name: REPO },
   issue: { number, title: "Add dark mode" },
   label: { name: label },
+  ...(sender ? { sender: { login: sender } } : {}),
 });
 
 const comment = (body: string, isPR: boolean, number = 42) => ({
@@ -108,6 +109,15 @@ test("issue labeled with the default label implements when the repo opted in", a
     issueNumber: 42,
     issueTitle: "Add dark mode",
   });
+});
+
+// The `issues` labeled handler deliberately checks no sender/author guard:
+// fouine's own refiner adds the label via mark_issue_ready and must fire the
+// implementer exactly like a human labeling it would.
+test("a label added by fouine's own bot account still implements", async () => {
+  setRepo(1, 1);
+  await dispatch("issues", issueLabeled("fouine-ready", 42, "fouine[bot]"));
+  expect(runImplement).toHaveBeenCalledTimes(1);
 });
 
 test("a different label does nothing", async () => {

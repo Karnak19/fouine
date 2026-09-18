@@ -19,6 +19,7 @@ export const SETTINGS = {
   IMPLEMENT_ENABLED: "implement_enabled",
   IMPLEMENT_LABEL: "implement_label",
   DEFAULT_IMPLEMENT_PROMPT: "default_implement_prompt",
+  AUTO_READY: "auto_ready",
 } as const;
 
 // The label that, applied to an issue, triggers the implementer when
@@ -127,6 +128,17 @@ export function resolveImplementPrompt(repoPrompt: string | null): string {
   return (
     repoPrompt?.trim() || settingValue(SETTINGS.DEFAULT_IMPLEMENT_PROMPT) || DEFAULT_IMPLEMENT_PROMPT
   );
+}
+
+// Auto-ready opt-in, same repo-wins, 0-included shape as resolveRefineEnabled.
+// Default OFF: this only lets the refiner add the implement label itself (via
+// mark_issue_ready) once it judges an issue unambiguous. A human adding the
+// label always works regardless of this flag. implement_enabled still gates
+// the implementer, so auto_ready alone just labels the issue — it never starts
+// code being written on its own.
+export function resolveAutoReady(repoValue: number | null): boolean {
+  if (repoValue !== null) return repoValue === 1;
+  return settingValue(SETTINGS.AUTO_READY) === "1";
 }
 
 // Refiner model: per-repo refiner override, else the repo's review model

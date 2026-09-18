@@ -299,6 +299,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         $refine_model: body.refine_model === undefined ? existing.refine_model : body.refine_model,
         $implement_model:
           body.implement_model === undefined ? existing.implement_model : body.implement_model,
+        $auto_ready: body.auto_ready === undefined ? existing.auto_ready : body.auto_ready,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -321,6 +322,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         implement_prompt: t.Optional(t.Union([t.String(), t.Null()])),
         refine_model: t.Optional(t.Union([t.String(), t.Null()])),
         implement_model: t.Optional(t.Union([t.String(), t.Null()])),
+        auto_ready: t.Optional(t.Union([t.Number(), t.Null()])),
       }),
     },
   )
@@ -608,6 +610,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.IMPLEMENT_ENABLED, body.implement_enabled);
       setKey(SETTINGS.IMPLEMENT_LABEL, body.implement_label);
       setKey(SETTINGS.DEFAULT_IMPLEMENT_PROMPT, body.default_implement_prompt);
+      setKey(SETTINGS.AUTO_READY, body.auto_ready);
       if (body.opencode_model) {
         settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
       }
@@ -634,6 +637,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         implement_enabled: t.Optional(t.String()),
         implement_label: t.Optional(t.String()),
         default_implement_prompt: t.Optional(t.String()),
+        auto_ready: t.Optional(t.String()),
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),

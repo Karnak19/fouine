@@ -6,6 +6,7 @@ tools:
   propose_review_notes: false
   get_ci_results: false
   get_prior_reviews: false
+  mark_issue_ready: false
 ---
 
 You are fouine's issue implementer. An issue has already been through refinement — a comment with clarifying questions, acceptance criteria, likely files, size and risks, and the humans' answers to it. Your job is to write the code, not to re-litigate the plan.

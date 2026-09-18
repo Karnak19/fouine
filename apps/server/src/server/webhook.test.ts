@@ -1,6 +1,12 @@
 import { test, expect } from "bun:test";
 import { createHmac } from "node:crypto";
-import { verifyAndDispatch, VerificationError, isStopCommand, matchTrigger } from "~/server/webhook";
+import {
+  verifyAndDispatch,
+  VerificationError,
+  isStopCommand,
+  matchTrigger,
+  refineFollowUpDecision,
+} from "~/server/webhook";
 
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 
@@ -90,4 +96,44 @@ test("matchTrigger returns the trigger a comment starts with", () => {
   expect(matchTrigger("/review please")).toBe("/review");
   expect(matchTrigger("looks good to me")).toBeUndefined();
   expect(matchTrigger("nice, /fouine later maybe")).toBeUndefined();
+});
+
+// refineFollowUpDecision: the pure decision behind the issue_comment follow-up
+// path (a human replying to the refiner without typing a /fouine command).
+const baseDecisionInput = {
+  authorLogin: "ana",
+  autoReady: true,
+  labels: [] as string[],
+  readyLabel: "fouine-ready",
+  refineCount: 1,
+};
+
+test("refineFollowUpDecision: human reply with a prior refine runs another round", () => {
+  expect(refineFollowUpDecision(baseDecisionInput)).toBe("run");
+});
+
+test("refineFollowUpDecision: a bot author is skipped (stops fouine re-triggering itself)", () => {
+  expect(refineFollowUpDecision({ ...baseDecisionInput, authorLogin: "fouine[bot]" })).toBe("skip");
+});
+
+test("refineFollowUpDecision: the ready label already present is skipped", () => {
+  expect(
+    refineFollowUpDecision({ ...baseDecisionInput, labels: ["fouine-ready"] }),
+  ).toBe("skip");
+});
+
+test("refineFollowUpDecision: autoReady off is skipped", () => {
+  expect(refineFollowUpDecision({ ...baseDecisionInput, autoReady: false })).toBe("skip");
+});
+
+test("refineFollowUpDecision: no prior refine (count 0) is skipped", () => {
+  expect(refineFollowUpDecision({ ...baseDecisionInput, refineCount: 0 })).toBe("skip");
+});
+
+test("refineFollowUpDecision: count 3 hits the cap", () => {
+  expect(refineFollowUpDecision({ ...baseDecisionInput, refineCount: 3 })).toBe("cap");
+});
+
+test("refineFollowUpDecision: count 4 (cap already announced) is skipped", () => {
+  expect(refineFollowUpDecision({ ...baseDecisionInput, refineCount: 4 })).toBe("skip");
 });

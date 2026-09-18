@@ -149,6 +149,8 @@ export default function RepoDetailPage() {
   const [implementPrompt, setImplementPrompt] = useState("");
   // Empty string = inherit the review model override, then the global default.
   const [implementModel, setImplementModel] = useState("");
+  // null = inherit; 1 = on; 0 = explicitly off.
+  const [autoReady, setAutoReady] = useState<number | null>(null);
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
@@ -164,6 +166,7 @@ export default function RepoDetailPage() {
     implementLabel: "",
     implementPrompt: "",
     implementModel: "",
+    autoReady: null as number | null,
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -175,6 +178,7 @@ export default function RepoDetailPage() {
     auto_merge: settings?.auto_merge === "1",
     refine_enabled: settings?.refine_enabled === "1",
     implement_enabled: settings?.implement_enabled === "1",
+    auto_ready: settings?.auto_ready === "1",
   };
   const currentLevel = automationLevel(
     {
@@ -182,6 +186,7 @@ export default function RepoDetailPage() {
       auto_merge: autoMerge,
       refine_enabled: refineEnabled,
       implement_enabled: implementEnabled,
+      auto_ready: autoReady,
     },
     globals,
   );
@@ -207,6 +212,7 @@ export default function RepoDetailPage() {
       const il = repo.implement_label ?? "";
       const ip = repo.implement_prompt ?? "";
       const im = repo.implement_model ?? "";
+      const ar = repo.auto_ready ?? null;
       setModel(m);
       setPrompt(p);
       setEnabled(e);
@@ -220,6 +226,7 @@ export default function RepoDetailPage() {
       setImplementLabel(il);
       setImplementPrompt(ip);
       setImplementModel(im);
+      setAutoReady(ar);
       setBaseline({
         model: m,
         prompt: p,
@@ -234,6 +241,7 @@ export default function RepoDetailPage() {
         implementLabel: il,
         implementPrompt: ip,
         implementModel: im,
+        autoReady: ar,
       });
     }
   }, [repo]);
@@ -251,7 +259,8 @@ export default function RepoDetailPage() {
     implementEnabled !== baseline.implementEnabled ||
     implementLabel !== baseline.implementLabel ||
     implementPrompt !== baseline.implementPrompt ||
-    implementModel !== baseline.implementModel;
+    implementModel !== baseline.implementModel ||
+    autoReady !== baseline.autoReady;
 
   const resetForm = () => {
     setModel(baseline.model);
@@ -267,6 +276,7 @@ export default function RepoDetailPage() {
     setImplementLabel(baseline.implementLabel);
     setImplementPrompt(baseline.implementPrompt);
     setImplementModel(baseline.implementModel);
+    setAutoReady(baseline.autoReady);
   };
 
   useEffect(() => {
@@ -304,6 +314,7 @@ export default function RepoDetailPage() {
         implement_label: implementLabel.trim() || null,
         implement_prompt: implementPrompt.trim() || undefined,
         implement_model: implementModel.trim() || null,
+        auto_ready: autoReady,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
@@ -321,6 +332,7 @@ export default function RepoDetailPage() {
         implementLabel,
         implementPrompt,
         implementModel,
+        autoReady,
       });
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
@@ -501,6 +513,7 @@ export default function RepoDetailPage() {
                         setAutoMerge(flags.auto_merge);
                         setRefineEnabled(flags.refine_enabled);
                         setImplementEnabled(flags.implement_enabled);
+                        setAutoReady(flags.auto_ready);
                       }}
                     />
                     <span className="space-y-0.5">
@@ -591,6 +604,28 @@ export default function RepoDetailPage() {
                   <p className="text-xs text-zinc-500">
                     Implements an issue once it's labelled. Always available on demand via{" "}
                     <span className="font-mono">/fouine implement</span>.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_ready">Mark issues ready itself</Label>
+                  <select
+                    id="auto_ready"
+                    className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    value={autoReady === null ? "inherit" : String(autoReady)}
+                    onChange={(e) =>
+                      setAutoReady(e.target.value === "inherit" ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="inherit">
+                      Use global default (inherit: currently{" "}
+                      {settings?.auto_ready === "1" ? "on" : "off"})
+                    </option>
+                    <option value="1">On for this repo</option>
+                    <option value="0">Off for this repo</option>
+                  </select>
+                  <p className="text-xs text-zinc-500">
+                    fouine adds the ready label itself when the issue is clear; humans can still add
+                    it.
                   </p>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
