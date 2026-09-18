@@ -51,7 +51,7 @@ function enableAutoMerge(full: string) {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 1,
-    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null
   });
 }
 
@@ -64,7 +64,7 @@ function disableAutoMerge(full: string) {
     $enabled: 1,
     $deny_test_commands: null,
     $auto_merge: 0,
-    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null
+    $merge_method: null, $refine_enabled: null, $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null
   });
 }
 

@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import { resolveRefinePrompt, resolveDefaultModel } from "~/settings";
+import { resolveRefinePrompt, resolveRefineModel } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { internalSecret, internalBaseUrl } from "~/server/internal";
@@ -79,10 +79,8 @@ export function refinePipeline(
 
         const repoRow = yield* db.getRepo(target.repoFullName);
         const prompt = buildRefinePrompt(issue, resolveRefinePrompt(repoRow?.refine_prompt ?? null));
-        // ponytail: no per-refiner model knob — the repo's review model override
-        // if it has one, else the global default. Add a refiner_model setting
-        // only if refinement ever wants a different (cheaper) model.
-        const model = repoRow?.model || resolveDefaultModel();
+        // Precedence: repo.refine_model -> repo.model (review override) -> global default.
+        const model = resolveRefineModel(repoRow);
 
         const result = yield* oc.runReview(
           {

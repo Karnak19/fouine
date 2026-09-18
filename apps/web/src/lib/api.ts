@@ -190,6 +190,9 @@ export const api = {
         // null = inherit the global label. Absent leaves it unchanged.
         implement_label?: string | null;
         implement_prompt?: string;
+        // null = inherit the review model override (then the global default). Absent leaves it unchanged.
+        refine_model?: string | null;
+        implement_model?: string | null;
       },
     ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>

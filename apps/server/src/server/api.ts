@@ -296,6 +296,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
           body.implement_label === undefined ? existing.implement_label : body.implement_label,
         $implement_prompt:
           body.implement_prompt === undefined ? existing.implement_prompt : body.implement_prompt,
+        $refine_model: body.refine_model === undefined ? existing.refine_model : body.refine_model,
+        $implement_model:
+          body.implement_model === undefined ? existing.implement_model : body.implement_model,
       });
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
@@ -316,6 +319,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         implement_enabled: t.Optional(t.Union([t.Number(), t.Null()])),
         implement_label: t.Optional(t.Union([t.String(), t.Null()])),
         implement_prompt: t.Optional(t.Union([t.String(), t.Null()])),
+        refine_model: t.Optional(t.Union([t.String(), t.Null()])),
+        implement_model: t.Optional(t.Union([t.String(), t.Null()])),
       }),
     },
   )

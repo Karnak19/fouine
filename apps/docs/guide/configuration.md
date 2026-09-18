@@ -83,6 +83,19 @@ Each registered repo can have:
 - **Custom model** — overrides the default model for that repo
 - **Enabled/disabled** — toggle reviews without removing the repo
 - **Auto-merge** and **merge method** — inherit the global setting, or override per repo. See the [merger guide](/guide/merger).
+- **Refine model** and **implement model** — the refiner and the implementer can each have their own model override for that repo, falling back to the repo's review model override, then the global default.
+
+The repo page shows an **automation level**, derived from the repo's four
+flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled`) — there
+is no stored mode, just the flags:
+
+- **Off** — all four flags off. Nothing runs automatically; slash commands still work.
+- **Review** — `enabled` on, the rest off. Reviews PRs, never merges, never touches issues.
+- **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges PRs once approved and CI is green.
+- **Autonomous** — all four flags on. Reviews and merges PRs, refines new issues, implements labelled issues.
+
+**Custom** shows up when a repo's flags don't match any of the above — set the
+individual switches under "Advanced" on the repo page.
 
 ## Dashboard login
 

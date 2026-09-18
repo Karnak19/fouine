@@ -11,6 +11,8 @@ import {
   resolveImplementEnabled,
   resolveImplementLabel,
   resolveImplementPrompt,
+  resolveRefineModel,
+  resolveImplementModel,
   DEFAULT_IMPLEMENT_LABEL,
 } from "~/settings";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
@@ -26,6 +28,7 @@ afterEach(() => {
   settings.del.run({ $key: SETTINGS.IMPLEMENT_ENABLED });
   settings.del.run({ $key: SETTINGS.IMPLEMENT_LABEL });
   settings.del.run({ $key: SETTINGS.DEFAULT_IMPLEMENT_PROMPT });
+  settings.del.run({ $key: SETTINGS.MODEL });
 });
 
 test("resolveAutoMerge: repo override wins whenever set, 0 included", () => {
@@ -107,4 +110,26 @@ test("resolveImplementPrompt: repo override, then global, then the built-in defa
   expect(resolveImplementPrompt("repo focus")).toBe("repo focus");
   // Whitespace-only is not an override.
   expect(resolveImplementPrompt("   ")).toBe("global focus");
+});
+
+test("resolveRefineModel: own override, then the review model override, then the global default", () => {
+  expect(resolveRefineModel(undefined)).toBe("opencode-go/deepseek-v4-flash");
+  settings.set.run({ $key: SETTINGS.MODEL, $value: "global/model" });
+  expect(resolveRefineModel(undefined)).toBe("global/model");
+  expect(resolveRefineModel({ refine_model: null, model: "review/model" })).toBe("review/model");
+  expect(resolveRefineModel({ refine_model: "refine/model", model: "review/model" })).toBe(
+    "refine/model",
+  );
+});
+
+test("resolveImplementModel: own override, then the review model override, then the global default", () => {
+  expect(resolveImplementModel(undefined)).toBe("opencode-go/deepseek-v4-flash");
+  settings.set.run({ $key: SETTINGS.MODEL, $value: "global/model" });
+  expect(resolveImplementModel(undefined)).toBe("global/model");
+  expect(resolveImplementModel({ implement_model: null, model: "review/model" })).toBe(
+    "review/model",
+  );
+  expect(
+    resolveImplementModel({ implement_model: "implement/model", model: "review/model" }),
+  ).toBe("implement/model");
 });

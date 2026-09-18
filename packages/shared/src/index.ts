@@ -26,6 +26,8 @@ export interface RepoRow {
   refine_enabled: number | null;
   // Per-repo refiner prompt override. NULL = inherit the global default.
   refine_prompt: string | null;
+  // Per-repo refiner/implementer model override. NULL = inherit the review model override, else the global default.
+  refine_model: string | null;
   // Per-repo override for implementing issues on label. NULL = inherit the
   // global setting, 1 = on, 0 = explicitly off. Only gates the label
   // trigger; `/fouine implement` works on any enabled repo.
@@ -35,6 +37,8 @@ export interface RepoRow {
   implement_label: string | null;
   // Per-repo implementer prompt override. NULL = inherit the global default.
   implement_prompt: string | null;
+  // Per-repo refiner/implementer model override. NULL = inherit the review model override, else the global default.
+  implement_model: string | null;
   created_at: number;
 }
 

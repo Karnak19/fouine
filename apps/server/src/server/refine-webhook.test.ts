@@ -49,7 +49,7 @@ function setRepo(enabled: number, refineEnabled: number | null) {
     $auto_merge: null,
     $merge_method: null,
     $refine_enabled: refineEnabled,
-    $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null,
+    $refine_prompt: null, $implement_enabled: null, $implement_label: null, $implement_prompt: null, $refine_model: null, $implement_model: null
   });
 }
 
