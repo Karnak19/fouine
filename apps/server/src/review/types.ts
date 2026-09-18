@@ -16,7 +16,6 @@ export type ReviewStatus = "pending" | "running" | "completed" | "failed";
 // questions without a second round-trip. Bodies are truncated and the comment
 // list capped — an issue with 400 comments must not blow the prompt.
 export interface IssueInfo {
-  installationId: number;
   repoFullName: string;
   number: number;
   title: string;

@@ -51,7 +51,6 @@ const truncate = (text: string): string =>
 
 export async function fetchIssueInfo(
   octokit: Octokit,
-  installationId: number,
   fullName: string,
   number: number,
 ): Promise<IssueInfo> {
@@ -67,7 +66,6 @@ export async function fetchIssueInfo(
     per_page: 100,
   });
   return {
-    installationId,
     repoFullName: fullName,
     number,
     title: data.title,

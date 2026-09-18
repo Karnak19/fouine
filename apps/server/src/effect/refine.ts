@@ -18,6 +18,7 @@ export interface RefineTarget {
   repoFullName: string;
   installationId: number;
   issueNumber: number;
+  issueTitle: string;
 }
 
 // The third pipeline on the reviews table: refine an incoming ISSUE instead of
@@ -42,16 +43,14 @@ export function refinePipeline(
 
     const [owner, repoName] = target.repoFullName.split("/");
 
-    const octokit = yield* gh.installationClient(target.installationId);
-    const issue = yield* Effect.tryPromise({
-      try: () => fetchIssueInfo(octokit, target.installationId, target.repoFullName, target.issueNumber),
-      catch: (cause) => new GitHubError({ op: "issues.get", cause }),
-    });
-
+    // Registration must be synchronous and come before any GitHub call — the
+    // dashboard Stop button, `/fouine stop` and supersedeInFlight all key off
+    // activeReviews, and a window where two triggers can both race past
+    // registration means both post a comment. See improvePipeline.
     const id = yield* db.insertReview({
       repo: target.repoFullName,
       pr: target.issueNumber,
-      title: issue.title,
+      title: target.issueTitle,
       trigger: "refine",
     });
     yield* Effect.sync(() => onStart(id));
@@ -64,6 +63,12 @@ export function refinePipeline(
           issue: target.issueNumber,
         });
         yield* db.setRunning(id);
+
+        const octokit = yield* gh.installationClient(target.installationId);
+        const issue = yield* Effect.tryPromise({
+          try: () => fetchIssueInfo(octokit, target.repoFullName, target.issueNumber),
+          catch: (cause) => new GitHubError({ op: "issues.get", cause }),
+        });
 
         const token = yield* gh.installationToken(octokit);
         const branch = yield* gh.defaultBranch(octokit, owner, repoName);

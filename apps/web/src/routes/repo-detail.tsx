@@ -93,10 +93,12 @@ export default function RepoDetailPage() {
 
   // Group PR reviews by PR — reviews come newest-first, so each group's head is
   // the latest run; groups sort by that latest run, newest PR activity first.
+  // Refine rows share the PR-numbered column with the issue number, not an
+  // actual PR, so they're excluded here too (reachable from /reviews instead).
   const prGroups = useMemo(() => {
     const map = new Map<number, ReviewRow[]>();
     for (const r of reviews) {
-      if (r.trigger === "improve") continue;
+      if (r.trigger === "improve" || r.trigger === "refine") continue;
       const arr = map.get(r.pr_number);
       if (arr) arr.push(r);
       else map.set(r.pr_number, [r]);
@@ -105,9 +107,10 @@ export default function RepoDetailPage() {
   }, [reviews]);
 
   // Repo-level insight computed from the reviews we already fetch — same shape as
-  // the dashboard's stat strip, scoped to this repo. Improver runs don't count.
+  // the dashboard's stat strip, scoped to this repo. Improver and refine runs
+  // don't count — neither is a PR review.
   const insight = useMemo(() => {
-    const prReviews = reviews.filter((r) => r.trigger !== "improve");
+    const prReviews = reviews.filter((r) => r.trigger !== "improve" && r.trigger !== "refine");
     const completed = prReviews.filter((r) => r.status === "completed");
     const finished = completed.length + prReviews.filter((r) => r.status === "failed").length;
     const durations = completed

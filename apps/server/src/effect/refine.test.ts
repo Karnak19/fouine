@@ -13,7 +13,6 @@ import type { RefineTarget } from "~/effect/refine";
 // test never reaches for an Octokit shape. Spread the real module so the other
 // exports (getApp, fetchPRInfo) survive — mock.module is process-wide.
 const issue: IssueInfo = {
-  installationId: 1,
   repoFullName: "acme/widget",
   number: 12,
   title: "Add a dark mode toggle",
@@ -30,6 +29,7 @@ const target: RefineTarget = {
   repoFullName: "acme/widget",
   installationId: 1,
   issueNumber: 12,
+  issueTitle: "Add a dark mode toggle",
 };
 
 function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> } = {}) {
@@ -41,11 +41,16 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> } = {}
     prompt: undefined as string | undefined,
     inserted: undefined as { pr: number; trigger: string | null; title: string } | undefined,
     fetchedRef: undefined as string | undefined,
+    // Ordering trap: registration (insert + onStart) must happen before any
+    // GitHub call, so two racing triggers can't both slip past
+    // supersedeInFlight. "onStart" is pushed by the test's onStart callback.
+    order: [] as string[],
   };
   const db = Layer.succeed(DbService, {
     getRepo: () => Effect.succeed(null),
     insertReview: (input: { pr: number; trigger: string | null; title: string }) =>
       Effect.sync(() => {
+        calls.order.push("insert");
         calls.inserted = { pr: input.pr, trigger: input.trigger, title: input.title };
         return 7;
       }),
@@ -57,7 +62,7 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> } = {}
   } as unknown as DbService);
 
   const gh = Layer.succeed(GitHubService, {
-    installationClient: () => Effect.succeed({} as never),
+    installationClient: () => Effect.sync(() => (calls.order.push("installationClient"), {} as never)),
     installationToken: () => Effect.succeed("tok"),
     defaultBranch: () => Effect.succeed("main"),
   } as unknown as GitHubService);
@@ -115,6 +120,28 @@ test("failure marks the run failed and propagates", async () => {
   expect(Exit.isFailure(exit)).toBe(true);
   expect(calls.completed).toBe(0);
   expect(calls.failed).toEqual(["boom"]);
+});
+
+test("registers (insert + onStart) before any GitHub call", async () => {
+  const { layer, calls } = makeLayer();
+  await Effect.runPromise(
+    refinePipeline(target, noAbort(), () => calls.order.push("onStart")).pipe(Effect.provide(layer)),
+  );
+  expect(calls.order.indexOf("insert")).toBe(0);
+  expect(calls.order.indexOf("onStart")).toBe(1);
+  expect(calls.order.indexOf("installationClient")).toBeGreaterThan(1);
+});
+
+test("a fetchIssueInfo failure marks the row failed rather than leaving it pending", async () => {
+  const { layer, calls } = makeLayer();
+  fetchIssueInfo.mockImplementationOnce(() => Promise.reject(new Error("404 Not Found")));
+  const exit = await Effect.runPromiseExit(
+    refinePipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(calls.inserted).toBeDefined();
+  expect(calls.completed).toBe(0);
+  expect(calls.failed).toEqual(["Error: 404 Not Found"]);
 });
 
 test("prompt embeds the issue title, body and comments", () => {

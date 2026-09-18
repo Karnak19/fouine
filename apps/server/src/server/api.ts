@@ -343,6 +343,10 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       repoFullName: full,
       installationId: repo.installation_id,
       issueNumber: Number(params.issue),
+      // No payload to read a real title from here — the refiner prompt itself
+      // still sees the actual title via fetchIssueInfo; this is only the
+      // reviews-row label.
+      issueTitle: `Issue #${params.issue}`,
     }).catch((err) => log.error("refine failed", { repo: full, error: String(err) }));
     set.status = 202;
     return { ok: true };

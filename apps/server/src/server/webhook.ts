@@ -188,7 +188,7 @@ export function registerHandlers(): void {
         installation?: { id: number };
         repository: { full_name: string };
         comment: { id: number; body: string; user?: { login: string } };
-        issue: { number: number; pull_request?: unknown };
+        issue: { number: number; title: string; pull_request?: unknown };
       };
     };
 
@@ -256,7 +256,12 @@ export function registerHandlers(): void {
         return;
       }
       log.info(`${trigger} refine queued`, { repo: fullName, number: prNumber });
-      runRefine({ repoFullName: fullName, installationId, issueNumber: prNumber }).catch((err) =>
+      runRefine({
+        repoFullName: fullName,
+        installationId,
+        issueNumber: prNumber,
+        issueTitle: payload.issue.title,
+      }).catch((err) =>
         log.error("refine failed", { repo: fullName, number: prNumber, error: String(err) }),
       );
       return;
@@ -324,7 +329,7 @@ export function registerHandlers(): void {
         action: string;
         installation?: { id: number };
         repository: { full_name: string };
-        issue: { number: number; pull_request?: unknown };
+        issue: { number: number; title: string; pull_request?: unknown };
       };
     };
     const { payload } = e;
@@ -351,7 +356,12 @@ export function registerHandlers(): void {
     }
 
     log.info("issue refine queued", { repo: fullName, number });
-    runRefine({ repoFullName: fullName, installationId, issueNumber: number }).catch((err) =>
+    runRefine({
+      repoFullName: fullName,
+      installationId,
+      issueNumber: number,
+      issueTitle: payload.issue.title,
+    }).catch((err) =>
       log.error("refine failed", { repo: fullName, number, error: String(err) }),
     );
   });
