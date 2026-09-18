@@ -143,7 +143,7 @@ async function react(
 async function handleRefineFollowUp(
   payload: {
     installation?: { id: number };
-    comment: { id: number; user?: { login: string } };
+    comment: { user?: { login: string } };
     issue: { title: string; labels?: { name: string }[] };
   },
   fullName: string,

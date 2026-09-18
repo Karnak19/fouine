@@ -187,6 +187,14 @@ export function runImprove(target: ImproveTarget): Promise<void> {
 export function runRefine(target: RefineTarget): Promise<void> {
   const key = refineKey(target.repoFullName, target.issueNumber);
   supersedeInFlight(key);
+  // Round defaults to "one more than what already ran", so `/fouine refine`
+  // and the dashboard route get follow-up framing on an already-refined issue
+  // without every caller counting rows. An explicit round still wins.
+  const round =
+    target.round ??
+    (reviews.countRefinesForIssue.get({ $repo: target.repoFullName, $pr: target.issueNumber })
+      ?.count ?? 0) + 1;
+  target = { ...target, round };
 
   const ctrl = new AbortController();
   let id: number | undefined;
