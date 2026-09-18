@@ -287,7 +287,8 @@ export default function RepoDetailPage() {
   const autoMergeEffective = autoMerge ?? (settings?.auto_merge === "1" ? 1 : 0);
   const autoMergeWas = baseline.autoMerge ?? (settings?.auto_merge === "1" ? 1 : 0);
   const armingAutoMerge =
-    autoMergeEffective === 1 && (autoMergeWas !== 1 || settings === undefined);
+    (autoMergeEffective === 1 || (autoMerge === null && settings === undefined)) &&
+    (autoMergeWas !== 1 || settings === undefined);
   const mergeMethodActive = autoMergeEffective === 1;
 
   // Arming auto-merge lets a bot merge code, so a save that flips it off to
