@@ -13,7 +13,6 @@ import type { ImplementTarget } from "~/effect/implement";
 // directly; stub it so the test never reaches for a real Octokit shape. Spread
 // the real module so the other exports survive — mock.module is process-wide.
 const issue: IssueInfo = {
-  installationId: 1,
   repoFullName: "acme/widget",
   number: 12,
   title: "Add a dark mode toggle",
@@ -30,6 +29,7 @@ const target: ImplementTarget = {
   repoFullName: "acme/widget",
   installationId: 1,
   issueNumber: 12,
+  issueTitle: "Add a dark mode toggle",
 };
 
 function notFound(): { status: number } {
@@ -137,7 +137,7 @@ test("happy path implements, commits, pushes and opens a PR", async () => {
   expect(calls.completed).toBe(1);
   expect(calls.failed).toEqual([]);
   expect(calls.agent).toBe("fouine-implementer");
-  expect(calls.inserted).toEqual({ pr: 12, trigger: "implement", title: "#12" });
+  expect(calls.inserted).toEqual({ pr: 12, trigger: "implement", title: "Add a dark mode toggle" });
   expect(calls.env?.FOUINE_PR_NUMBER).toBe("12");
   // No existing branch → checked out off the default branch.
   expect(calls.fetchedRef).toBe("refs/heads/main");
@@ -229,18 +229,14 @@ test("a fetchIssueInfo rejection inserts the row, marks it failed, and never run
   expect(calls.agent).toBeUndefined();
 });
 
-test("the inserted title comes from target.title, falling back to #<issue>", async () => {
+test("the inserted row title is the target's issueTitle (the issue is not fetched yet)", async () => {
   const { layer, calls } = makeLayer();
   await Effect.runPromise(
-    implementPipeline({ ...target, title: "Add dark mode" }, noAbort(), () => {}).pipe(
+    implementPipeline({ ...target, issueTitle: "Add dark mode" }, noAbort(), () => {}).pipe(
       Effect.provide(layer),
     ),
   );
   expect(calls.inserted?.title).toBe("Add dark mode");
-
-  const { layer: layer2, calls: calls2 } = makeLayer();
-  await Effect.runPromise(implementPipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer2)));
-  expect(calls2.inserted?.title).toBe("#12");
 });
 
 test("buildImplementPrompt embeds the issue body, a comment author, the branch and asks for a 3-line summary", () => {

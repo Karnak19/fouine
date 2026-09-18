@@ -390,9 +390,12 @@ export function registerHandlers(): void {
         return;
       }
       log.info("issue refine queued", { repo: fullName, number });
-      runRefine({ repoFullName: fullName, installationId, issueNumber: number }).catch((err) =>
-        log.error("refine failed", { repo: fullName, number, error: String(err) }),
-      );
+      runRefine({
+        repoFullName: fullName,
+        installationId,
+        issueNumber: number,
+        issueTitle: payload.issue.title,
+      }).catch((err) => log.error("refine failed", { repo: fullName, number, error: String(err) }));
       return;
     }
 
