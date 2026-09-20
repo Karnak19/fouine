@@ -3,6 +3,20 @@ services:
     build: .
     image: fouine:latest
     restart: unless-stopped
+    # Liveness only (`/health` is public and touches nothing): a container whose
+    # process is crash-looping shows up as unhealthy/restarting in Coolify and
+    # `docker ps` instead of just silently going gray. Note Docker will NOT
+    # restart an unhealthy container by itself — `restart: unless-stopped` only
+    # reacts to exits, and the healthcheck is what makes the exit visible.
+    # curl is installed in the runtime image (Dockerfile apt-get layer).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # boot does auth migration, skills reconcile and the orphan-review reap
+      # (which can make GitHub API calls) before it listens — give it room.
+      start_period: 30s
     volumes:
       - fouine-data:/data
     environment:
