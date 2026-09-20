@@ -363,7 +363,7 @@ Content-Type: application/json
 
 Model fields follow a most-specific-first cascade: a repo's own override, then the repo's review model, then the global agent default (`refine_model` / `implement_model`), then the global review default (`opencode_model`). Sending an empty string deletes the stored row, falling back down the cascade.
 
-All five fields are optional; an absent field keeps its stored value. The two key fields accept an explicit `""` to **delete** the stored value, letting the env var take over again. For the non-key fields `""` is still a no-op.
+All fields are optional; an absent field keeps its stored value. An explicit `""` deletes the stored row so the fallback takes over — for the two API keys that is the environment, for the four model fields the cascade above, for the toggles, prompts and implement label their built-in defaults. The one exception is `default_prompt`: `""` is a no-op, so a global review prompt can only be replaced, never unset, through the API.
 
 `200 →` the full settings object, as `GET /api/settings`.
 
