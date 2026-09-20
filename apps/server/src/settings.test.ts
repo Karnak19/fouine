@@ -30,6 +30,8 @@ afterEach(() => {
   settings.del.run({ $key: SETTINGS.IMPLEMENT_LABEL });
   settings.del.run({ $key: SETTINGS.DEFAULT_IMPLEMENT_PROMPT });
   settings.del.run({ $key: SETTINGS.MODEL });
+  settings.del.run({ $key: SETTINGS.REFINE_MODEL });
+  settings.del.run({ $key: SETTINGS.IMPLEMENT_MODEL });
   settings.del.run({ $key: SETTINGS.AUTO_READY });
 });
 
@@ -122,20 +124,25 @@ test("resolveImplementPrompt: repo override, then global, then the built-in defa
   expect(resolveImplementPrompt("   ")).toBe("global focus");
 });
 
-test("resolveRefineModel: own override, then the review model override, then the global default", () => {
+test("resolveRefineModel: repo override, then the repo review model, then the global refiner default, then the review default", () => {
   expect(resolveRefineModel(undefined)).toBe("opencode-go/deepseek-v4-flash");
   settings.set.run({ $key: SETTINGS.MODEL, $value: "global/model" });
-  expect(resolveRefineModel(undefined)).toBe("global/model");
+  settings.set.run({ $key: SETTINGS.REFINE_MODEL, $value: "refine-global/model" });
+  // Global refiner default beats the review default when no repo overrides.
+  expect(resolveRefineModel(undefined)).toBe("refine-global/model");
+  // A repo pinned to a review model refines with it — repo beats the global
+  // agent default.
   expect(resolveRefineModel({ refine_model: null, model: "review/model" })).toBe("review/model");
   expect(resolveRefineModel({ refine_model: "refine/model", model: "review/model" })).toBe(
     "refine/model",
   );
 });
 
-test("resolveImplementModel: own override, then the review model override, then the global default", () => {
+test("resolveImplementModel: repo override, then the repo review model, then the global implementer default, then the review default", () => {
   expect(resolveImplementModel(undefined)).toBe("opencode-go/deepseek-v4-flash");
   settings.set.run({ $key: SETTINGS.MODEL, $value: "global/model" });
-  expect(resolveImplementModel(undefined)).toBe("global/model");
+  settings.set.run({ $key: SETTINGS.IMPLEMENT_MODEL, $value: "implement-global/model" });
+  expect(resolveImplementModel(undefined)).toBe("implement-global/model");
   expect(resolveImplementModel({ implement_model: null, model: "review/model" })).toBe(
     "review/model",
   );

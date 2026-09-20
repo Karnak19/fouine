@@ -11,6 +11,8 @@ export const SETTINGS = {
   MODEL: "opencode_model",
   PROMPT: "default_prompt",
   IMPROVER_MODEL: "improver_model",
+  REFINE_MODEL: "refine_model",
+  IMPLEMENT_MODEL: "implement_model",
   DENY_TEST_COMMANDS: "deny_test_commands",
   AUTO_MERGE: "auto_merge",
   MERGE_METHOD: "merge_method",
@@ -141,18 +143,25 @@ export function resolveAutoReady(repoValue: number | null): boolean {
   return settingValue(SETTINGS.AUTO_READY) === "1";
 }
 
-// Refiner model: per-repo refiner override, else the repo's review model
-// override, else the global default.
+// Refiner model, most-specific-first: per-repo refiner override, then the
+// repo's review model override (a repo pinned to a model refines with it),
+// then the global refiner default, then the global review default.
 export function resolveRefineModel(
   repo: Pick<RepoRow, "refine_model" | "model"> | null | undefined,
 ): string {
-  return repo?.refine_model || repo?.model || resolveDefaultModel();
+  return (
+    repo?.refine_model || repo?.model || settingValue(SETTINGS.REFINE_MODEL) || resolveDefaultModel()
+  );
 }
 
-// Implementer model: per-repo implementer override, else the repo's review
-// model override, else the global default.
+// Implementer model, same cascade as resolveRefineModel.
 export function resolveImplementModel(
   repo: Pick<RepoRow, "implement_model" | "model"> | null | undefined,
 ): string {
-  return repo?.implement_model || repo?.model || resolveDefaultModel();
+  return (
+    repo?.implement_model ||
+    repo?.model ||
+    settingValue(SETTINGS.IMPLEMENT_MODEL) ||
+    resolveDefaultModel()
+  );
 }
