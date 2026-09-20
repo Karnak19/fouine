@@ -3,6 +3,13 @@ services:
     build: .
     image: fouine:latest
     restart: unless-stopped
+    # Same liveness check as compose.coolify.yml — see the comment there.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports:
       - "${PORT:-3000}:3000"
     volumes:

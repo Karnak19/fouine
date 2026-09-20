@@ -67,6 +67,12 @@ export function buildOpencodeConfig(): Record<string, unknown> {
 
   return {
     $schema: "https://opencode.ai/config.json",
+    // The Dockerfile pins the CLI to the version @opencode-ai/sdk expects
+    // (see its ponytail comment); a binary that upgrades itself inside a
+    // long-running container silently breaks that pin and can drift the
+    // server protocol away from what the SDK speaks. If a future CLI stops
+    // recognising the key it will just ignore it — no behaviour change.
+    autoupdate: false,
     permission: {
       // Self-hosted, single-operator: whoever installs a skill owns the box, so
       // there's no third party to gate against — allow the skill tool outright.

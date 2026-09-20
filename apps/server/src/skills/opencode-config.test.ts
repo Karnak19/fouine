@@ -15,6 +15,10 @@ test("the PostHog plugin is declared only when an API key is set", () => {
   expect(buildOpencodeConfig().plugin).toEqual(["@posthog/opencode"]);
 });
 
+test("self-update is disabled (the Dockerfile pins the CLI to the SDK's version)", () => {
+  expect(buildOpencodeConfig().autoupdate).toBe(false);
+});
+
 test("bash denies dependency installs but stays allowed by default", () => {
   const bash = (buildOpencodeConfig().permission as { bash: Record<string, string> }).bash;
 
