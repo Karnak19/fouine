@@ -611,14 +611,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.IMPLEMENT_LABEL, body.implement_label);
       setKey(SETTINGS.DEFAULT_IMPLEMENT_PROMPT, body.default_implement_prompt);
       setKey(SETTINGS.AUTO_READY, body.auto_ready);
-      if (body.opencode_model) {
-        settings.set.run({ $key: SETTINGS.MODEL, $value: body.opencode_model });
-      }
+      // Models: blank clears the row so the field falls back to its cascade
+      // (per-repo override → this → review model). Always sent by the
+      // dashboard, unlike the secrets above where blank means "keep".
+      setKey(SETTINGS.MODEL, body.opencode_model);
+      setKey(SETTINGS.IMPROVER_MODEL, body.improver_model);
+      setKey(SETTINGS.REFINE_MODEL, body.refine_model);
+      setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       if (body.default_prompt) {
         settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
-      }
-      if (body.improver_model) {
-        settings.set.run({ $key: SETTINGS.IMPROVER_MODEL, $value: body.improver_model });
       }
       const all = settings.all.all();
       return Object.fromEntries(all.map((s) => [s.key, s.value]));
@@ -630,6 +631,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),
+        refine_model: t.Optional(t.String()),
+        implement_model: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),

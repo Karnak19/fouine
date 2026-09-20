@@ -139,6 +139,10 @@ export interface Settings {
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
+  // Global refiner/implementer defaults. Empty string deletes the row, i.e.
+  // fall back to each repo's review model.
+  refine_model?: string;
+  implement_model?: string;
   // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
   deny_test_commands?: string;
   // "1" = on, "" = delete the row (off). Default off.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -28,34 +28,38 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [zaiApiKey, setZaiApiKey] = useState("");
   const [model, setModel] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [refineModel, setRefineModel] = useState("");
+  const [implementModel, setImplementModel] = useState("");
   const [improverModel, setImproverModel] = useState("");
+  const [prompt, setPrompt] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
-  const [autoMerge, setAutoMerge] = useState(false);
-  const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
   const [refineEnabled, setRefineEnabled] = useState(false);
   const [refinePrompt, setRefinePrompt] = useState("");
+  const [autoReady, setAutoReady] = useState(false);
   const [implementEnabled, setImplementEnabled] = useState(false);
   const [implementLabel, setImplementLabel] = useState("");
   const [implementPrompt, setImplementPrompt] = useState("");
-  const [autoReady, setAutoReady] = useState(false);
+  const [autoMerge, setAutoMerge] = useState(false);
+  const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
   // they aren't part of the baseline — any non-empty value in them is dirty.
   const [baseline, setBaseline] = useState({
     model: "",
-    prompt: "",
+    refineModel: "",
+    implementModel: "",
     improverModel: "",
+    prompt: "",
     denyTestCommands: false,
-    autoMerge: false,
-    mergeMethod: "squash" as "merge" | "squash" | "rebase",
     refineEnabled: false,
     refinePrompt: "",
+    autoReady: false,
     implementEnabled: false,
     implementLabel: "",
     implementPrompt: "",
-    autoReady: false,
+    autoMerge: false,
+    mergeMethod: "squash" as "merge" | "squash" | "rebase",
   });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
@@ -66,42 +70,48 @@ export default function SettingsPage() {
     if (settings && !hydrated.current) {
       hydrated.current = true;
       const m = settings.opencode_model ?? "";
+      const rm = settings.refine_model ?? "";
+      const im = settings.implement_model ?? "";
+      const ivm = settings.improver_model ?? "";
       const p = settings.default_prompt ?? "";
-      const im = settings.improver_model ?? "";
       const d = settings.deny_test_commands === "1";
-      const am = settings.auto_merge === "1";
-      const mm = settings.merge_method ?? "squash";
       const re = settings.refine_enabled === "1";
       const rp = settings.default_refine_prompt ?? "";
+      const ar = settings.auto_ready === "1";
       const ie = settings.implement_enabled === "1";
       const il = settings.implement_label ?? "";
       const ip = settings.default_implement_prompt ?? "";
-      const ar = settings.auto_ready === "1";
+      const am = settings.auto_merge === "1";
+      const mm = settings.merge_method ?? "squash";
       setModel(m);
+      setRefineModel(rm);
+      setImplementModel(im);
+      setImproverModel(ivm);
       setPrompt(p);
-      setImproverModel(im);
       setDenyTestCommands(d);
-      setAutoMerge(am);
-      setMergeMethod(mm);
       setRefineEnabled(re);
       setRefinePrompt(rp);
+      setAutoReady(ar);
       setImplementEnabled(ie);
       setImplementLabel(il);
       setImplementPrompt(ip);
-      setAutoReady(ar);
+      setAutoMerge(am);
+      setMergeMethod(mm);
       setBaseline({
         model: m,
+        refineModel: rm,
+        implementModel: im,
+        improverModel: ivm,
         prompt: p,
-        improverModel: im,
         denyTestCommands: d,
-        autoMerge: am,
-        mergeMethod: mm,
         refineEnabled: re,
         refinePrompt: rp,
+        autoReady: ar,
         implementEnabled: ie,
         implementLabel: il,
         implementPrompt: ip,
-        autoReady: ar,
+        autoMerge: am,
+        mergeMethod: mm,
       });
     }
   }, [settings]);
@@ -110,33 +120,37 @@ export default function SettingsPage() {
     apiKey.trim() !== "" ||
     zaiApiKey.trim() !== "" ||
     model !== baseline.model ||
-    prompt !== baseline.prompt ||
+    refineModel !== baseline.refineModel ||
+    implementModel !== baseline.implementModel ||
     improverModel !== baseline.improverModel ||
+    prompt !== baseline.prompt ||
     denyTestCommands !== baseline.denyTestCommands ||
-    autoMerge !== baseline.autoMerge ||
-    mergeMethod !== baseline.mergeMethod ||
     refineEnabled !== baseline.refineEnabled ||
     refinePrompt !== baseline.refinePrompt ||
+    autoReady !== baseline.autoReady ||
     implementEnabled !== baseline.implementEnabled ||
     implementLabel !== baseline.implementLabel ||
     implementPrompt !== baseline.implementPrompt ||
-    autoReady !== baseline.autoReady;
+    autoMerge !== baseline.autoMerge ||
+    mergeMethod !== baseline.mergeMethod;
 
   const reset = () => {
     setApiKey("");
     setZaiApiKey("");
     setModel(baseline.model);
-    setPrompt(baseline.prompt);
+    setRefineModel(baseline.refineModel);
+    setImplementModel(baseline.implementModel);
     setImproverModel(baseline.improverModel);
+    setPrompt(baseline.prompt);
     setDenyTestCommands(baseline.denyTestCommands);
-    setAutoMerge(baseline.autoMerge);
-    setMergeMethod(baseline.mergeMethod);
     setRefineEnabled(baseline.refineEnabled);
     setRefinePrompt(baseline.refinePrompt);
+    setAutoReady(baseline.autoReady);
     setImplementEnabled(baseline.implementEnabled);
     setImplementLabel(baseline.implementLabel);
     setImplementPrompt(baseline.implementPrompt);
-    setAutoReady(baseline.autoReady);
+    setAutoMerge(baseline.autoMerge);
+    setMergeMethod(baseline.mergeMethod);
   };
 
   useEffect(() => {
@@ -157,20 +171,25 @@ export default function SettingsPage() {
       const data: Settings = {};
       if (apiKey.trim()) data.opencode_api_key = apiKey.trim();
       if (zaiApiKey.trim()) data.zai_api_key = zaiApiKey.trim();
-      if (model.trim()) data.opencode_model = model.trim();
+      // Models round-trip from the server, so blank means "clear the row" and
+      // the cascade takes over (per-repo override → repo review model → the
+      // review default) — unlike the secrets above where blank means "keep".
+      data.opencode_model = model.trim();
+      data.refine_model = refineModel.trim();
+      data.implement_model = implementModel.trim();
+      data.improver_model = improverModel.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
-      if (improverModel.trim()) data.improver_model = improverModel.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
       data.deny_test_commands = denyTestCommands ? "1" : "";
-      data.auto_merge = autoMerge ? "1" : "";
-      data.merge_method = mergeMethod;
       data.refine_enabled = refineEnabled ? "1" : "";
       if (refinePrompt.trim()) data.default_refine_prompt = refinePrompt.trim();
+      data.auto_ready = autoReady ? "1" : "";
       data.implement_enabled = implementEnabled ? "1" : "";
       data.implement_label = implementLabel.trim();
       if (implementPrompt.trim()) data.default_implement_prompt = implementPrompt.trim();
-      data.auto_ready = autoReady ? "1" : "";
+      data.auto_merge = autoMerge ? "1" : "";
+      data.merge_method = mergeMethod;
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -179,17 +198,19 @@ export default function SettingsPage() {
       setZaiApiKey("");
       setBaseline({
         model,
-        prompt,
+        refineModel,
+        implementModel,
         improverModel,
+        prompt,
         denyTestCommands,
-        autoMerge,
-        mergeMethod,
         refineEnabled,
         refinePrompt,
+        autoReady,
         implementEnabled,
         implementLabel,
         implementPrompt,
-        autoReady,
+        autoMerge,
+        mergeMethod,
       });
       toast.success("Settings saved");
     },
@@ -224,79 +245,161 @@ export default function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>OpenCode provider</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              updateMut.mutate();
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="api_key">API key</Label>
-              <Input
-                id="api_key"
-                type="password"
-                placeholder="Set key to enable reviews"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <p className="text-xs text-zinc-500">Leave blank to keep the current value.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
-              <Input
-                id="zai_api_key"
-                type="password"
-                placeholder="Z.ai key — used for zai-coding-plan/* models"
-                value={zaiApiKey}
-                onChange={(e) => setZaiApiKey(e.target.value)}
-              />
-              <p className="text-xs text-zinc-500">
-                Only used when a model spec starts with <code>zai-coding-plan/</code>. When unset,
-                opencode uses whatever credential it already has for that provider. Leave blank to
-                keep the current value.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="model">Default model</Label>
-              <ModelInput
-                id="model"
-                placeholder="opencode-go/deepseek-v4-flash"
-                value={model}
-                onChange={setModel}
-              />
-              {/* The opencode-go gateway is not uniformly OpenAI-shaped, and
-                  the two consumers differ: reviews go through the opencode
-                  server, which picks the right adapter itself, while Chat talks
-                  to the gateway directly over @ai-sdk/openai-compatible. A model
-                  needing the Anthropic shape reviews fine and breaks Chat with
-                  an unhelpful upstream error, so say so here rather than
-                  letting it be discovered at request time. */}
-              <p className="text-xs text-zinc-500">
-                Used for reviews. Chat has its own model, set only via{" "}
-                <code>OPENCODE_CHAT_MODEL</code> — it needs an OpenAI-compatible model, and a few
-                opencode-go models use the Anthropic API shape and will work for reviews but fail
-                in Chat.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="improver_model">Improver model</Label>
-              <ModelInput
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          updateMut.mutate();
+        }}
+        className="space-y-6"
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle>Models</CardTitle>
+            <p className="text-sm text-zinc-500">
+              One model per agent. A repo can override all but the improver on its own page.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-zinc-800">
+              <AgentRow id="model" name="Reviewer" description="Reviews pull requests">
+                <ModelInput
+                  id="model"
+                  placeholder="opencode-go/deepseek-v4-flash"
+                  value={model}
+                  onChange={setModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  A repo's model override wins — set it on the repo's page.
+                </p>
+              </AgentRow>
+              <AgentRow
+                id="refine_model"
+                name="Refiner"
+                description="Turns new issues into clear specs (/fouine refine)"
+              >
+                <ModelInput
+                  id="refine_model"
+                  placeholder="provider/model"
+                  value={refineModel}
+                  onChange={setRefineModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Repo overrides win; empty = each repo's review model.
+                </p>
+              </AgentRow>
+              <AgentRow
+                id="implement_model"
+                name="Implementer"
+                description="Implements labelled issues (/fouine implement)"
+              >
+                <ModelInput
+                  id="implement_model"
+                  placeholder="provider/model"
+                  value={implementModel}
+                  onChange={setImplementModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Repo overrides win; empty = each repo's review model.
+                </p>
+              </AgentRow>
+              <AgentRow
                 id="improver_model"
-                placeholder="e.g. opencode-go/deepseek-v4-flash — defaults to the review model"
-                value={improverModel}
-                onChange={setImproverModel}
-              />
-              <p className="text-xs text-zinc-500">
-                Used by the daily REVIEW.md improver. It runs rarely but its output shapes every
-                future review — worth a stronger model than the reviewer.
-              </p>
+                name="Improver"
+                description="Refreshes REVIEW.md daily"
+              >
+                <ModelInput
+                  id="improver_model"
+                  placeholder="provider/model"
+                  value={improverModel}
+                  onChange={setImproverModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Global only — runs rarely but shapes every future review, so it's worth a
+                  stronger model than the reviewer.
+                </p>
+              </AgentRow>
+              <AgentRow id="chat_model" name="Chat" description="Dashboard assistant">
+                {/* Chat deliberately ignores the dashboard-stored models: it is a
+                    high-volume, cheaper-model workload (see AGENTS.md) driven by
+                    the env-only OPENCODE_CHAT_MODEL. */}
+                <p className="text-sm text-zinc-400">
+                  Set via the <code>OPENCODE_CHAT_MODEL</code> env var — deliberately independent
+                  of the fields above. Needs an OpenAI-compatible model.
+                </p>
+              </AgentRow>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Provider keys</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="api_key">API key</Label>
+                <Input
+                  id="api_key"
+                  type="password"
+                  placeholder="Set key to enable reviews"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">Leave blank to keep the current value.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
+                <Input
+                  id="zai_api_key"
+                  type="password"
+                  placeholder="Z.ai key — used for zai-coding-plan/* models"
+                  value={zaiApiKey}
+                  onChange={(e) => setZaiApiKey(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">
+                  Only used when a model spec starts with <code>zai-coding-plan/</code>. When
+                  unset, opencode uses whatever credential it already has for that provider. Leave
+                  blank to keep the current value.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 border-t border-zinc-800 pt-4">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={testMut.isPending}
+                  onClick={() => {
+                    testMut.reset();
+                    testMut.mutate();
+                  }}
+                >
+                  {testMut.isPending ? "Testing…" : "Test connection"}
+                </Button>
+                <span className="text-xs text-zinc-500">
+                  Sends one tiny request to the review model.
+                </span>
+              </div>
+              {testMut.data && (
+                <p
+                  className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
+                >
+                  {testMut.data.ok
+                    ? `OK — model replied: ${testMut.data.text ?? ""}`
+                    : `Failed: ${testMut.data.error ?? "unknown error"}`}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reviews</CardTitle>
+            <p className="text-sm text-zinc-500">Defaults for every repo; a repo can override.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
                 <input
@@ -309,40 +412,29 @@ export default function SettingsPage() {
                 Don't run tests, linter, typechecker or build during a review
               </label>
               <p className="text-xs text-zinc-500">
-                Default for every repo. CI already runs them, and the review worktree has no env
-                vars — so they tend to fail for unrelated reasons and show up as findings. A repo
-                can override this.
+                CI already runs them, and the review worktree has no env vars — so they tend to
+                fail for unrelated reasons and show up as findings.
               </p>
             </div>
             <div className="space-y-1.5">
-              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
-                <input
-                  id="auto_merge"
-                  type="checkbox"
-                  className="h-4 w-4 accent-zinc-200"
-                  checked={autoMerge}
-                  onChange={(e) => setAutoMerge(e.target.checked)}
-                />
-                Auto-merge PRs once fouine approves
-              </label>
-              <p className="text-xs text-zinc-500">
-                Merges automatically once fouine approved, CI is green, and no human requested changes. A
-                new push re-arms it on the new commit; draft PRs are skipped.
-              </p>
+              <Label htmlFor="prompt">Default review prompt</Label>
+              <Textarea
+                id="prompt"
+                rows={10}
+                placeholder="Reviewer instructions applied when a repo has no override..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="merge_method">Merge method</Label>
-              <select
-                id="merge_method"
-                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
-                value={mergeMethod}
-                onChange={(e) => setMergeMethod(e.target.value as "merge" | "squash" | "rebase")}
-              >
-                <option value="squash">Squash and merge</option>
-                <option value="merge">Create a merge commit</option>
-                <option value="rebase">Rebase and merge</option>
-              </select>
-            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Issues</CardTitle>
+            <p className="text-sm text-zinc-500">Refiner and implementer defaults, per repo.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
                 <input
@@ -355,27 +447,18 @@ export default function SettingsPage() {
                 Refine issues automatically when opened
               </label>
               <p className="text-xs text-zinc-500">
-                Default for every repo. Always available on demand via{" "}
-                <span className="font-mono">/fouine refine</span> on an issue. A repo can override
-                this.
+                Always available on demand via <span className="font-mono">/fouine refine</span>.
               </p>
             </div>
             <div className="space-y-1.5">
-              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
-                <input
-                  id="implement_enabled"
-                  type="checkbox"
-                  className="h-4 w-4 accent-zinc-200"
-                  checked={implementEnabled}
-                  onChange={(e) => setImplementEnabled(e.target.checked)}
-                />
-                Implement issues automatically when labelled
-              </label>
-              <p className="text-xs text-zinc-500">
-                Default for every repo. Always available on demand via{" "}
-                <span className="font-mono">/fouine implement</span> on an issue. A repo can
-                override this.
-              </p>
+              <Label htmlFor="default_refine_prompt">Default refine prompt</Label>
+              <Textarea
+                id="default_refine_prompt"
+                rows={10}
+                placeholder="Refiner instructions applied when a repo has no override..."
+                value={refinePrompt}
+                onChange={(e) => setRefinePrompt(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
@@ -393,6 +476,22 @@ export default function SettingsPage() {
               </p>
             </div>
             <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="implement_enabled"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={implementEnabled}
+                  onChange={(e) => setImplementEnabled(e.target.checked)}
+                />
+                Implement issues automatically when labelled
+              </label>
+              <p className="text-xs text-zinc-500">
+                Always available on demand via{" "}
+                <span className="font-mono">/fouine implement</span>.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="implement_label">Implement label</Label>
               <Input
                 id="implement_label"
@@ -400,29 +499,7 @@ export default function SettingsPage() {
                 value={implementLabel}
                 onChange={(e) => setImplementLabel(e.target.value)}
               />
-              <p className="text-xs text-zinc-500">
-                Label that triggers the implementer. A repo can override this.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prompt">Default review prompt</Label>
-              <Textarea
-                id="prompt"
-                rows={10}
-                placeholder="Reviewer instructions applied when a repo has no override..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="default_refine_prompt">Default refine prompt</Label>
-              <Textarea
-                id="default_refine_prompt"
-                rows={10}
-                placeholder="Refiner instructions applied when a repo has no override..."
-                value={refinePrompt}
-                onChange={(e) => setRefinePrompt(e.target.value)}
-              />
+              <p className="text-xs text-zinc-500">Label that triggers the implementer.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="default_implement_prompt">Default implement prompt</Label>
@@ -434,48 +511,83 @@ export default function SettingsPage() {
                 onChange={(e) => setImplementPrompt(e.target.value)}
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={!dirty || updateMut.isPending}>
-                Save settings
-              </Button>
-              {dirty && (
-                <Button type="button" variant="ghost" size="sm" onClick={reset}>
-                  Reset
-                </Button>
-              )}
-            </div>
-          </form>
-          <div className="border-t border-zinc-800 pt-4">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={testMut.isPending}
-                onClick={() => {
-                  testMut.reset();
-                  testMut.mutate();
-                }}
-              >
-                {testMut.isPending ? "Testing…" : "Test connection"}
-              </Button>
-              <span className="text-xs text-zinc-500">
-                Sends one tiny request to the configured model.
-              </span>
-            </div>
-            {testMut.data && (
-              <p
-                className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {testMut.data.ok
-                  ? `OK — model replied: ${testMut.data.text ?? ""}`
-                  : `Failed: ${testMut.data.error ?? "unknown error"}`}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Merging</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-zinc-300 select-none">
+                <input
+                  id="auto_merge"
+                  type="checkbox"
+                  className="h-4 w-4 accent-zinc-200"
+                  checked={autoMerge}
+                  onChange={(e) => setAutoMerge(e.target.checked)}
+                />
+                Auto-merge PRs once fouine approves
+              </label>
+              <p className="text-xs text-zinc-500">
+                Merges automatically once fouine approved, CI is green, and no human requested
+                changes. A new push re-arms it on the new commit; draft PRs are skipped.
               </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="merge_method">Merge method</Label>
+              <select
+                id="merge_method"
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                value={mergeMethod}
+                onChange={(e) => setMergeMethod(e.target.value as "merge" | "squash" | "rebase")}
+              >
+                <option value="squash">Squash and merge</option>
+                <option value="merge">Create a merge commit</option>
+                <option value="rebase">Rebase and merge</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center gap-2">
+          <Button type="submit" disabled={!dirty || updateMut.isPending}>
+            Save settings
+          </Button>
+          {dirty && (
+            <Button type="button" variant="ghost" size="sm" onClick={reset}>
+              Reset
+            </Button>
+          )}
+        </div>
+      </form>
 
       <SkillsCard />
+    </div>
+  );
+}
+
+// One row of the Models card: agent name + role on the left, its model control
+// on the right. Stacks on narrow screens.
+function AgentRow({
+  id,
+  name,
+  description,
+  children,
+}: {
+  id: string;
+  name: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 py-4 first:pt-0 last:pb-0 sm:grid-cols-[11rem_1fr] sm:gap-4">
+      <div className="space-y-0.5">
+        <Label htmlFor={id}>{name}</Label>
+        <p className="text-xs text-zinc-500">{description}</p>
+      </div>
+      <div className="space-y-1.5">{children}</div>
     </div>
   );
 }

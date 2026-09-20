@@ -174,7 +174,8 @@ for (const def of [
 // implement_label) — `/fouine implement` works on any enabled repo.
 // repos.refine_model / repos.implement_model are per-repo model overrides for
 // the refiner/implementer. NULL falls back to repos.model (the review
-// override), then the global default — see resolveRefineModel/resolveImplementModel.
+// override), then the global agent default, then the global review default —
+// see resolveRefineModel/resolveImplementModel.
 // repos.auto_ready is the per-repo opt-in for the refiner labeling an issue
 // ready itself (via mark_issue_ready), same NULL-means-inherit shape. It only
 // lets the refiner ADD the label; a human adding it always works, and

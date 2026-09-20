@@ -331,7 +331,7 @@ to rebuild it. If models.dev is unreachable, the snapshot bundled in that packag
 GET /api/settings
 ```
 
-`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `opencode_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
+`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `opencode_model`, `refine_model`, `implement_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
 
 ```json
 {
@@ -355,11 +355,15 @@ Content-Type: application/json
   "zai_api_key": "your-z-ai-key",
   "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR...",
+  "refine_model": "opencode-go/deepseek-v4-flash",
+  "implement_model": "opencode-go/deepseek-v4-flash",
   "improver_model": "opencode-go/deepseek-v4-flash"
 }
 ```
 
-All five fields are optional; an absent field keeps its stored value. The two key fields accept an explicit `""` to **delete** the stored value, letting the env var take over again. For the non-key fields `""` is still a no-op.
+Model fields follow a most-specific-first cascade: a repo's own override, then the repo's review model, then the global agent default (`refine_model` / `implement_model`), then the global review default (`opencode_model`). Sending an empty string deletes the stored row, falling back down the cascade.
+
+All fields are optional; an absent field keeps its stored value. An explicit `""` deletes the stored row so the fallback takes over — for the two API keys that is the environment, for the four model fields the cascade above, for the toggles, prompts and implement label their built-in defaults. The one exception is `default_prompt`: `""` is a no-op, so a global review prompt can only be replaced, never unset, through the API.
 
 `200 →` the full settings object, as `GET /api/settings`.
 
