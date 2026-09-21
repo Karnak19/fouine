@@ -67,7 +67,7 @@ db.exec(`
     ON reviews(session_id);
 
   -- One row per posted finding, written back by the opencode post_* tools right
-  -- after they hit GitHub (see /internal/reviews/:id/findings). This is the
+  -- after they hit GitHub (see the /internal/sessions/:sid/* proxy). This is the
   -- structured record of what fouine actually flagged — the transcript has the
   -- reasoning, this has the verdict — so the dashboard can render the review and
   -- trend findings (volume, severity mix) the way it already trends cost/tokens.

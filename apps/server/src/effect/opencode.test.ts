@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { OpenCodeServerManager, makeSidecarServe, type ManagerDeps } from "~/effect/opencode";
+import { Effect } from "effect";
+import {
+  OpenCodeServerManager,
+  OpenCodeService,
+  makeSidecarServe,
+  openCodeManager,
+  type ManagerDeps,
+} from "~/effect/opencode";
 import { newActivityState, type OpencodeServe } from "~/review/opencode";
 import { createTranscriptStream } from "~/review/transcript";
 import { ZAI_PROVIDER } from "~/settings";
@@ -106,21 +113,71 @@ test("spawns the server once across concurrent and later acquires", async () => 
   manager.stop();
 });
 
-test("pushes the default provider key once at init; pushProviderKey re-pushes", async () => {
+test("pushes the default provider key once at init and re-pushes a rotated key", async () => {
   const { serve, pushed } = fakeServe();
-  const { manager } = makeManager(serve);
+  let key = "test-key";
+  const { manager } = makeManager(serve, {
+    // ZAI stays unconfigured so the only init push is the default provider.
+    resolveKey: (id) => (id === ZAI_PROVIDER ? undefined : key),
+  });
   await manager.acquire();
   expect(pushed).toHaveLength(1);
   expect(pushed[0].key).toBe("test-key");
 
-  // A second ensure (a per-repo model on the same provider) is a no-op.
+  // A second ensure (a per-repo model on the same provider, same key) is a no-op.
   await manager.ensureProviderKey(pushed[0].integrationID);
   expect(pushed).toHaveLength(1);
 
-  // A settings change forces a re-push.
-  await manager.pushProviderKey(pushed[0].integrationID);
+  // A rotated dashboard key must reach the live server: the guard compares the
+  // key, not just the provider, so no restart is needed.
+  key = "rotated-key";
+  await manager.ensureProviderKey(pushed[0].integrationID);
   expect(pushed).toHaveLength(2);
+  expect(pushed[1].key).toBe("rotated-key");
   manager.stop();
+});
+
+test("the run path pushes the run's provider key before session.create", async () => {
+  const { serve, pushed } = fakeServe();
+  // session.create never succeeds: we only care that the key push happens first.
+  (serve.client as unknown as { session: { create: () => Promise<never> } }).session.create =
+    async () => {
+      throw new Error("session.create boom");
+    };
+
+  const calls: string[] = [];
+  const proto = OpenCodeServerManager.prototype;
+  const originalEnsure = proto.ensureProviderKey;
+  proto.ensureProviderKey = async function (providerID: string) {
+    calls.push(providerID);
+    return originalEnsure.call(this, providerID);
+  };
+
+  const singleton = openCodeManager as unknown as { serve?: OpencodeServe; deps: ManagerDeps };
+  const previousServe = singleton.serve;
+  const previousDeps = singleton.deps;
+  singleton.serve = serve;
+  singleton.deps = { ...previousDeps, resolveKey: (id) => (id === "runprov" ? "run-key" : undefined) };
+  try {
+    const program = Effect.gen(function* () {
+      const oc = yield* OpenCodeService;
+      return yield* oc.runReview(
+        { directory: "/tmp/fouine-test", prompt: "hi", model: "runprov/runmodel" },
+        () => {},
+        new AbortController().signal,
+      );
+    });
+    await Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+      () => undefined,
+    );
+
+    expect(calls).toContain("runprov");
+    expect(pushed).toEqual([{ integrationID: "runprov", key: "run-key" }]);
+  } finally {
+    proto.ensureProviderKey = originalEnsure;
+    singleton.serve = previousServe;
+    singleton.deps = previousDeps;
+  }
 });
 
 test("demultiplexes events by session id and drops unknown sessions", async () => {

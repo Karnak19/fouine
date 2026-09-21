@@ -12,11 +12,10 @@ import {
 } from "../../opencode-config/plugins/_ci_format";
 
 // Shared secret for the loopback write-back channel the opencode post_* tools
-// use to persist findings (POST /internal/reviews/:id/findings). The tools run
-// in a subprocess this same process spawns, so a per-boot random token — passed
-// down via FOUINE_INTERNAL_SECRET — is enough: it never leaves the host and
-// needs no operator configuration. Regenerated each start; that's fine because
-// no long-lived client holds it.
+// use to persist findings. The tools run in a subprocess this same process
+// spawns, so a per-boot random token — passed down via FOUINE_INTERNAL_SECRET —
+// is enough: it never leaves the host and needs no operator configuration.
+// Regenerated each start; that's fine because no long-lived client holds it.
 export const internalSecret = crypto.randomUUID();
 
 // Where the subprocess reaches this server. Loopback only — the write-back is
@@ -588,43 +587,4 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
       }
     },
     { body: t.Object({ content: t.String(), summary: t.String() }) },
-  )
-
-  // Legacy findings write-back, kept for any pre-proxy plugin still calling it.
-  // Guarded by the per-boot shared secret (best-effort by design), off the /api
-  // OAuth gate because it isn't a browser caller.
-  .post(
-    "/reviews/:id/findings",
-    ({ params, headers, body, set }) => {
-      if (headers[INTERNAL_SECRET_HEADER] !== internalSecret) {
-        set.status = 401;
-        return { error: "unauthorized" };
-      }
-      const reviewId = Number(params.id);
-      const review = reviews.byId.get({ $id: reviewId });
-      if (!review) {
-        set.status = 404;
-        return { error: "unknown review" };
-      }
-      persistFindings(review, body.findings);
-      return { ok: true, stored: body.findings.length };
-    },
-    {
-      body: t.Object({
-        findings: t.Array(
-          t.Object({
-            kind: t.Union([t.Literal("inline"), t.Literal("summary"), t.Literal("comment")]),
-            severity: t.Optional(
-              t.Union([t.Literal("blocking"), t.Literal("nit"), t.Literal("question")]),
-            ),
-            event: t.Optional(t.String()),
-            path: t.Optional(t.String()),
-            line: t.Optional(t.Number()),
-            body: t.String(),
-            githubReviewId: t.Optional(t.Number()),
-            githubCommentId: t.Optional(t.Number()),
-          }),
-        ),
-      }),
-    },
   );

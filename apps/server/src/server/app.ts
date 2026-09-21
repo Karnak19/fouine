@@ -7,7 +7,7 @@ import { apiRoutes } from "~/server/api";
 import { auth, migrateAuth } from "~/server/auth";
 import { internalRoutes } from "~/server/internal";
 import { errName, log } from "~/server/log";
-import { seedOpencodeConfig, reconcileSkills } from "~/skills";
+import { seedOpencodeConfig, reconcileSkills, reloadOpencodeConfig } from "~/skills";
 import { reapOrphanReviews, reapStaleArms, runImproverSweep, reconcileReviewChecks } from "~/review";
 
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
@@ -203,6 +203,10 @@ export async function boot(): Promise<void> {
   // before we accept requests, so the first review already sees them. Order
   // matters: seed creates the skills/ dir the reconcile writes into.
   seedOpencodeConfig();
+  // seed rebuilt the runtime config dir on disk, but a warm sidecar still serves
+  // the previous plugin code from memory. Fire-and-forget so a fouine-only
+  // restart picks up the new config; a no-op when no server is running yet.
+  reloadOpencodeConfig();
   reconcileSkills();
   // Nothing survives a restart mid-review, so reconcile the rows that still
   // claim to be in flight before the dashboard can show them (#60). Never

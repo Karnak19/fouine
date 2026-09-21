@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { findings, repos, reviews, type ReviewRow } from "~/db";
+import { repos, reviews, type ReviewRow } from "~/db";
 import { internalRoutes, internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
 
 // The loopback proxy's authorization matrix. These hit the real Elysia routes
@@ -132,35 +132,4 @@ test("a wrong shared secret is rejected (defence-in-depth), but its absence is f
 
   const noSecret = await request(`/internal/sessions/${row.session_id}/context`);
   expect(noSecret.status).toBe(200);
-});
-
-test("findings alias still works: secret required, unknown review 404, stores rows", async () => {
-  const row = makeSession({ pr: 3, trigger: "opened" });
-
-  const unauth = await request(`/internal/reviews/${row.id}/findings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ findings: [] }),
-  });
-  expect(unauth.status).toBe(401);
-
-  const unknown = await request("/internal/reviews/999999/findings", {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ findings: [] }),
-  });
-  expect(unknown.status).toBe(404);
-
-  const ok = await request(`/internal/reviews/${row.id}/findings`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({
-      findings: [{ kind: "comment", body: "hello" }],
-    }),
-  });
-  expect(ok.status).toBe(200);
-  expect(await ok.json()).toEqual({ ok: true, stored: 1 });
-  const stored = findings.byReview.get({ $review: row.id });
-  expect(stored?.kind).toBe("comment");
-  expect(stored?.body).toBe("hello");
 });

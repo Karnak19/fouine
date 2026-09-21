@@ -117,7 +117,7 @@ export class OpenCodeServerManager {
   private starting?: Promise<OpencodeServe>;
   private pumpCtrl?: AbortController;
   private readonly sessions = new Map<string, ActivitySink>();
-  private readonly pushedProviders = new Set<string>();
+  private readonly pushedKeys = new Map<string, string>();
   private stopping = false;
   private readonly deps: ManagerDeps;
 
@@ -144,7 +144,7 @@ export class OpenCodeServerManager {
     const serve = await this.deps.spawnServe();
     this.serve = serve;
     this.stopping = false;
-    this.pushedProviders.clear();
+    this.pushedKeys.clear();
     // Start the pump before pushing keys: events can only arrive after a
     // session exists, but ordering it first means a slow integration call can
     // never swallow the first review's opening events.
@@ -228,7 +228,7 @@ export class OpenCodeServerManager {
     }
     if (this.serve !== serve) return;
     this.serve = undefined;
-    this.pushedProviders.clear();
+    this.pushedKeys.clear();
     const sinks = [...this.sessions.values()];
     this.sessions.clear();
     if (sinks.length > 0) {
@@ -252,11 +252,12 @@ export class OpenCodeServerManager {
   }
 
   // Push the keys we can resolve once, at init: the default model's provider,
-  // plus Z.ai when configured. Later settings changes go through
-  // pushProviderKey(); per-run callers go through ensureProviderKey() so a
-  // per-repo model on a different provider still gets its key without
-  // re-pushing on every review. Never fatal: a failed key push degrades auth,
-  // it must not fail the server startup that reviews depend on.
+  // plus Z.ai when configured. Later settings changes and per-run callers go
+  // through ensureProviderKey(), which compares the *key* so a rotated dashboard
+  // key reaches the live server and a per-repo model on a different provider
+  // gets its key without re-pushing on every review. Never fatal: a failed key
+  // push degrades auth, it must not fail the server startup that reviews depend
+  // on.
   private async pushInitKeys(): Promise<void> {
     try {
       await this.ensureProviderKey(parseModel(resolveDefaultModel()).providerID);
@@ -272,19 +273,16 @@ export class OpenCodeServerManager {
 
   async ensureProviderKey(providerID: string): Promise<void> {
     const client = this.serve?.client;
-    if (!client || this.pushedProviders.has(providerID)) return;
+    if (!client) return;
     const key = this.deps.resolveKey(providerID);
-    if (!key) return;
+    // Compare the key, not just the provider: a rotated dashboard key must reach
+    // the live server, not wait for a fouine restart (v1 re-pushed the current
+    // key on every run).
+    if (!key || this.pushedKeys.get(providerID) === key) return;
     // v1 stored these via client.auth.set; v2 folds provider credentials into
     // integrations. The integration id is the provider id.
     await client.integration.connect.key({ integrationID: providerID, key });
-    this.pushedProviders.add(providerID);
-  }
-
-  /** Force a re-push after a settings change (dashboard API key edit). */
-  async pushProviderKey(providerID: string): Promise<void> {
-    this.pushedProviders.delete(providerID);
-    await this.ensureProviderKey(providerID);
+    this.pushedKeys.set(providerID, key);
   }
 
   /** Reload the server's config from disk. Used by the config-settings lane. */
@@ -304,7 +302,7 @@ export class OpenCodeServerManager {
     }
     this.serve = undefined;
     this.sessions.clear();
-    this.pushedProviders.clear();
+    this.pushedKeys.clear();
   }
 }
 
@@ -392,19 +390,28 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
             opts.permissions ??
             (reviewOpencodeConfig(opts.denyTestCommands ?? false).permissions as PermissionRuleset);
 
+          // v1 pushed the run's provider key before every session.create
+          // (setProviderApiKey); restore that so a per-repo/per-pipeline model on
+          // a different provider authenticates. Never fatal.
+          const keyPush = openCodeManager
+            .ensureProviderKey(parseModel(opts.model ?? resolveDefaultModel()).providerID)
+            .catch(() => undefined);
+
           return Effect.tryPromise({
             try: () =>
               Promise.race([
-                runReview(
-                  serve.client,
-                  { ...opts, permissions },
-                  {
-                    onSession: (id) => {
-                      sessionId = id;
-                      openCodeManager.register(id, sink);
-                      onSession(id);
+                keyPush.then(() =>
+                  runReview(
+                    serve.client,
+                    { ...opts, permissions },
+                    {
+                      onSession: (id) => {
+                        sessionId = id;
+                        openCodeManager.register(id, sink);
+                        onSession(id);
+                      },
                     },
-                  },
+                  ),
                 ),
                 serverLost,
                 aborted,

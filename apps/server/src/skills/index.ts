@@ -14,7 +14,7 @@ export { parseSkillUrl } from "~/skills/source";
 // opencode client graph; fire-and-forget because the reload only has to land
 // before the NEXT review's session is created, and a mutation must not fail if
 // the server is mid-restart.
-function reloadOpencodeConfig(): void {
+export function reloadOpencodeConfig(): void {
   void import("~/effect/opencode")
     .then(({ openCodeManager }) => openCodeManager.locationReload())
     .catch((err) => log.warn("opencode config reload failed", { error: String(err) }));
