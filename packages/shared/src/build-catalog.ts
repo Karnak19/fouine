@@ -106,7 +106,11 @@ export const buildCatalog = defineCatalog(schema, {
         label: z.string().describe("What the number is."),
         data: datasetKey,
         column: z.string().describe("Column of the dataset's FIRST row to show as the big number."),
-        unit: z.enum(["count", "currency", "seconds", "percent"]).describe("How to format the value."),
+        unit: z
+          .enum(["count", "currency", "seconds", "percent"])
+          .describe(
+            'How to format the value. "percent" expects a ratio between 0 and 1 — write the SQL to divide, e.g. failed * 1.0 / total, not * 100.',
+          ),
       }),
       slots: [],
       description:
@@ -302,7 +306,6 @@ export function sanitizeSpec(input: LooseSpec | null | undefined, knownKeys?: re
       type,
       props,
       children: Array.isArray(el.children) ? el.children.filter((c): c is string => typeof c === "string") : [],
-      ...(el.slots && typeof el.slots === "object" ? { slots: el.slots } : {}),
     };
     kept++;
   }

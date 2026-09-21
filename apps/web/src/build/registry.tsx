@@ -3,6 +3,7 @@ import { defineRegistry } from "@json-render/react";
 import { AlertTriangle, Info } from "lucide-react";
 import {
   BarChart,
+  CategoryAxis,
   LegendDot,
   LineChart,
   MixBar,
@@ -11,7 +12,6 @@ import {
   PanelSkeleton,
   StackedBarChart,
   categoriesOf,
-  formatValue,
   mixFromRows,
   pointsFromRows,
   scaleMax,
@@ -107,32 +107,6 @@ function Caption({ dataset }: { dataset: BuildDataset }) {
   );
 }
 
-// Labels under the bars while there is room for them; past that they collide
-// into a grey smear and the endpoints caption says more. Same rule, and the
-// same number, as the chat thread's chart card.
-const LABELS_FIT = 12;
-
-function CategoryAxis({ cats, peak }: { cats: string[]; peak?: number }) {
-  if (cats.length <= LABELS_FIT) {
-    return (
-      <div className="text-muted-foreground mt-2 flex gap-1 text-[0.7rem]">
-        {cats.map((c) => (
-          <span key={c} className="min-w-0 flex-1 truncate text-center" title={c}>
-            {c}
-          </span>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="text-muted-foreground mt-2 flex justify-between gap-2 text-[0.7rem] tabular-nums">
-      <span className="truncate">{cats[0]}</span>
-      {peak !== undefined && <span className="shrink-0">{formatValue(peak)} peak</span>}
-      <span className="truncate">{cats[cats.length - 1]}</span>
-    </div>
-  );
-}
-
 const GAP: Record<string, string> = { tight: "gap-3", normal: "gap-6", loose: "gap-10" };
 // Written out rather than interpolated: Tailwind scans source text, and
 // `md:grid-cols-${n}` is a class that never gets generated.
@@ -149,7 +123,10 @@ function formatUnit(value: unknown, unit: string): string {
     case "currency":
       return `$${value.toFixed(4)}`;
     case "percent":
-      return `${(value * (value <= 1 ? 100 : 1)).toFixed(1)}%`;
+      // A ratio, always: the catalog tells the model to produce 0..1, so there
+      // is nothing to guess. Guessing was wrong under 1% — 0.5 meaning half a
+      // percent rendered as 50%.
+      return `${(value * 100).toFixed(1)}%`;
     case "seconds":
       return value < 60 ? `${Math.round(value)}s` : `${Math.floor(value / 60)}m ${Math.round(value % 60)}s`;
     default:
@@ -271,9 +248,13 @@ export const { registry } = defineRegistry(buildCatalog, {
       <WithDataset
         data={props.data}
         title={props.title}
-        // MixBar brings its own padding and legend, so it sits outside the
-        // padded body the other charts use.
-        render={(d) => <MixBar items={mixFromRows(d.rows, props.label, props.value)} />}
+        // MixBar brings its own padding and legend, so it cancels the padded
+        // body the other charts use — same trick as Table below.
+        render={(d) => (
+          <div className="-mx-4 -mt-4">
+            <MixBar items={mixFromRows(d.rows, props.label, props.value)} />
+          </div>
+        )}
       />
     ),
 

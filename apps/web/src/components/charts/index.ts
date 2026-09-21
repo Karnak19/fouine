@@ -35,3 +35,6 @@ export {
   totalsByCategory,
   type StackedResult,
 } from "./from-rows";
+// The label strip that stands in for an x axis, shared by the chat chart card
+// and the /build registry.
+export { CategoryAxis, LABELS_FIT } from "./category-axis";

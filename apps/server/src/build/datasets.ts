@@ -69,7 +69,21 @@ function capRows(
   }
   const categories: (string | number | null)[] = [];
   for (const r of rows) if (!categories.includes(r[x])) categories.push(r[x]);
-  if (categories.length <= cap) return { rows };
+  if (categories.length <= cap) {
+    // `runStatsQuery`'s LIMIT counts rows, not categories, so at MAX_ROWS it can
+    // land mid-category and the last bar draws short — missing a slice and
+    // quietly understating itself. We cannot tell "cut short" from "ended on a
+    // boundary", so drop the last category either way, like chart.ts does:
+    // losing one complete bar now and then is the cheap mistake.
+    if (rows.length === MAX_ROWS && rows.length > categories.length) {
+      const last = categories[categories.length - 1];
+      return {
+        rows: rows.filter((r) => r[x] !== last),
+        note: `the query was capped at ${MAX_ROWS} rows, which may have cut the last category short, so it was dropped — aggregate further in SQL for a complete picture`,
+      };
+    }
+    return { rows };
+  }
   const kept = new Set(categories.slice(0, cap));
   return {
     rows: rows.filter((r) => kept.has(r[x])),
@@ -87,7 +101,6 @@ function capRows(
 export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDataset) => void) {
   const datasets: BuildDataset[] = [];
   const notes: string[] = [];
-  let refused = 0;
 
   const addDataset = tool({
     description:
@@ -127,7 +140,6 @@ export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDat
       if (datasets.length >= MAX_DATASETS) {
         // Not an error the run should die on: the model keeps what it has and
         // lays that out. The page says a cap was hit.
-        refused++;
         notes.push(
           `This build asked for more than ${MAX_DATASETS} datasets; the extra ones were not fetched.`,
         );
@@ -166,9 +178,6 @@ export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDat
       const noteParts: string[] = [];
       if (parsed.note) noteParts.push(parsed.note.replace(/^\(|\)$/g, ""));
       if (capped.note) noteParts.push(capped.note);
-      if (parsed.rows.length === MAX_ROWS && !parsed.note) {
-        noteParts.push(`the query itself was capped at ${MAX_ROWS} rows`);
-      }
 
       const dataset: BuildDataset = {
         key,
@@ -196,9 +205,6 @@ export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDat
     tool: addDataset,
     result(): DatasetStepResult {
       return { datasets, notes: [...new Set(notes)] };
-    },
-    get refusedCount() {
-      return refused;
     },
   };
 }
