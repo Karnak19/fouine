@@ -21,6 +21,7 @@ Call \`add_dataset\` once for each thing the dashboard should show — at most $
 - Aggregate in SQL. \`GROUP BY\` and \`LIMIT\` in the query, not afterwards — you never see the rows, so you cannot fix them later.
 - One dataset per question. Do not fetch a wide table and plan to slice it: a chart reads one dataset whole.
 - Name each key for what it holds: \`cost_by_day\`, \`top_prs\`, \`totals\`.
+- A percentage is a RATIO between 0 and 1. Divide and stop: \`failed * 1.0 / total\`, never \`100.0 * failed / total\`. The layout step multiplies by 100 when it shows the number, so a column that already did renders a hundred times too large — and the SQL sits right under it on the page for anyone to check.
 - Order deliberately. Charts and tables keep your \`ORDER BY\`, and the row cap cuts from the end.
 - If a query comes back empty or is rejected, read the message and either fix it or move on. An empty dataset is worse than no dataset.
 
