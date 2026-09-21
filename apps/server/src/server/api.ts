@@ -17,6 +17,7 @@ import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
 import { streamChat, MAX_TURNS, MAX_QUESTION_CHARS, MAX_PARTS_PER_MESSAGE } from "~/chat";
+import { streamBuild, MAX_PROMPT_CHARS } from "~/build";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -247,6 +248,28 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
           }),
           { minItems: 1, maxItems: MAX_TURNS },
         ),
+      }),
+    },
+  )
+
+  // Compose a whole dashboard from one sentence. Same transport as /chat — an
+  // AI SDK UI message stream, returned as-is — and the same OAuth gate, which
+  // it inherits from the /api/* rule in server/app.ts rather than declaring its
+  // own. What comes down it: the datasets first, then json-render spec patches.
+  .post(
+    "/build",
+    async ({ body, set, request }) => {
+      try {
+        return await streamBuild(body.prompt, request.signal, body.id);
+      } catch (err) {
+        set.status = 400;
+        return { error: String((err as Error)?.message ?? err) };
+      }
+    },
+    {
+      body: t.Object({
+        id: t.Optional(t.String({ maxLength: 128 })),
+        prompt: t.String({ minLength: 1, maxLength: MAX_PROMPT_CHARS }),
       }),
     },
   )

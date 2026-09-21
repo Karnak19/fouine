@@ -19,6 +19,24 @@
       "skillPath": "assistant-ui/skills/copilots/SKILL.md",
       "computedHash": "ba7eeef102cedea56d6444704cdfc7911a39d8b4bdfa8544b330af054fe5d9dd"
     },
+    "core": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/core/SKILL.md",
+      "computedHash": "00b95ad7123d05164aa94aebe7cb405d7e66bae2b8d72af801355234236bcbfe"
+    },
+    "devtools": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/devtools/SKILL.md",
+      "computedHash": "6fcfb1f4db31e1299ca64f2fbddc54d02c14968c6a9fa5b15b864dd0da09f7d0"
+    },
+    "devtools-react": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/devtools-react/SKILL.md",
+      "computedHash": "765ca54c37c7e6cd98e9bc9fe7695867217d9622cca902aac149c157f1735a29"
+    },
     "elysiajs": {
       "source": "elysiajs/skills",
       "sourceType": "github",
@@ -43,6 +61,12 @@
       "skillPath": "assistant-ui/skills/primitives/SKILL.md",
       "computedHash": "6e37bc3af23377192dd83da0fdee762091a315ea438ce7871079840bc9623c21"
     },
+    "react": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/react/SKILL.md",
+      "computedHash": "7950a6403bae48f638036768fd5d4a4643aaaa3bde04e99d4d8f2d1f485ab63d"
+    },
     "react-mcp": {
       "source": "assistant-ui/skills",
       "sourceType": "github",
@@ -60,6 +84,12 @@
       "sourceType": "github",
       "skillPath": "assistant-ui/skills/setup/SKILL.md",
       "computedHash": "9038e2ec6bdc4a7faf0e96f2a87cfa6c461d900b7402b5c083e2005d2a414e9d"
+    },
+    "shadcn": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "d6a9be8eeedea18343b5b15d6ac481a55436fe40db4b65d59858388072c239c4"
     },
     "streaming": {
       "source": "assistant-ui/skills",
@@ -84,6 +114,12 @@
       "sourceType": "github",
       "skillPath": "assistant-ui/skills/update/SKILL.md",
       "computedHash": "18f5faa39490f1861cd0177bb2158434c939b35d6a5858175503771653d5a171"
+    },
+    "yaml": {
+      "source": "vercel-labs/json-render",
+      "sourceType": "github",
+      "skillPath": "skills/yaml/SKILL.md",
+      "computedHash": "6ba612b23b71ac5f8e79920890d132aed46a723084abd8179f1def51d6012298"
     }
   }
 }
