@@ -13,6 +13,7 @@ export const SETTINGS = {
   IMPROVER_MODEL: "improver_model",
   REFINE_MODEL: "refine_model",
   IMPLEMENT_MODEL: "implement_model",
+  CHAT_MODEL: "chat_model",
   DENY_TEST_COMMANDS: "deny_test_commands",
   AUTO_MERGE: "auto_merge",
   MERGE_METHOD: "merge_method",
@@ -58,6 +59,14 @@ export function resolveApiKey(providerID?: string): string | undefined {
 
 export function resolveDefaultModel(): string {
   return settingValue(SETTINGS.MODEL) ?? config.review.defaultModel;
+}
+
+// Chat (and /build, which reuses it) model — global, chat is not scoped to a
+// repo. Dashboard setting, then OPENCODE_CHAT_MODEL, then the repo default.
+// Deliberately NOT chained to the review model: chat is a cheap, high-volume
+// workload that must also be OpenAI-compatible on the gateway.
+export function resolveChatModel(): string {
+  return settingValue(SETTINGS.CHAT_MODEL) || config.chat.model;
 }
 
 // The outer-loop improver's model — global (its output is a REVIEW.md proposal,

@@ -77,9 +77,11 @@ export const config = {
     installTimeoutMs: durationMs(process.env.REVIEW_INSTALL_TIMEOUT_MS, 5 * 60 * 1000),
   },
   chat: {
-    // Deliberately NOT the dashboard's `opencode_model` setting: chat is a cheap,
-    // high-volume workload with its own env-only knob.
-    model: process.env.OPENCODE_CHAT_MODEL ?? "opencode-go/mimo-v2.5",
+    // Env fallback for the Chat model. Deliberately NOT the dashboard's
+    // `opencode_model` setting: chat (and /build) is a cheap, high-volume
+    // workload with its own knob — the dashboard's `chat_model` setting
+    // overrides this (see resolveChatModel in settings.ts).
+    model: process.env.OPENCODE_CHAT_MODEL ?? "opencode-go/deepseek-v4.1-flash",
   },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
