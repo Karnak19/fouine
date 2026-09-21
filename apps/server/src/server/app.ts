@@ -55,6 +55,23 @@ async function spaShell(request: Request): Promise<Response> {
   });
 }
 
+/**
+ * Does this path need a signed-in session?
+ *
+ * Pulled out of the gate below so it can be asserted on directly: the gate
+ * itself only runs with auth configured, which no test environment has, so
+ * "is /api/build behind the login" would otherwise be untestable and every new
+ * /api route would be taking the gate on trust. Everything under /api/ is
+ * protected except better-auth's own endpoints and the status probe the login
+ * page reads before it can possibly have a session.
+ */
+export function requiresSession(path: string): boolean {
+  if (!path.startsWith("/api/")) return false;
+  if (path.startsWith("/api/auth/")) return false;
+  if (path === "/api/auth-status") return false;
+  return true;
+}
+
 const startedAt = new WeakMap<Request, number>();
 
 export async function createServer() {
@@ -102,9 +119,7 @@ export async function createServer() {
     // and /health are not under /api and carry their own auth.
     .onBeforeHandle(async ({ request, set }) => {
       if (!config.auth.enabled) return;
-      const path = pathname(request.url);
-      if (!path.startsWith("/api/")) return;
-      if (path.startsWith("/api/auth/") || path === "/api/auth-status") return;
+      if (!requiresSession(pathname(request.url))) return;
       const session = await auth.api.getSession({ headers: request.headers });
       if (session) return;
       set.status = 401;

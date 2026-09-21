@@ -19,3 +19,19 @@ export {
 export { LineChart, type LinePoint } from "./line-chart";
 export { SEVERITY_COLORS, TRIGGER_COLORS } from "./colors";
 export { scaleMax } from "./scale";
+// Rows + column choices → chart props. Pure and shared by the chat tool card
+// and the /build registry; see the note at the top of from-rows.ts.
+export {
+  type Row,
+  categoriesOf,
+  formatValue,
+  label,
+  mixFromRows,
+  num,
+  pointsFromRows,
+  rankSeries,
+  seriesColor,
+  stackedFromRows,
+  totalsByCategory,
+  type StackedResult,
+} from "./from-rows";

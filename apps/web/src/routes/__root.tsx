@@ -19,6 +19,7 @@ import {
   LogOut,
   ChartNoAxesColumn,
   MessageSquare,
+  LayoutTemplate,
 } from "lucide-react";
 import { useAuth, signOut } from "../lib/auth";
 import { useTitle } from "../lib/title";
@@ -72,6 +73,7 @@ const NAV = [
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest size={16} /> },
   { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn size={16} /> },
   { to: "/chat", label: "Chat", icon: <MessageSquare size={16} /> },
+  { to: "/build", label: "Build", icon: <LayoutTemplate size={16} /> },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
@@ -176,7 +178,7 @@ function RootLayout() {
         </div>
       </main>
       {/* Mobile: bottom tab bar with safe-area padding for the home indicator. */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-6 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-7 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         {NAV.map((n) => (
           <TabLink key={n.to} {...n} />
         ))}
@@ -329,6 +331,15 @@ const chatRoute = createRoute({
   component: lazyRouteComponent(() => import("./chat")),
   staticData: { title: () => "Chat" },
 });
+// Lazy like chat and stats, and for a sharper reason: json-render and the
+// whole build registry must not land in the shell bundle for the majority of
+// visits that never open this page.
+const buildRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build",
+  component: lazyRouteComponent(() => import("./build")),
+  staticData: { title: () => "Build" },
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -345,5 +356,6 @@ export const routeTree = rootRoute.addChildren([
   reviewDetailRoute,
   statsRoute,
   chatRoute,
+  buildRoute,
   settingsRoute,
 ]);

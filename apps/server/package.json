@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fouine/shared": "workspace:*",
     "@ai-sdk/openai-compatible": "^3.0.30",
     "@elysia/static": "^1.4.11",
+    "@fouine/shared": "workspace:*",
+    "@json-render/core": "0.21.0",
+    "@json-render/yaml": "0.21.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/webhooks": "^14.2.0",
     "@opencode-ai/models": "^0.0.24",

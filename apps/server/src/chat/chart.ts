@@ -65,7 +65,7 @@ export const MAX_CATEGORIES: Record<ChartType, number> = {
  * newline is therefore exact, not a guess — and it keeps `runStatsQuery`'s
  * signature untouched for its existing caller.
  */
-function parseRows(text: string): { rows: ChartRow[]; note?: string } | { error: string } {
+export function parseRows(text: string): { rows: ChartRow[]; note?: string } | { error: string } {
   const nl = text.indexOf("\n");
   const json = nl === -1 ? text : text.slice(0, nl);
   const note = nl === -1 ? undefined : text.slice(nl + 1).trim() || undefined;

@@ -8,6 +8,7 @@ import {
   FolderGit2,
   ChartNoAxesColumn,
   MessageSquare,
+  LayoutTemplate,
   Copy,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -26,6 +27,7 @@ const PAGES = [
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest /> },
   { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn /> },
   { to: "/chat", label: "Chat", icon: <MessageSquare /> },
+  { to: "/build", label: "Build", icon: <LayoutTemplate /> },
   { to: "/settings", label: "Settings", icon: <Settings /> },
 ];
 

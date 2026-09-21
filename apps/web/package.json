@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,6 +15,9 @@
     "@assistant-ui/react-streamdown": "^0.3.10",
     "@elysiajs/eden": "^1.4.9",
     "@fouine/shared": "workspace:*",
+    "@json-render/core": "0.21.0",
+    "@json-render/react": "0.21.0",
+    "@json-render/yaml": "0.21.0",
     "@streamdown/code": "^1.1.1",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.16",
