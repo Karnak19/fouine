@@ -1,5 +1,6 @@
 import { test, expect, afterEach } from "bun:test";
 import { buildOpencodeConfig, reviewOpencodeConfig } from "~/skills/materialize";
+import { COMMANDCODE_MODELS } from "~/review/commandcode";
 
 const original = process.env.POSTHOG_API_KEY;
 afterEach(() => {
@@ -76,4 +77,18 @@ test("the blanket allow is first and every deny comes after it", () => {
   for (const [i, key] of keys.entries()) {
     if (bash[key] === "deny") expect(i).toBeGreaterThan(0);
   }
+});
+
+test("Command Code is declared as an OpenAI-compatible provider, without any key", () => {
+  // models.dev doesn't know Command Code, so this block is opencode's only
+  // knowledge of it. The key travels through auth.set at spawn time instead.
+  const provider = (buildOpencodeConfig().provider as Record<string, Record<string, unknown>>)
+    .commandcode!;
+  expect(provider.npm).toBe("@ai-sdk/openai-compatible");
+  expect(provider.name).toBe("Command Code");
+  expect(provider.options).toEqual({ baseURL: "https://api.commandcode.ai/provider/v1" });
+  expect(Object.keys(provider.models as object).sort()).toEqual(
+    COMMANDCODE_MODELS.map((m) => m.id).sort(),
+  );
+  expect(JSON.stringify(provider)).not.toContain("apiKey");
 });

@@ -293,7 +293,7 @@ on a provider whose key you haven't added yet.
 ```json
 {
   "total": 112,
-  "providers": ["opencode", "opencode-go", "zai-coding-plan"],
+  "providers": ["commandcode", "opencode", "opencode-go", "zai-coding-plan"],
   "models": [
     {
       "id": "zai-coding-plan/glm-5.2",
@@ -310,6 +310,8 @@ on a provider whose key you haven't added yet.
 A provider is **configured** when fouine holds a key that reaches it:
 
 - `zai-coding-plan` when the GLM Coding Plan key is set
+- `commandcode` when the Command Code key is set (its models come from a
+  built-in list, since models.dev does not carry the provider)
 - `opencode` and `opencode-go` when the OpenCode key is set
 - any provider already named by the default model, the improver model, or a
   per-repo override — a live config never disappears from its own picker, even
@@ -331,7 +333,7 @@ to rebuild it. If models.dev is unreachable, the snapshot bundled in that packag
 GET /api/settings
 ```
 
-`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `opencode_model`, `refine_model`, `implement_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
+`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `commandcode_api_key`, `opencode_model`, `refine_model`, `implement_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
 
 ```json
 {
@@ -353,6 +355,7 @@ Content-Type: application/json
 {
   "opencode_api_key": "your-key",
   "zai_api_key": "your-z-ai-key",
+  "commandcode_api_key": "your-command-code-key",
   "opencode_model": "opencode-go/deepseek-v4-flash",
   "default_prompt": "Review this PR...",
   "refine_model": "opencode-go/deepseek-v4-flash",

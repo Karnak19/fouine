@@ -21,6 +21,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `GITHUB_APP_CLIENT_SECRET` | no† | — | The App's OAuth client secret |
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
 | `ZAI_API_KEY` | no | — | Z.ai GLM Coding Plan key, used for `zai-coding-plan/*` models |
+| `COMMANDCODE_API_KEY` | no | — | [Command Code](https://commandcode.ai) key, used for `commandcode/*` models |
 | `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews |
 | `OPENCODE_CHAT_MODEL` | no | `opencode-go/mimo-v2.5` | Model for Chat. Env-only — the dashboard's default-model setting does not apply, since Chat is a cheap high-volume workload |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
@@ -42,6 +43,7 @@ The dashboard (accessible at your server URL) allows setting:
 
 - **OpenCode API key** — overrides `OPENCODE_API_KEY`
 - **GLM Coding Plan API key** — overrides `ZAI_API_KEY`
+- **Command Code API key** — overrides `COMMANDCODE_API_KEY`
 - **Default model** — overrides `OPENCODE_MODEL` (reviews only; Chat uses `OPENCODE_CHAT_MODEL`)
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 - **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).
@@ -75,6 +77,24 @@ The GLM key is only sent to `zai-coding-plan/*` models; everything else keeps us
 the other. **Test connection** on the settings page only exercises the *default*
 review model, so it won't verify the GLM key if you use it only for the improver
 model or a per-repo override.
+
+## Using Command Code
+
+[Command Code](https://commandcode.ai) is an OpenAI-compatible gateway that
+models.dev does not list, so fouine declares the provider to opencode itself and
+ships a short built-in model list. Same two settings as the GLM plan:
+
+1. Set the **Command Code API key** (or `COMMANDCODE_API_KEY`) to your key. Only
+   the Pro and GOAT plans include API access; lower plans have no key to use here.
+2. Set the model to one of `commandcode/zai-org/GLM-5.2`,
+   `commandcode/deepseek/deepseek-v4-flash` or `commandcode/moonshotai/Kimi-K2.7-code`
+   — as the default model, an agent model, or a per-repo override. Note the model
+   id itself contains a slash; the spec is `commandcode/<model id>` as Command
+   Code names it.
+
+The Command Code key is only sent to `commandcode/*` models. Because the catalog
+is built in rather than fetched, a model Command Code adds later won't show up in
+the picker until fouine's list is updated.
 
 ## Per-repo settings
 
