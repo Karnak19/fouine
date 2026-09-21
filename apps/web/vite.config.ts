@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { copyFileSync } from "fs";
+import { copyFileSync, existsSync } from "fs";
 import { resolve } from "path";
 
 // PWA files must sit at the served root at fixed paths (sw.js scope, manifest
@@ -11,6 +11,9 @@ import { resolve } from "path";
 const copyPwaAssets = {
   name: "copy-pwa-assets",
   closeBundle() {
+    // closeBundle also runs after a FAILED build, when dist/ was never written;
+    // copying into it then throws ENOENT and buries the real error underneath.
+    if (!existsSync(resolve(__dirname, "dist"))) return;
     for (const f of ["sw.js", "icon-192.png", "icon-512.png"]) {
       copyFileSync(resolve(__dirname, "src", f), resolve(__dirname, "dist", f));
     }
