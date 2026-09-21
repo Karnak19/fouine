@@ -55,8 +55,23 @@ const DATASETS = [
   },
 ];
 
-function toolCallStep(n: number): StreamPart[] {
-  const { id, input } = DATASETS[n]!;
+// The one dataset the refine script adds. Like the two above it returns rows on
+// an empty database, so the "add a table" refinement always has a table to draw.
+export const MOCK_TRIGGER_SQL =
+  "SELECT 'pull_request' AS trigger, COUNT(CASE WHEN trigger = 'pull_request' THEN 1 END) AS reviews FROM reviews " +
+  "UNION ALL SELECT 'comment', COUNT(CASE WHEN trigger = 'comment' THEN 1 END) FROM reviews";
+
+const REFINE_DATASETS = [
+  {
+    id: "ds-3",
+    input: { key: "by_trigger", title: "Reviews by trigger", sql: MOCK_TRIGGER_SQL, shape: "table" as const },
+  },
+];
+
+type MockDataset = (typeof DATASETS)[number] | (typeof REFINE_DATASETS)[number];
+
+function toolCallStep(n: number, script: readonly MockDataset[]): StreamPart[] {
+  const { id, input } = script[n]!;
   const json = JSON.stringify(input);
   return [
     { type: "stream-start", warnings: [] },
@@ -80,9 +95,15 @@ function doneStep(): StreamPart[] {
   ];
 }
 
-/** Step one's brain: two `add_dataset` calls, then stop. */
-export function createBuildDataMockModel(): MockLanguageModelV4 {
+/**
+ * Step one's brain: two `add_dataset` calls, then stop. On a refine, ONE call
+ * for the dataset the follow-up needs — the existing two are re-run by the
+ * server before this model is even asked, which is the behaviour the real
+ * prompt asks of the real model.
+ */
+export function createBuildDataMockModel(refine = false): MockLanguageModelV4 {
   let call = 0;
+  const script = refine ? REFINE_DATASETS : DATASETS;
   return new MockLanguageModelV4({
     provider: "build-mock",
     modelId: "build-mock",
@@ -90,7 +111,7 @@ export function createBuildDataMockModel(): MockLanguageModelV4 {
       const n = call++;
       return {
         stream: simulateReadableStream({
-          chunks: n < DATASETS.length ? toolCallStep(n) : doneStep(),
+          chunks: n < script.length ? toolCallStep(n, script) : doneStep(),
           initialDelayInMs: 120,
           chunkDelayInMs: 8,
         }),
@@ -154,8 +175,29 @@ elements:
 \`\`\`
 `;
 
+// The refined layout: the same page with the bar chart turned into a line and
+// a table of the new dataset appended. Written as a FULL spec, not a diff —
+// that is what the refine prompt asks for and what the client re-sanitises.
+export const MOCK_REFINED_LAYOUT_YAML = MOCK_LAYOUT_YAML.replace("type: BarChart", "type: LineChart")
+  .replace("      - status_chart\n", "      - status_chart\n      - trigger_table\n")
+  .replace(
+    "\`\`\`\n",
+    `  trigger_table:
+    type: Table
+    props:
+      title: Reviews by trigger
+      data: by_trigger
+      columns:
+        - trigger
+        - reviews
+    children: []
+\`\`\`
+`,
+  );
+
 /** Step two's brain: one YAML spec fence, streamed line by line. */
-export function createBuildLayoutMockModel(): MockLanguageModelV4 {
+export function createBuildLayoutMockModel(refine = false): MockLanguageModelV4 {
+  const yaml = refine ? MOCK_REFINED_LAYOUT_YAML : MOCK_LAYOUT_YAML;
   return new MockLanguageModelV4({
     provider: "build-mock",
     modelId: "build-mock",
@@ -174,7 +216,7 @@ export function createBuildLayoutMockModel(): MockLanguageModelV4 {
           // has on every push, and a half-written key is the case it has to
           // tolerate — which is what makes this a real test of progressive
           // rendering rather than one big final parse.
-          ...MOCK_LAYOUT_YAML.split("\n").map(
+          ...yaml.split("\n").map(
             (line): StreamPart => ({ type: "text-delta", id: "spec", delta: `${line}\n` }),
           ),
           { type: "text-end", id: "spec" },
