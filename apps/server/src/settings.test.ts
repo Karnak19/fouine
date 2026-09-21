@@ -14,9 +14,11 @@ import {
   resolveImplementPrompt,
   resolveRefineModel,
   resolveImplementModel,
+  resolveChatModel,
   resolveAutoReady,
   DEFAULT_IMPLEMENT_LABEL,
 } from "~/settings";
+import { config } from "~/config";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
 import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
 
@@ -34,6 +36,7 @@ afterEach(() => {
   settings.del.run({ $key: SETTINGS.MODEL });
   settings.del.run({ $key: SETTINGS.REFINE_MODEL });
   settings.del.run({ $key: SETTINGS.IMPLEMENT_MODEL });
+  settings.del.run({ $key: SETTINGS.CHAT_MODEL });
   settings.del.run({ $key: SETTINGS.AUTO_READY });
 });
 
@@ -171,4 +174,20 @@ test("resolveImplementModel: repo override, then the repo review model, then the
   expect(
     resolveImplementModel({ implement_model: "implement/model", model: "review/model" }),
   ).toBe("implement/model");
+});
+
+test("resolveChatModel: dashboard setting, then OPENCODE_CHAT_MODEL / config, then the repo default", () => {
+  // config.chat.model already holds the env var when set, else the repo default.
+  expect(resolveChatModel()).toBe(config.chat.model);
+  if (!process.env.OPENCODE_CHAT_MODEL) {
+    expect(resolveChatModel()).toBe("opencode-go/deepseek-v4.1-flash");
+  }
+  settings.set.run({ $key: SETTINGS.CHAT_MODEL, $value: "chat/model" });
+  expect(resolveChatModel()).toBe("chat/model");
+  // An empty string is not an override — it falls through to the env/default.
+  settings.set.run({ $key: SETTINGS.CHAT_MODEL, $value: "" });
+  expect(resolveChatModel()).toBe(config.chat.model);
+  // Chat never inherits the review model.
+  settings.set.run({ $key: SETTINGS.MODEL, $value: "review/model" });
+  expect(resolveChatModel()).toBe(config.chat.model);
 });

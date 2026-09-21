@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const [refineModel, setRefineModel] = useState("");
   const [implementModel, setImplementModel] = useState("");
   const [improverModel, setImproverModel] = useState("");
+  const [chatModel, setChatModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
   const [refineEnabled, setRefineEnabled] = useState(false);
@@ -51,6 +52,7 @@ export default function SettingsPage() {
     refineModel: "",
     implementModel: "",
     improverModel: "",
+    chatModel: "",
     prompt: "",
     denyTestCommands: false,
     refineEnabled: false,
@@ -74,6 +76,7 @@ export default function SettingsPage() {
       const rm = settings.refine_model ?? "";
       const im = settings.implement_model ?? "";
       const ivm = settings.improver_model ?? "";
+      const cm = settings.chat_model ?? "";
       const p = settings.default_prompt ?? "";
       const d = settings.deny_test_commands === "1";
       const re = settings.refine_enabled === "1";
@@ -88,6 +91,7 @@ export default function SettingsPage() {
       setRefineModel(rm);
       setImplementModel(im);
       setImproverModel(ivm);
+      setChatModel(cm);
       setPrompt(p);
       setDenyTestCommands(d);
       setRefineEnabled(re);
@@ -103,6 +107,7 @@ export default function SettingsPage() {
         refineModel: rm,
         implementModel: im,
         improverModel: ivm,
+        chatModel: cm,
         prompt: p,
         denyTestCommands: d,
         refineEnabled: re,
@@ -125,6 +130,7 @@ export default function SettingsPage() {
     refineModel !== baseline.refineModel ||
     implementModel !== baseline.implementModel ||
     improverModel !== baseline.improverModel ||
+    chatModel !== baseline.chatModel ||
     prompt !== baseline.prompt ||
     denyTestCommands !== baseline.denyTestCommands ||
     refineEnabled !== baseline.refineEnabled ||
@@ -144,6 +150,7 @@ export default function SettingsPage() {
     setRefineModel(baseline.refineModel);
     setImplementModel(baseline.implementModel);
     setImproverModel(baseline.improverModel);
+    setChatModel(baseline.chatModel);
     setPrompt(baseline.prompt);
     setDenyTestCommands(baseline.denyTestCommands);
     setRefineEnabled(baseline.refineEnabled);
@@ -182,6 +189,7 @@ export default function SettingsPage() {
       data.refine_model = refineModel.trim();
       data.implement_model = implementModel.trim();
       data.improver_model = improverModel.trim();
+      data.chat_model = chatModel.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
@@ -206,6 +214,7 @@ export default function SettingsPage() {
         refineModel,
         implementModel,
         improverModel,
+        chatModel,
         prompt,
         denyTestCommands,
         refineEnabled,
@@ -323,13 +332,20 @@ export default function SettingsPage() {
                   stronger model than the reviewer.
                 </p>
               </AgentRow>
-              <AgentRow id="chat_model" name="Chat" description="Dashboard assistant">
-                {/* Chat deliberately ignores the dashboard-stored models: it is a
-                    high-volume, cheaper-model workload (see AGENTS.md) driven by
-                    the env-only OPENCODE_CHAT_MODEL. */}
-                <p className="text-sm text-zinc-400">
-                  Set via the <code>OPENCODE_CHAT_MODEL</code> env var — deliberately independent
-                  of the fields above. Needs an OpenAI-compatible model.
+              <AgentRow
+                id="chat_model"
+                name="Chat"
+                description="Answers questions and composes /build dashboards"
+              >
+                <ModelInput
+                  id="chat_model"
+                  placeholder="provider/model"
+                  value={chatModel}
+                  onChange={setChatModel}
+                />
+                <p className="text-xs text-zinc-500">
+                  Global only; empty = <code>OPENCODE_CHAT_MODEL</code>, then the repo default.
+                  Independent of the review model. Needs an OpenAI-compatible model.
                 </p>
               </AgentRow>
             </div>

@@ -3,7 +3,6 @@ import { defineRegistry } from "@json-render/react";
 import { AlertTriangle, Info } from "lucide-react";
 import {
   BarChart,
-  CategoryAxis,
   LegendDot,
   LineChart,
   MixBar,
@@ -11,10 +10,8 @@ import {
   PanelEmpty,
   PanelSkeleton,
   StackedBarChart,
-  categoriesOf,
   mixFromRows,
   pointsFromRows,
-  scaleMax,
   seriesColor,
   stackedFromRows,
 } from "@/components/charts";
@@ -194,15 +191,10 @@ export const { registry } = defineRegistry(buildCatalog, {
       <WithDataset
         data={props.data}
         title={props.title}
-        render={(d) => {
-          const points = pointsFromRows(d.rows, props.x, props.y);
-          return (
-            <>
-              <BarChart bars={points} />
-              <CategoryAxis cats={points.map((p) => p.key)} peak={scaleMax(points.map((p) => p.value))} />
-            </>
-          );
-        }}
+        // The chart draws its own axes; which way the bars run is decided from
+        // the labels (dates stand up, long or many names lie down), and a
+        // dataset of up to 500 rows is capped inside with a "N more" note.
+        render={(d) => <BarChart bars={pointsFromRows(d.rows, props.x, props.y)} unit={props.y} />}
       />
     ),
 
@@ -210,15 +202,7 @@ export const { registry } = defineRegistry(buildCatalog, {
       <WithDataset
         data={props.data}
         title={props.title}
-        render={(d) => {
-          const points = pointsFromRows(d.rows, props.x, props.y);
-          return (
-            <>
-              <LineChart points={points} />
-              <CategoryAxis cats={points.map((p) => p.key)} peak={scaleMax(points.map((p) => p.value))} />
-            </>
-          );
-        }}
+        render={(d) => <LineChart points={pointsFromRows(d.rows, props.x, props.y)} unit={props.y} />}
       />
     ),
 
@@ -231,7 +215,6 @@ export const { registry } = defineRegistry(buildCatalog, {
           return (
             <>
               <StackedBarChart height="h-32" bars={bars} />
-              <CategoryAxis cats={categoriesOf(d.rows, props.x)} />
               {/* A legend is required the moment there are two series. */}
               <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem]">
                 {ranked.map((s) => (

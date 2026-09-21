@@ -23,7 +23,7 @@ services:
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode-go/deepseek-v4-flash}
-      OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-opencode-go/mimo-v2.5}
+      OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-opencode-go/deepseek-v4.1-flash}
       # Z.ai GLM Coding Plan key — only needed for zai-coding-plan/* models.
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       # Command Code key — only needed for commandcode/* models.

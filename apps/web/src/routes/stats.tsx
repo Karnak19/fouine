@@ -436,23 +436,21 @@ function CostTrend({
         <PanelEmpty label="No spend in this window." />
       ) : (
         <div className="flex flex-1 flex-col px-4 pt-4 pb-3">
-          {/* h-40, not flex-1 + min-h-40: the bars are sized with percentage
-              heights, and a percentage only resolves against a definite parent
-              height. This row sits in an items-start grid, so the panel is not
-              stretched and a min-height alone left every bar at 0px. */}
+          {/* h-40, not flex-1 + min-h-40: Recharts fills its parent, and this
+              row sits in an items-start grid that does not stretch the panel,
+              so the height has to be definite. `layout="vertical"` pins the
+              timeline form whatever the labels look like. */}
           <BarChart
             height="h-40"
+            layout="vertical"
             bars={daily.map((d) => ({
               key: d.day,
               value: d.cost,
               title: `${d.day} · ${formatCost(d.cost)} · ${d.reviews} review${d.reviews === 1 ? "" : "s"}`,
             }))}
           />
-          {/* No axes: this caption row carries the endpoints and the peak. */}
-          <div className="mt-2 flex justify-between text-[0.7rem] text-zinc-500 tabular-nums">
-            <span>{daily[0].day}</span>
+          <div className="mt-2 flex justify-end text-[0.7rem] text-zinc-500 tabular-nums">
             <span>{formatCost(max)} peak</span>
-            <span>{daily[daily.length - 1].day}</span>
           </div>
         </div>
       )}

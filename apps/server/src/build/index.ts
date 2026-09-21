@@ -18,8 +18,7 @@ import {
   type BuildPrevious,
   type PreviousDataset,
 } from "@fouine/shared/build-catalog";
-import { config } from "~/config";
-import { resolveApiKey } from "~/settings";
+import { resolveApiKey, resolveChatModel } from "~/settings";
 import { wireModelId } from "~/chat";
 import { chatMockEnabled } from "~/chat/mock-model";
 import { log } from "~/server/log";
@@ -43,7 +42,7 @@ import { createBuildDataMockModel, createBuildLayoutMockModel } from "~/build/mo
  * the dataset KEYS and never sees a row. So there is no point in the pipeline
  * where a model holds both a number and a place to put it.
  *
- * Both share the chat model setting (`OPENCODE_CHAT_MODEL`). No new knob: this
+ * Both share the chat model (the /settings Chat row, then `OPENCODE_CHAT_MODEL`). No new knob: this
  * is the same cheap high-volume workload wearing a different hat.
  */
 
@@ -85,7 +84,7 @@ function models(sessionId: string, refine: boolean): { data: LanguageModel; layo
     apiKey,
     headers: { "x-opencode-session": sessionId },
   });
-  const model = gateway(wireModelId(config.chat.model));
+  const model = gateway(wireModelId(resolveChatModel()));
   return { data: model, layout: model };
 }
 

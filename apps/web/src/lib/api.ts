@@ -144,6 +144,8 @@ export interface Settings {
   // fall back to each repo's review model.
   refine_model?: string;
   implement_model?: string;
+  // Chat + /build model. Empty string deletes the row -> OPENCODE_CHAT_MODEL.
+  chat_model?: string;
   // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
   deny_test_commands?: string;
   // "1" = on, "" = delete the row (off). Default off.

@@ -161,3 +161,56 @@ export function mixFromRows(rows: Row[], labelCol: string, valueCol: string): Mi
   }
   return items.filter((i) => i.count > 0);
 }
+
+// ---------------------------------------------------------------------------
+// How a bar chart is drawn: which way the bars run, and how many of them.
+//
+// The stats pages feed dates, and a date series reads as a timeline only when
+// the bars stand up in order. /build feeds whatever the model grouped by —
+// model ids, repo names, PR titles — and those need a full line each or they
+// truncate to `ope…`. So: temporal or numeric keys always stay vertical; named
+// categories go horizontal once a label is long or there are many of them.
+
+/** A label over this many characters cannot be read under a vertical bar. */
+export const LONG_LABEL = 10;
+/** Past this many named categories the labels under vertical bars collide. */
+export const MANY_CATEGORIES = 8;
+/** Horizontal bars are ranked, so only the top N are drawn. */
+export const MAX_RANKED_BARS = 25;
+/** A timeline keeps its order, so it is cut at the end rather than ranked. */
+export const MAX_SERIES_BARS = 120;
+
+export type BarLayout = "vertical" | "horizontal";
+
+// ISO dates and weeks ("2026-08", "2026-08-02", "2026-W31"), timestamps, clock
+// times, and bare numbers: things whose order is the point.
+const TEMPORAL = /^(\d{4}(-\d{2}){0,2}([T ]\d{2}:\d{2}(:\d{2})?)?|\d{4}-W\d{2}|\d{1,2}:\d{2}|-?\d+(\.\d+)?%?)$/;
+
+export const isTemporal = (key: string) => TEMPORAL.test(key.trim());
+
+/** Which way to draw a set of bars, from their labels alone. */
+export function barLayout(keys: string[]): BarLayout {
+  if (keys.length === 0) return "vertical";
+  if (keys.every(isTemporal)) return "vertical";
+  if (keys.some((k) => k.length > LONG_LABEL)) return "horizontal";
+  if (keys.length > MANY_CATEGORIES) return "horizontal";
+  return "vertical";
+}
+
+/**
+ * Cap the bars actually handed to the renderer. A ranking keeps the biggest,
+ * a timeline keeps the head in order. `hidden` is how many were dropped, for
+ * the "N more not drawn" note — a partial chart that does not say so is a wrong
+ * chart.
+ */
+export function capBars<T extends { value: number }>(
+  bars: T[],
+  layout: BarLayout,
+): { shown: T[]; hidden: number } {
+  if (layout === "horizontal") {
+    const shown = [...bars].sort((a, b) => b.value - a.value).slice(0, MAX_RANKED_BARS);
+    return { shown, hidden: bars.length - shown.length };
+  }
+  const shown = bars.slice(0, MAX_SERIES_BARS);
+  return { shown, hidden: bars.length - shown.length };
+}

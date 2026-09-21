@@ -701,6 +701,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.IMPROVER_MODEL, body.improver_model);
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
+      setKey(SETTINGS.CHAT_MODEL, body.chat_model);
       if (body.default_prompt) {
         settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
       }
@@ -717,6 +718,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         improver_model: t.Optional(t.String()),
         refine_model: t.Optional(t.String()),
         implement_model: t.Optional(t.String()),
+        chat_model: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),
