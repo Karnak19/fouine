@@ -251,3 +251,78 @@ test("reconnects without failing reviews when the server is reachable again", as
   expect(state.armed).toBe(true);
   manager.stop();
 });
+
+test("abort during session.create interrupts the late session and registers nothing", async () => {
+  const { serve } = fakeServe();
+  // session.create hangs until we settle it, so the abort wins the race first
+  // and the release runs with no session id yet.
+  let resolveCreate: (v: { id: string }) => void = () => {};
+  const created = new Promise<{ id: string }>((resolve) => {
+    resolveCreate = resolve;
+  });
+  const interrupted: Array<{ sessionID: string; resume?: boolean }> = [];
+  const client = serve.client as unknown as {
+    session: {
+      create: () => Promise<{ id: string }>;
+      interrupt: (req: { sessionID: string; resume?: boolean }) => Promise<unknown>;
+      prompt: () => Promise<unknown>;
+      wait: () => Promise<void>;
+    };
+    message: { list: () => Promise<{ data: []; cursor: object }> };
+  };
+  client.session.create = () => created;
+  client.session.interrupt = async (req) => {
+    interrupted.push(req);
+    return { interrupted: true };
+  };
+  // Stubs so the run continues harmlessly after teardown instead of rejecting
+  // unhandled once the late session id arrives.
+  client.session.prompt = async () => ({});
+  client.session.wait = async () => undefined;
+  client.message = { list: async () => ({ data: [], cursor: {} }) };
+
+  const singleton = openCodeManager as unknown as { serve?: OpencodeServe };
+  const previousServe = singleton.serve;
+  singleton.serve = serve;
+
+  const registered: string[] = [];
+  const proto = OpenCodeServerManager.prototype;
+  const originalRegister = proto.register;
+  proto.register = function (id: string, sink: Parameters<typeof originalRegister>[1]) {
+    registered.push(id);
+    return originalRegister.call(this, id, sink);
+  };
+
+  const controller = new AbortController();
+  try {
+    const program = Effect.gen(function* () {
+      const oc = yield* OpenCodeService;
+      return yield* oc.runReview(
+        { directory: "/tmp/fouine-test", prompt: "hi", model: "runprov/runmodel" },
+        () => {},
+        controller.signal,
+      );
+    });
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+      () => undefined,
+    );
+
+    await tick();
+    controller.abort(new Error("superseded"));
+    await run;
+
+    // The id arrives only after the release already ran: the sink must not be
+    // registered (nothing would ever interrupt or watch it) but the session must
+    // still be interrupted, or the model runs on unsupervised.
+    resolveCreate({ id: "ses_late" });
+    await tick();
+    await tick();
+
+    expect(interrupted).toEqual([{ sessionID: "ses_late", resume: false }]);
+    expect(registered).toEqual([]);
+    expect((singleton as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(0);
+  } finally {
+    proto.register = originalRegister;
+    singleton.serve = previousServe;
+  }
+});

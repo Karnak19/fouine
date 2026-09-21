@@ -36,18 +36,16 @@ function makeClient(prompts: string[]) {
 }
 
 // The spawned opencode child must inherit ONLY this allowlist. The old spawn
-// spread process.env, which handed fouine's GitHub token and internal secret to
-// the model's bash.
+// spread process.env, which handed fouine's GitHub token and app secrets to the
+// model's bash.
 test("the spawned server inherits only the minimal env allowlist", () => {
   const saved = {
     FOUINE_GITHUB_TOKEN: process.env.FOUINE_GITHUB_TOKEN,
-    FOUINE_INTERNAL_SECRET: process.env.FOUINE_INTERNAL_SECRET,
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
     OPENCODE_BASH_TIMEOUT_MAX_MS: process.env.OPENCODE_BASH_TIMEOUT_MAX_MS,
   };
   process.env.FOUINE_GITHUB_TOKEN = "leak-me";
-  process.env.FOUINE_INTERNAL_SECRET = "also-leak-me";
   process.env.GITHUB_APP_PRIVATE_KEY = "app-secret";
   delete process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
   try {
@@ -71,7 +69,6 @@ test("the spawned server inherits only the minimal env allowlist", () => {
 
     // … but no credential ever rides along — including the optional ones.
     expect(env).not.toContainKey("FOUINE_GITHUB_TOKEN");
-    expect(env).not.toContainKey("FOUINE_INTERNAL_SECRET");
     expect(env).not.toContainKey("GITHUB_APP_PRIVATE_KEY");
     expect(env).not.toContainKey("POSTHOG_API_KEY");
   } finally {

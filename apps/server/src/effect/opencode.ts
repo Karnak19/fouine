@@ -328,9 +328,12 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
     ): Effect.Effect<RunResult, OpenCodeError> => {
       // The session id only exists after runReview creates it, but the release
       // (which owns teardown) needs it, so it lives in this call's closure. Same
-      // for the abort listener the release removes.
+      // for the abort listener the release removes, and for the released flag:
+      // it closes the abort-during-session.create window, where the release ran
+      // before the id existed.
       let sessionId: string | undefined;
       let onAbort: (() => void) | undefined;
+      let released = false;
       return Effect.acquireUseRelease(
         Effect.tryPromise({
           try: () => openCodeManager.acquire(),
@@ -407,6 +410,15 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                     {
                       onSession: (id) => {
                         sessionId = id;
+                        if (released) {
+                          // The release already ran while session.create was in
+                          // flight — it never saw this id, so interrupt here or
+                          // the run continues with no watchdog/teardown.
+                          void serve.client.session
+                            .interrupt({ sessionID: id, resume: false })
+                            .catch(() => undefined);
+                          return;
+                        }
                         openCodeManager.register(id, sink);
                         onSession(id);
                       },
@@ -438,6 +450,7 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
         // forget: a dead server must not fail the release.
         (serve) =>
           Effect.sync(() => {
+            released = true;
             if (onAbort) signal.removeEventListener("abort", onAbort);
             if (!sessionId) return;
             openCodeManager.deregister(sessionId);

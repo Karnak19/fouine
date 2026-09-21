@@ -11,18 +11,9 @@ import {
   type CheckRun,
 } from "../../opencode-config/plugins/_ci_format";
 
-// Shared secret for the loopback write-back channel the opencode post_* tools
-// use to persist findings. The tools run in a subprocess this same process
-// spawns, so a per-boot random token — passed down via FOUINE_INTERNAL_SECRET —
-// is enough: it never leaves the host and needs no operator configuration.
-// Regenerated each start; that's fine because no long-lived client holds it.
-export const internalSecret = crypto.randomUUID();
-
 // Where the subprocess reaches this server. Loopback only — the write-back is
 // never meant to cross the machine boundary.
 export const internalBaseUrl = `http://127.0.0.1:${config.port}`;
-
-export const INTERNAL_SECRET_HEADER = "x-fouine-internal";
 
 // ─── loopback proxy ─────────────────────────────────────────────────────────
 //
@@ -33,10 +24,7 @@ export const INTERNAL_SECRET_HEADER = "x-fouine-internal";
 //
 // The ONLY credential the caller carries is the opencode session id in the
 // path. Everything else — owner/repo/PR/kind — is derived from the review row
-// it resolves to, never trusted from the request body. The per-boot
-// internalSecret is accepted as defence-in-depth (checked when present) but is
-// deliberately NOT the boundary: a caller that only knows its session id still
-// works.
+// it resolves to, never trusted from the request body.
 
 // Which pipeline owns a session. A normal review's trigger is why it ran
 // (opened/synchronize/reopened/command/retry) — all of those are a "review".
@@ -76,14 +64,10 @@ export function resolveSession(sessionId: string): SessionResolution {
 
 type Authorized = { ok: true; session: SessionInfo } | { ok: false; status: number; error: string };
 
-// Session resolution is the boundary; the shared secret only adds a check when
-// the caller sends one. Never trust owner/repo/pr from the body — callers only
-// ever hand us a session id.
-function authorize(headers: Record<string, string | undefined>, sessionId: string): Authorized {
-  const provided = headers[INTERNAL_SECRET_HEADER];
-  if (provided && provided !== internalSecret) {
-    return { ok: false, status: 401, error: "unauthorized" };
-  }
+// Session resolution is the boundary: the caller proves ownership with the
+// session id and nothing else. Never trust owner/repo/pr from the body — callers
+// only ever hand us a session id.
+function authorize(sessionId: string): Authorized {
   return resolveSession(sessionId);
 }
 
@@ -217,8 +201,8 @@ function errText(err: unknown): string {
 
 export const internalRoutes = new Elysia({ prefix: "/internal" })
   // Resolve a session to the repo/PR/kind it owns. The tools call this first.
-  .get("/sessions/:sid/context", ({ params, headers, set }) => {
-    const auth = authorize(headers, params.sid);
+  .get("/sessions/:sid/context", ({ params, set }) => {
+    const auth = authorize(params.sid);
     if (!auth.ok) {
       set.status = auth.status;
       return { error: auth.error };
@@ -230,8 +214,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
   // Post a formal PR review (summary + inline comments). Mirrors post_review.ts.
   .post(
     "/sessions/:sid/review",
-    async ({ params, headers, body, set }) => {
-      const auth = authorize(headers, params.sid);
+    async ({ params, body, set }) => {
+      const auth = authorize(params.sid);
       if (!auth.ok) {
         set.status = auth.status;
         return { error: auth.error };
@@ -311,8 +295,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
   // Post a plain issue/PR comment. Mirrors post_comment.ts.
   .post(
     "/sessions/:sid/comment",
-    async ({ params, headers, body, set }) => {
-      const auth = authorize(headers, params.sid);
+    async ({ params, body, set }) => {
+      const auth = authorize(params.sid);
       if (!auth.ok) {
         set.status = auth.status;
         return { error: auth.error };
@@ -344,8 +328,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
   // A PR's prior reviews and comments. Mirrors get_prior_reviews.ts; `pr`
   // defaults to the session's own PR (the improver, whose row carries 0, passes
   // one explicitly).
-  .get("/sessions/:sid/prior-reviews", async ({ params, headers, query, set }) => {
-    const auth = authorize(headers, params.sid);
+  .get("/sessions/:sid/prior-reviews", async ({ params, query, set }) => {
+    const auth = authorize(params.sid);
     if (!auth.ok) {
       set.status = auth.status;
       return { error: auth.error };
@@ -378,8 +362,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
 
   // Check runs + annotations for the session's head commit. Mirrors
   // get_ci_results.ts, reusing its pure formatter so the tool output is unchanged.
-  .get("/sessions/:sid/ci", async ({ params, headers, set }) => {
-    const auth = authorize(headers, params.sid);
+  .get("/sessions/:sid/ci", async ({ params, set }) => {
+    const auth = authorize(params.sid);
     if (!auth.ok) {
       set.status = auth.status;
       return { error: auth.error };
@@ -434,8 +418,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
   // are resolved server-side now (they used to ride FOUINE_READY_LABEL).
   .post(
     "/sessions/:sid/ready-label",
-    async ({ params, headers, body, set }) => {
-      const auth = authorize(headers, params.sid);
+    async ({ params, body, set }) => {
+      const auth = authorize(params.sid);
       if (!auth.ok) {
         set.status = auth.status;
         return { error: auth.error };
@@ -487,8 +471,8 @@ export const internalRoutes = new Elysia({ prefix: "/internal" })
   // Propose an updated REVIEW.md via a PR. Mirrors propose_review_notes.ts.
   .post(
     "/sessions/:sid/proposal",
-    async ({ params, headers, body, set }) => {
-      const auth = authorize(headers, params.sid);
+    async ({ params, body, set }) => {
+      const auth = authorize(params.sid);
       if (!auth.ok) {
         set.status = auth.status;
         return { error: auth.error };

@@ -203,11 +203,13 @@ export async function boot(): Promise<void> {
   // before we accept requests, so the first review already sees them. Order
   // matters: seed creates the skills/ dir the reconcile writes into.
   seedOpencodeConfig();
-  // seed rebuilt the runtime config dir on disk, but a warm sidecar still serves
-  // the previous plugin code from memory. Fire-and-forget so a fouine-only
-  // restart picks up the new config; a no-op when no server is running yet.
-  reloadOpencodeConfig();
   reconcileSkills();
+  // seed rebuilt the runtime config dir on disk, but a warm sidecar still serves
+  // the previous config from memory. Reload AFTER reconcile so it lands with the
+  // skills materialised — reloading between seed and reconcile would ask the
+  // sidecar to re-read a config with zero skills. Fire-and-forget; a no-op when
+  // no server is running yet.
+  reloadOpencodeConfig();
   // Nothing survives a restart mid-review, so reconcile the rows that still
   // claim to be in flight before the dashboard can show them (#60). Never
   // throws: a GitHub hiccup here must not stop the server from coming up.

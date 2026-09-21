@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { repos, reviews, type ReviewRow } from "~/db";
-import { internalRoutes, internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
+import { internalRoutes } from "~/server/internal";
 
 // The loopback proxy's authorization matrix. These hit the real Elysia routes
 // through .handle() — no GitHub call is reached on any denied path, so the test
@@ -40,8 +40,8 @@ function request(path: string, init?: RequestInit): Promise<Response> {
   return internalRoutes.handle(new Request(`${BASE}${path}`, init));
 }
 
-function authHeaders(): Record<string, string> {
-  return { [INTERNAL_SECRET_HEADER]: internalSecret, "content-type": "application/json" };
+function jsonHeaders(): Record<string, string> {
+  return { "content-type": "application/json" };
 }
 
 test("unknown session → 404", async () => {
@@ -76,7 +76,7 @@ test("an improve-kind row cannot post a review → 403", async () => {
   const row = makeSession({ pr: 0, trigger: "improve" });
   const res = await request(`/internal/sessions/${row.session_id}/review`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: jsonHeaders(),
     body: JSON.stringify({ summary: "hi" }),
   });
   expect(res.status).toBe(403);
@@ -89,7 +89,7 @@ test("a review-kind row cannot add the ready label or open a proposal → 403", 
   const row = makeSession({ pr: 12, trigger: "opened" });
   const label = await request(`/internal/sessions/${row.session_id}/ready-label`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: jsonHeaders(),
     body: JSON.stringify({}),
   });
   expect(label.status).toBe(403);
@@ -99,7 +99,7 @@ test("a review-kind row cannot add the ready label or open a proposal → 403", 
 
   const proposal = await request(`/internal/sessions/${row.session_id}/proposal`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: jsonHeaders(),
     body: JSON.stringify({ content: "x", summary: "y" }),
   });
   expect(proposal.status).toBe(403);
@@ -114,22 +114,11 @@ test("the request body cannot override the row's owner/repo/pr", async () => {
   const row = makeSession({ pr: 0, trigger: "improve" });
   const res = await request(`/internal/sessions/${row.session_id}/comment`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: jsonHeaders(),
     body: JSON.stringify({ body: "hi", pr: 999, owner: "evil", repo: "spoof" }),
   });
   expect(res.status).toBe(403);
   expect(await res.json()).toEqual({
     error: "session has no PR/issue number to comment on",
   });
-});
-
-test("a wrong shared secret is rejected (defence-in-depth), but its absence is fine", async () => {
-  const row = makeSession({ pr: 7, trigger: "opened" });
-  const bad = await request(`/internal/sessions/${row.session_id}/context`, {
-    headers: { [INTERNAL_SECRET_HEADER]: "not-the-secret" },
-  });
-  expect(bad.status).toBe(401);
-
-  const noSecret = await request(`/internal/sessions/${row.session_id}/context`);
-  expect(noSecret.status).toBe(200);
 });
