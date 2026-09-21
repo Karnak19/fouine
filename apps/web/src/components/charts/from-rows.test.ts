@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
 import {
+  barLayout,
+  capBars,
+  MAX_RANKED_BARS,
   categoriesOf,
   formatValue,
   mixFromRows,
@@ -115,4 +118,32 @@ test("mix bar folds past the palette too", () => {
   expect(items).toHaveLength(TRIGGER_COLORS.length);
   expect(items.at(-1)!.label).toBe(`${9 - (TRIGGER_COLORS.length - 1)} others`);
   expect(items.at(-1)!.color).toBe(TRIGGER_COLORS.at(-1)!);
+});
+
+test("bars stand up for dates and short buckets, lie down for long or many names", () => {
+  expect(barLayout(["2026-08-01", "2026-08-02", "2026-08-03"])).toBe("vertical");
+  // A month of dates is still a timeline, however many there are.
+  expect(barLayout(Array.from({ length: 30 }, (_, i) => `2026-08-${String(i + 1).padStart(2, "0")}`))).toBe(
+    "vertical",
+  );
+  expect(barLayout(["2026-W31", "2026-W32"])).toBe("vertical");
+  expect(barLayout(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"])).toBe("vertical");
+  expect(barLayout(["open", "merged", "closed"])).toBe("vertical");
+  // One long name is enough: it would truncate under a vertical bar.
+  expect(barLayout(["open", "anthropic/claude-sonnet-4.5"])).toBe("horizontal");
+  // Nine short names collide under vertical bars too.
+  expect(barLayout(["a", "b", "c", "d", "e", "f", "g", "h", "i"])).toBe("horizontal");
+  expect(barLayout([])).toBe("vertical");
+});
+
+test("a ranking keeps the biggest bars and says how many it dropped", () => {
+  const bars = Array.from({ length: 40 }, (_, i) => ({ key: `k${i}`, value: i }));
+  const { shown, hidden } = capBars(bars, "horizontal");
+  expect(shown).toHaveLength(MAX_RANKED_BARS);
+  expect(shown[0]!.value).toBe(39);
+  expect(hidden).toBe(40 - MAX_RANKED_BARS);
+  // A timeline is never re-sorted: the head stays in query order.
+  const series = capBars(bars, "vertical");
+  expect(series.shown.map((b) => b.value).slice(0, 3)).toEqual([0, 1, 2]);
+  expect(series.hidden).toBe(0);
 });

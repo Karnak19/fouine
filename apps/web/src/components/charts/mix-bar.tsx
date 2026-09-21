@@ -7,7 +7,9 @@ export interface MixBarItem {
 
 // A 100% stacked horizontal bar with its own legend underneath. Good for "what
 // is this made of" with a handful of categories; it says nothing about
-// magnitude, so pair it with a count in the legend.
+// magnitude, so the legend carries each slice's count — that legend is the
+// disclosure, so the slices need no tooltip of their own. Plain divs, not
+// Recharts: a proportion bar has no axis to draw.
 export function MixBar({ items }: { items: MixBarItem[] }) {
   const total = items.reduce((s, i) => s + i.count, 0);
   return (
@@ -18,9 +20,6 @@ export function MixBar({ items }: { items: MixBarItem[] }) {
             key={i.key}
             className={i.color}
             style={{ width: `${(i.count / total) * 100}%` }}
-            // Native title=, not a Radix tooltip: it works on the bare div, it
-            // costs nothing, and the segments are too thin to hang a portal on.
-            title={`${i.label}: ${i.count}`}
           />
         ))}
       </div>

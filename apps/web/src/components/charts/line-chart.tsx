@@ -1,75 +1,72 @@
-import { scaleMax } from "./scale";
-
-// The one SVG in this codebase. Everything else here is divs with percentage
-// sizes, and a line genuinely cannot be drawn that way: a polyline joins points
-// that a stack of divs has no way to express.
-//
-// The viewBox is a fixed 0..100 square stretched by `preserveAspectRatio="none"`,
-// so the maths stays in percentages like every other chart here and the browser
-// does the scaling. The cost of non-uniform scaling is a stroke that would be
-// squashed with it — `vector-effect="non-scaling-stroke"` is what keeps the line
-// exactly 2px wide whatever the panel's aspect ratio.
+import { CartesianGrid, Line, LineChart as RLineChart, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
+import { formatValue } from "./from-rows";
+import { ChartTip, Measured, TICK, Y_AXIS_WIDTH } from "./recharts-base";
 
 export interface LinePoint {
   key: string;
   value: number;
-  // Native title= attribute, same convention as the bar charts: "a · b · c".
+  // Tooltip text, "a · b · c", same convention as the bars.
   title?: string;
 }
+
+/** Past this many points a dot per point is noise; the line carries it. */
+export const DOTS_UP_TO = 30;
+
+const config: ChartConfig = { value: { label: "value", color: "var(--color-primary)" } };
 
 export function LineChart({
   points,
   height = "h-40",
+  unit,
 }: {
   points: LinePoint[];
   height?: string;
+  /** What the value counts, for the tooltip when a point has no `title`. */
+  unit?: string;
 }) {
-  const max = scaleMax(points.map((p) => p.value));
-  const last = points.length - 1;
-  // A single point has no segment to draw, so it is placed mid-canvas and shown
-  // as the dot below rather than as a zero-length line.
-  const xOf = (i: number) => (last === 0 ? 50 : (i / last) * 100);
-  // 2..98 rather than 0..100: at the extremes half the stroke would be clipped
-  // by the viewBox edge, which reads as a line that thins out at the top.
-  const yOf = (v: number) => 98 - (v / max) * 96;
-
-  const d = points.map((p, i) => `${i === 0 ? "M" : "L"}${xOf(i)} ${yOf(p.value)}`).join(" ");
-
+  const dots = points.length <= DOTS_UP_TO;
+  const lines = (p: LinePoint) =>
+    p.title ? p.title.split(" · ") : [p.key, unit ? `${formatValue(p.value)} ${unit}` : formatValue(p.value)];
   return (
-    <div className={`relative ${height}`}>
-      <svg
-        className="h-full w-full overflow-visible"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden
-      >
-        <path
-          d={d}
-          fill="none"
-          className="stroke-primary"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        {points.length === 1 && (
-          <circle
-            cx={xOf(0)}
-            cy={yOf(points[0]!.value)}
-            r={2}
-            className="fill-primary"
-            vectorEffect="non-scaling-stroke"
+    <Measured className={`w-full ${height}`}>
+      <ChartContainer config={config} className="aspect-auto h-full w-full">
+        <RLineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis
+            dataKey="key"
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+            minTickGap={28}
+            tick={TICK}
           />
-        )}
-      </svg>
-      {/* Hover targets are divs on top of the SVG, not <circle> elements: the
-          non-uniform scale would turn a circle into an ellipse, and a column
-          per point is an easier target than a 2px dot anyway. */}
-      <div className="absolute inset-0 flex">
-        {points.map((p) => (
-          <div key={p.key} className="min-w-0 flex-1" title={p.title} />
-        ))}
-      </div>
-    </div>
+          <YAxis
+            width={Y_AXIS_WIDTH}
+            tickLine={false}
+            axisLine={false}
+            tickCount={4}
+            tick={TICK}
+            domain={[0, "auto"]}
+            tickFormatter={(v: number) => formatValue(v)}
+          />
+          <ChartTooltip
+            cursor={{ stroke: "var(--color-border)" }}
+            content={({ active, payload }) => (
+              <ChartTip active={active} lines={payload?.[0] ? lines(payload[0].payload as LinePoint) : []} />
+            )}
+          />
+          <Line
+            dataKey="value"
+            type="monotone"
+            stroke="var(--color-value)"
+            strokeWidth={2}
+            dot={dots ? { r: 3, fill: "var(--color-value)", strokeWidth: 0 } : false}
+            activeDot={{ r: 4, fill: "var(--color-ember-400)", strokeWidth: 0 }}
+            isAnimationActive={false}
+          />
+        </RLineChart>
+      </ChartContainer>
+    </Measured>
   );
 }
