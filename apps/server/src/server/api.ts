@@ -296,9 +296,6 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
                   title: t.String({ maxLength: 500 }),
                   sql: t.String({ minLength: 1, maxLength: MAX_SQL_CHARS }),
                   shape: t.Optional(t.String({ maxLength: 16 })),
-                  columns: t.Array(t.String({ maxLength: 200 }), { maxItems: 100 }),
-                  rowCount: t.Number(),
-                  note: t.Optional(t.String({ maxLength: 500 })),
                 },
                 // Rows, ms or anything else the browser happens to have are
                 // ignored downstream — validatePrevious copies named fields only.

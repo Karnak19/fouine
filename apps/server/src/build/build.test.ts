@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { createDatasetStep } from "~/build/datasets";
-import { streamBuild, validatePrevious, DATASET_PART, DATASET_ERROR_PART, NOTE_PART } from "~/build";
+import { createDatasetStep, rerunPreviousDataset } from "~/build/datasets";
+import { streamBuild, validatePrevious, DATASET_PART, NOTE_PART } from "~/build";
 import {
   DATA_SYSTEM_PROMPT,
   DATA_REFINE_PROMPT,
@@ -10,6 +10,7 @@ import {
   refineLayoutPrompt,
 } from "~/build/prompt";
 import { MOCK_TOTALS_SQL, MOCK_STATUS_SQL } from "~/build/mock-model";
+import { MAX_CATEGORIES } from "~/chat/chart";
 import { requiresSession, createServer } from "~/server/app";
 import { SPEC_DATA_PART_TYPE } from "@json-render/core";
 import {
@@ -339,14 +340,14 @@ const PREVIOUS_SPEC: BuildPrevious["spec"] = {
 const previous = (over: Partial<BuildPrevious> = {}): BuildPrevious => ({
   spec: PREVIOUS_SPEC,
   datasets: [
-    { key: "totals", title: "Review totals", sql: MOCK_TOTALS_SQL, shape: "value", columns: ["reviews", "repos"], rowCount: 1 },
-    { key: "by_status", title: "Reviews by status", sql: MOCK_STATUS_SQL, shape: "bar", columns: ["status", "reviews"], rowCount: 3 },
+    { key: "totals", title: "Review totals", sql: MOCK_TOTALS_SQL, shape: "value" },
+    { key: "by_status", title: "Reviews by status", sql: MOCK_STATUS_SQL, shape: "bar" },
   ],
   prompts: ["show me review activity"],
   ...over,
 });
 
-test("a previous dataset the guard refuses becomes an error part, not a 500, and carries no rows", async () => {
+test("a previous dataset the guard refuses is dropped with a note, not a 500, and carries no rows", async () => {
   process.env.CHAT_MOCK = "1";
   try {
     const res = await streamBuild(
@@ -357,24 +358,23 @@ test("a previous dataset the guard refuses becomes an error part, not a 500, and
         datasets: [
           // What a hostile or stale client might send back: a query the guard
           // refuses. It ran through runStatsQuery like any other and lost.
-          { key: "creds", title: "Credentials", sql: "SELECT value FROM settings", columns: ["value"], rowCount: 1 },
-          { key: "totals", title: "Review totals", sql: MOCK_TOTALS_SQL, shape: "value", columns: ["reviews"], rowCount: 1 },
+          { key: "creds", title: "Credentials", sql: "SELECT value FROM settings" },
+          { key: "totals", title: "Review totals", sql: MOCK_TOTALS_SQL, shape: "value" },
         ],
       }),
     );
     expect(res.ok).toBe(true);
     const body = await res.text();
 
-    // One error part, keyed like the dataset, with the guard's reason.
-    expect(body).toContain(DATASET_ERROR_PART);
-    expect(body).toContain('"key":"creds"');
-    expect(body).toContain("credentials");
     // No dataset part for it: nothing named creds ever got rows.
     expect(body).not.toMatch(/"type":"data-build-dataset","id":"creds"/);
-    expect(body).not.toContain('"key":"creds","title":"Credentials","sql":"SELECT value FROM settings","shape"');
-    // The page is told in words, and the survivor still came back with rows.
+    expect(body).not.toContain('"key":"creds"');
+    // The page is told in words — one note naming the dataset and the guard's
+    // reason — and the survivor still came back with rows.
     expect(body).toContain(NOTE_PART);
     expect(body).toContain("no longer runs");
+    expect(body).toContain("(creds)");
+    expect(body).toContain("credentials");
     expect(body).toMatch(/"type":"data-build-dataset","id":"totals"/);
   } finally {
     delete process.env.CHAT_MOCK;
@@ -427,13 +427,13 @@ test("validatePrevious bounds sizes and refuses what does not parse, with a mess
   expect(() => validatePrevious("nope")).toThrow("must be an object");
   expect(() => validatePrevious(previous({ spec: { root: "x", elements: {} } }))).toThrow("nothing to refine");
   expect(() =>
-    validatePrevious(previous({ datasets: Array.from({ length: MAX_DATASETS + 1 }, (_, i) => ({ key: `d${i}`, title: "t", sql: "SELECT 1", columns: [], rowCount: 1 })) })),
+    validatePrevious(previous({ datasets: Array.from({ length: MAX_DATASETS + 1 }, (_, i) => ({ key: `d${i}`, title: "t", sql: "SELECT 1" })) })),
   ).toThrow(`at most ${MAX_DATASETS}`);
   expect(() =>
-    validatePrevious(previous({ datasets: [{ key: "big", title: "t", sql: "SELECT " + "1,".repeat(MAX_SQL_CHARS), columns: [], rowCount: 1 }] })),
+    validatePrevious(previous({ datasets: [{ key: "big", title: "t", sql: "SELECT " + "1,".repeat(MAX_SQL_CHARS) }] })),
   ).toThrow("too long");
   expect(() =>
-    validatePrevious(previous({ datasets: [{ key: "Bad Key", title: "t", sql: "SELECT 1", columns: [], rowCount: 1 }] })),
+    validatePrevious(previous({ datasets: [{ key: "Bad Key", title: "t", sql: "SELECT 1" }] })),
   ).toThrow("not a valid dataset key");
   expect(() => validatePrevious(previous({ prompts: Array(MAX_PREVIOUS_PROMPTS + 1).fill("p") }))).toThrow("start over");
 
@@ -448,6 +448,43 @@ test("validatePrevious bounds sizes and refuses what does not parse, with a mess
     }),
   );
   expect(smuggled.spec.elements.p!.type).toBe("Note");
+});
+
+test("a re-run stacked bar is capped by category, like the first build — never mid-category", async () => {
+  // More categories than the bar cap, each split into two series: 70 x 2 rows.
+  // A cap that counts rows would stop at 60 rows = 30 categories, and worse,
+  // could stop between the two halves of one category and draw it short.
+  const over = MAX_CATEGORIES.bar + 10;
+  const sql =
+    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < " +
+    over +
+    ") SELECT i AS cat, s AS series, i AS v FROM n CROSS JOIN (SELECT 'a' AS s UNION ALL SELECT 'b') ORDER BY i, s";
+  const spec: BuildPrevious["spec"] = {
+    root: "chart",
+    elements: {
+      chart: {
+        type: "StackedBarChart",
+        props: { title: "T", data: "by_cat", x: "cat", y: "v", series: "series" },
+        children: [],
+      },
+    },
+  };
+
+  const fresh = createDatasetStep();
+  await add(fresh, { key: "by_cat", sql, shape: "stacked_bar", x: "cat", y: "v", series: "series" });
+  const first = fresh.result().datasets[0]!;
+
+  const rerun = await rerunPreviousDataset({ key: "by_cat", title: "t", sql, shape: "stacked_bar" }, spec);
+  expect(rerun.ok).toBe(true);
+  if (!rerun.ok) throw new Error(rerun.error);
+
+  // Same rows as the first build: whole categories kept, the cap applied by category.
+  expect(rerun.dataset.rows).toEqual(first.rows);
+  const perCategory = new Map<unknown, number>();
+  for (const r of rerun.dataset.rows) perCategory.set(r.cat, (perCategory.get(r.cat) ?? 0) + 1);
+  expect(perCategory.size).toBe(MAX_CATEGORIES.bar);
+  for (const n of perCategory.values()) expect(n).toBe(2);
+  expect(rerun.dataset.note).toContain(`${MAX_CATEGORIES.bar} of ${over} categories`);
 });
 
 test("a refine re-runs the previous datasets, adds only the new one, then streams the edited spec", async () => {
@@ -472,7 +509,7 @@ test("a refine re-runs the previous datasets, adds only the new one, then stream
     expect(body).toContain("StatTile");
     expect(body).toContain("LineChart");
     expect(body).toContain("by_trigger");
-    expect(body).not.toContain(DATASET_ERROR_PART);
+    expect(body).not.toContain("no longer runs");
   } finally {
     delete process.env.CHAT_MOCK;
   }

@@ -76,9 +76,6 @@ export interface PreviousDataset {
   title: string;
   sql: string;
   shape?: DatasetShape;
-  columns: string[];
-  rowCount: number;
-  note?: string;
 }
 
 /** The current dashboard, as the browser sends it alongside a follow-up prompt. */
@@ -118,9 +115,6 @@ export function toPreviousDataset(d: BuildDataset): PreviousDataset {
     title: d.title,
     sql: d.sql,
     ...(d.shape ? { shape: d.shape } : {}),
-    columns: d.columns,
-    rowCount: d.rowCount,
-    ...(d.note ? { note: d.note } : {}),
   };
 }
 

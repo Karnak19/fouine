@@ -7,6 +7,7 @@ import {
   MAX_TABLE_ROWS,
   DATASET_KEY_RE,
   type BuildDataset,
+  type BuildPrevious,
   type DatasetShape,
   type PreviousDataset,
 } from "@fouine/shared/build-catalog";
@@ -93,7 +94,7 @@ function capRows(
   };
 }
 
-/** Everything `add_dataset` needs to run one query. A previous dataset is the same minus the axis roles. */
+/** Everything `add_dataset` needs to run one query. A previous dataset carries the same minus the axis roles, which its spec element supplies. */
 export interface DatasetRequest {
   key: string;
   title: string;
@@ -174,15 +175,27 @@ export async function runDataset(req: DatasetRequest, signal?: AbortSignal): Pro
  * browser's copy of the rows is never read — it does not even have a field for
  * them. A key that does not match the pattern the tool enforces is refused the
  * same way the tool would refuse it.
+ *
+ * The axis roles are not on the dataset — they live on the spec element that
+ * draws it, so they are read from `spec` here. Without `x`, `capRows` counts
+ * rows instead of categories, and a multi-series chart re-run on a refine would
+ * lose whole categories that the first build kept.
  */
-export async function rerunPreviousDataset(prev: PreviousDataset, signal?: AbortSignal): Promise<RunDatasetOutcome> {
+export async function rerunPreviousDataset(
+  prev: PreviousDataset,
+  spec: BuildPrevious["spec"],
+  signal?: AbortSignal,
+): Promise<RunDatasetOutcome> {
   if (!DATASET_KEY_RE.test(prev.key)) {
     return { ok: false, error: `Rejected: "${prev.key}" is not a valid dataset key.` };
   }
   // A shape that never reached us (older client, hand-made body) is capped
   // like a table: the widest cap the page can actually draw.
   const shape: DatasetShape = prev.shape ?? "table";
-  return runDataset({ key: prev.key, title: prev.title, sql: prev.sql, shape }, signal);
+  const element = Object.values(spec.elements).find((el) => el?.props?.data === prev.key);
+  const x = typeof element?.props?.x === "string" ? element.props.x : undefined;
+  const series = typeof element?.props?.series === "string" ? element.props.series : undefined;
+  return runDataset({ key: prev.key, title: prev.title, sql: prev.sql, shape, x, series }, signal);
 }
 
 /**

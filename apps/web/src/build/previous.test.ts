@@ -77,15 +77,13 @@ test("datasets travel up without rows, only for keys the spec still references, 
   for (const d of prev.datasets) {
     expect("rows" in d).toBe(false);
     expect("ms" in d).toBe(false);
+    expect("rowCount" in d).toBe(false);
   }
   expect(prev.datasets[0]).toEqual({
     key: "by_day",
     title: "By day",
     sql: "SELECT day, COUNT(*) AS n FROM reviews GROUP BY day",
     shape: "line",
-    columns: ["day", "n"],
-    rowCount: 1,
-    note: "capped",
   });
   expect(prev.prompts).toEqual(["a", "b"]);
 });

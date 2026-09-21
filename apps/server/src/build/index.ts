@@ -65,14 +65,6 @@ const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 /** The data parts this route adds on top of json-render's own spec patches. */
 export const DATASET_PART = "data-build-dataset";
 export const NOTE_PART = "data-build-note";
-/**
- * A previous dataset whose SQL no longer runs — refused by the guard, timed
- * out, or empty now. One part per failure, keyed like the dataset it replaces,
- * so the page can say which panel lost its data and why. Never a 500: the rest
- * of the dashboard is still worth drawing.
- */
-export const DATASET_ERROR_PART = "data-build-dataset-error";
-
 export interface DatasetError {
   key: string;
   title: string;
@@ -136,19 +128,18 @@ export async function streamBuild(
       // On a refine the existing datasets are re-run HERE, from their SQL,
       // before the model is asked anything. The browser only ever sent SQL and
       // names; whatever it claimed the rows were is not a field we read. A query
-      // the guard now refuses (or that returns nothing) becomes an error part
-      // and the page keeps the rest.
+      // the guard now refuses (or that returns nothing) is dropped and said in
+      // the notes; the page keeps the rest. Never a 500.
       const errors: DatasetError[] = [];
       if (previous) {
         for (const prev of previous.datasets) {
           if (signal?.aborted) break;
-          const ran = await rerunPreviousDataset(prev, signal);
+          const ran = await rerunPreviousDataset(prev, previous.spec, signal);
           if (ran.ok) {
             publish(ran.dataset);
           } else {
             const failed: DatasetError = { key: prev.key, title: prev.title, sql: prev.sql, error: ran.error };
             errors.push(failed);
-            writer.write({ type: DATASET_ERROR_PART, id: prev.key, data: failed });
             log.warn("build: previous dataset did not re-run", { key: prev.key, error: ran.error });
           }
         }
@@ -261,8 +252,6 @@ export function validatePrevious(input: unknown): BuildPrevious {
       title: typeof d.title === "string" ? d.title.slice(0, 200) : key,
       sql,
       ...(shape ? { shape: shape as PreviousDataset["shape"] } : {}),
-      columns: Array.isArray(d.columns) ? d.columns.filter((c): c is string => typeof c === "string") : [],
-      rowCount: typeof d.rowCount === "number" ? d.rowCount : 0,
     };
   });
 
