@@ -7,6 +7,9 @@ import {
   MAX_TABLE_ROWS,
   DATASET_KEY_RE,
   type BuildDataset,
+  type BuildPrevious,
+  type DatasetShape,
+  type PreviousDataset,
 } from "@fouine/shared/build-catalog";
 
 /**
@@ -25,8 +28,8 @@ import {
  * carrying values.
  */
 
-/** What the dataset is going to be drawn as, which is what sets its cap. */
-export type DatasetShape = "value" | "line" | "bar" | "stacked_bar" | "table";
+/** Re-exported for callers that only know this module. The type lives in shared so the browser can send it back. */
+export type { DatasetShape };
 
 export interface DatasetStepResult {
   datasets: BuildDataset[];
@@ -91,6 +94,115 @@ function capRows(
   };
 }
 
+/** Everything `add_dataset` needs to run one query. A previous dataset carries the same minus the axis roles, which its spec element supplies. */
+export interface DatasetRequest {
+  key: string;
+  title: string;
+  sql: string;
+  shape: DatasetShape;
+  x?: string;
+  y?: string;
+  series?: string;
+}
+
+export type RunDatasetOutcome = { ok: true; dataset: BuildDataset } | { ok: false; error: string };
+
+/**
+ * Run ONE dataset's SQL through the guard and shape it for the page.
+ *
+ * Shared by `add_dataset` (a query the model just wrote) and the refine path (a
+ * query the browser sent back from an earlier build). Same guard, same caps,
+ * same result shape; the only difference is who asked. The error text is
+ * written for the model, since it is the one that can act on it.
+ */
+export async function runDataset(req: DatasetRequest, signal?: AbortSignal): Promise<RunDatasetOutcome> {
+  const { key, title, sql, shape, x, y, series } = req;
+
+  const out = await runStatsQuery(sql, signal);
+  if (!out.ok) return { ok: false, error: out.text };
+
+  const parsed = parseRows(out.text);
+  if ("error" in parsed) return { ok: false, error: `Rejected: ${parsed.error}` };
+  if (parsed.rows.length === 0) {
+    return {
+      ok: false,
+      error: "The query returned no rows. Widen the window or relax the filter, or drop this dataset.",
+    };
+  }
+
+  const columns = Object.keys(parsed.rows[0] ?? {});
+  for (const [role, col] of [
+    ["x", x],
+    ["y", y],
+    ["series", series],
+  ] as const) {
+    if (col && !columns.includes(col)) {
+      return {
+        ok: false,
+        error: `Rejected: column "${col}" (used as ${role}) is not in the result. Available: ${columns
+          .map((c) => `"${c}"`)
+          .join(", ")}.`,
+      };
+    }
+  }
+
+  const capped = capRows(parsed.rows, shape, x);
+  const noteParts: string[] = [];
+  if (parsed.note) noteParts.push(parsed.note.replace(/^\(|\)$/g, ""));
+  if (capped.note) noteParts.push(capped.note);
+
+  return {
+    ok: true,
+    dataset: {
+      key,
+      title,
+      sql,
+      shape,
+      columns,
+      rows: capped.rows,
+      rowCount: capped.rows.length,
+      ms: out.ms ?? 0,
+      ...(noteParts.length ? { note: noteParts.join("; ") } : {}),
+    },
+  };
+}
+
+/**
+ * Re-run a dataset the browser sent back on a refine.
+ *
+ * Only the SQL and its metadata come up; the rows are fetched again here, on
+ * this server, through `runDataset` and therefore through the guard. The
+ * browser's copy of the rows is never read — it does not even have a field for
+ * them. A key that does not match the pattern the tool enforces is refused the
+ * same way the tool would refuse it.
+ *
+ * The axis roles are not on the dataset — they live on the spec element that
+ * draws it, so they are read from `spec` here. Without `x`, `capRows` counts
+ * rows instead of categories, and a multi-series chart re-run on a refine would
+ * lose whole categories that the first build kept.
+ */
+export async function rerunPreviousDataset(
+  prev: PreviousDataset,
+  spec: BuildPrevious["spec"],
+  signal?: AbortSignal,
+): Promise<RunDatasetOutcome> {
+  if (!DATASET_KEY_RE.test(prev.key)) {
+    return { ok: false, error: `Rejected: "${prev.key}" is not a valid dataset key.` };
+  }
+  // A shape that never reached us (older client, hand-made body) is capped
+  // like a table: the widest cap the page can actually draw.
+  const shape: DatasetShape = prev.shape ?? "table";
+  // One key can be drawn several ways (a chart plus a table of it); only the
+  // chart names the axis, so prefer a consumer that carries an `x`. A key only
+  // tables and tiles read has no axis and keeps the (correct) row cap.
+  const element = Object.values(spec.elements).find(
+    (el) => el?.props?.data === prev.key && typeof el?.props?.x === "string",
+  );
+  const x = typeof element?.props?.x === "string" ? element.props.x : undefined;
+  const series = typeof element?.props?.series === "string" ? element.props.series : undefined;
+  return runDataset({ key: prev.key, title: prev.title, sql: prev.sql, shape, x, series }, signal);
+}
+
 /**
  * Build the `add_dataset` tool for one request, plus the box its results land in.
  *
@@ -98,8 +210,17 @@ function capRows(
  * page's data before the layout that arranges it exists. That ordering is the
  * point: charts arrive last and find their rows already there.
  */
-export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDataset) => void) {
-  const datasets: BuildDataset[] = [];
+export function createDatasetStep(
+  signal?: AbortSignal,
+  onDataset?: (d: BuildDataset) => void,
+  /**
+   * Datasets that already exist when the step starts — on a refine, the ones
+   * re-run from the previous build. They count against the cap and reserve
+   * their keys, so the model can only ADD, never silently replace.
+   */
+  existing: BuildDataset[] = [],
+) {
+  const datasets: BuildDataset[] = [...existing];
   const notes: string[] = [];
 
   const addDataset = tool({
@@ -152,43 +273,10 @@ export function createDatasetStep(signal?: AbortSignal, onDataset?: (d: BuildDat
         return "Rejected: shape \"stacked_bar\" needs a `series` column — the thing each bar is composed OF.";
       }
 
-      const out = await runStatsQuery(sql, signal);
-      if (!out.ok) return out.text;
-
-      const parsed = parseRows(out.text);
-      if ("error" in parsed) return `Rejected: ${parsed.error}`;
-      if (parsed.rows.length === 0) {
-        return "The query returned no rows. Widen the window or relax the filter, or drop this dataset.";
-      }
-
-      const columns = Object.keys(parsed.rows[0] ?? {});
-      for (const [role, col] of [
-        ["x", x],
-        ["y", y],
-        ["series", series],
-      ] as const) {
-        if (col && !columns.includes(col)) {
-          return `Rejected: column "${col}" (used as ${role}) is not in the result. Available: ${columns
-            .map((c) => `"${c}"`)
-            .join(", ")}.`;
-        }
-      }
-
-      const capped = capRows(parsed.rows, shape, x);
-      const noteParts: string[] = [];
-      if (parsed.note) noteParts.push(parsed.note.replace(/^\(|\)$/g, ""));
-      if (capped.note) noteParts.push(capped.note);
-
-      const dataset: BuildDataset = {
-        key,
-        title,
-        sql,
-        columns,
-        rows: capped.rows,
-        rowCount: capped.rows.length,
-        ms: out.ms ?? 0,
-        ...(noteParts.length ? { note: noteParts.join("; ") } : {}),
-      };
+      const ran = await runDataset({ key, title, sql, shape, x, y, series }, signal);
+      if (!ran.ok) return ran.error;
+      const dataset = ran.dataset;
+      const { columns } = dataset;
       datasets.push(dataset);
       onDataset?.(dataset);
 

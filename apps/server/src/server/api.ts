@@ -18,6 +18,12 @@ import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills
 import { log } from "~/server/log";
 import { streamChat, MAX_TURNS, MAX_QUESTION_CHARS, MAX_PARTS_PER_MESSAGE } from "~/chat";
 import { streamBuild, MAX_PROMPT_CHARS } from "~/build";
+import {
+  MAX_DATASETS,
+  MAX_PREVIOUS_PROMPTS,
+  MAX_PREVIOUS_SPEC_BYTES,
+  MAX_SQL_CHARS,
+} from "@fouine/shared/build-catalog";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -260,7 +266,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     "/build",
     async ({ body, set, request }) => {
       try {
-        return await streamBuild(body.prompt, request.signal, body.id);
+        return await streamBuild(body.prompt, request.signal, body.id, body.previous);
       } catch (err) {
         set.status = 400;
         return { error: String((err as Error)?.message ?? err) };
@@ -270,7 +276,60 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       body: t.Object({
         id: t.Optional(t.String({ maxLength: 128 })),
         prompt: t.String({ minLength: 1, maxLength: MAX_PROMPT_CHARS }),
+        // A follow-up: the dashboard as it stands, minus the rows. Sizes are
+        // bounded here so `previous` cannot be a multi-megabyte body; what the
+        // fields mean is checked in `validatePrevious`, which re-sanitises the
+        // spec and re-runs every SQL through the guard.
+        previous: t.Optional(
+          t.Object({
+            spec: t.Object(
+              {
+                root: t.String({ maxLength: 200 }),
+                elements: t.Record(t.String({ maxLength: 200 }), t.Unknown()),
+              },
+              { additionalProperties: false },
+            ),
+            datasets: t.Array(
+              t.Object(
+                {
+                  key: t.String({ maxLength: 64 }),
+                  title: t.String({ maxLength: 500 }),
+                  sql: t.String({ minLength: 1, maxLength: MAX_SQL_CHARS }),
+                  shape: t.Optional(t.String({ maxLength: 16 })),
+                },
+                // Rows, ms or anything else the browser happens to have are
+                // ignored downstream — validatePrevious copies named fields only.
+                { additionalProperties: true },
+              ),
+              { maxItems: MAX_DATASETS },
+            ),
+            prompts: t.Array(t.String({ maxLength: MAX_PROMPT_CHARS }), { maxItems: MAX_PREVIOUS_PROMPTS }),
+          }),
+        ),
       }),
+      // The whole body, spec included, must fit in the spec cap with room for
+      // the datasets' SQL. A rough gate that fires before parsing does any work.
+      beforeHandle: ({ request, set }) => {
+        const len = Number(request.headers.get("content-length") ?? 0);
+        if (len > MAX_PREVIOUS_SPEC_BYTES + MAX_DATASETS * MAX_SQL_CHARS + 64_000) {
+          set.status = 413;
+          return { error: "That request is too large to refine. Start over." };
+        }
+      },
+      // A body outside the schema is a 400 with ONE sentence the page can show,
+      // not Elysia's default 422 dump of the offending value — which for a
+      // refine would be the whole spec echoed back at the reader.
+      error: ({ code, error, set }) => {
+        if (code !== "VALIDATION") return;
+        set.status = 400;
+        const first = (error as { all?: { summary?: string }[] }).all?.[0]?.summary;
+        return {
+          error:
+            "That request does not fit the /build limits" +
+            (first ? ` (${first.replace(/^Expected /, "expected ")})` : "") +
+            ". Shorten the prompt, or start over if this is a refinement.",
+        };
+      },
     },
   )
 

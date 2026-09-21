@@ -38,6 +38,9 @@ export const DATASET_KEY_RE = /^[a-z][a-z0-9_]{0,40}$/;
 export type DatasetCell = string | number | null;
 export type DatasetRow = Record<string, DatasetCell>;
 
+/** What a dataset is going to be drawn as, which is what sets its row cap. */
+export type DatasetShape = "value" | "line" | "bar" | "stacked_bar" | "table";
+
 /**
  * One dataset as it goes over the wire to the browser: the rows, the columns,
  * and the SQL that produced them (the "SQL behind this" disclosure reads this,
@@ -47,12 +50,72 @@ export interface BuildDataset {
   key: string;
   title: string;
   sql: string;
+  /** Kept so a refine can re-run the query and cap it the same way. */
+  shape?: DatasetShape;
   columns: string[];
   rows: DatasetRow[];
   rowCount: number;
   ms: number;
   /** A cap that was hit, said plainly. Rendered next to whatever was drawn. */
   note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Refining: what the browser hands back so the next prompt edits the page
+// instead of rebuilding it
+// ---------------------------------------------------------------------------
+
+/**
+ * A dataset as the browser sends it BACK on a refine: everything but the rows.
+ * The server re-runs `sql` through the same guarded path it ran the first time,
+ * so rows never travel up, only down. A client that sends arbitrary SQL here
+ * gets exactly what a model would: the guard decides.
+ */
+export interface PreviousDataset {
+  key: string;
+  title: string;
+  sql: string;
+  shape?: DatasetShape;
+}
+
+/** The current dashboard, as the browser sends it alongside a follow-up prompt. */
+export interface BuildPrevious {
+  spec: { root: string; elements: Record<string, LooseElement> };
+  datasets: PreviousDataset[];
+  /** Every prompt applied so far, oldest first. Shown as chips, and to the model as history. */
+  prompts: string[];
+}
+
+/** Upper bound on the serialised spec a refine may carry. Sixty nodes of YAML-ish props fit in a fraction of this. */
+export const MAX_PREVIOUS_SPEC_BYTES = 64_000;
+
+/** Upper bound on one dataset's SQL coming back from the browser. */
+export const MAX_SQL_CHARS = 4_000;
+
+/** How many prompts one dashboard may be the product of before the client must start over. */
+export const MAX_PREVIOUS_PROMPTS = 20;
+
+/** Dataset keys a spec's data-backed nodes actually reference, in element order, deduplicated. */
+export function referencedDatasetKeys(spec: { elements?: Record<string, LooseElement> } | null | undefined): string[] {
+  const keys: string[] = [];
+  for (const el of Object.values(spec?.elements ?? {})) {
+    if (!el || typeof el !== "object") continue;
+    const type = typeof el.type === "string" ? el.type : "";
+    if (!DATA_BACKED.includes(type)) continue;
+    const d = el.props?.data;
+    if (typeof d === "string" && !keys.includes(d)) keys.push(d);
+  }
+  return keys;
+}
+
+/** Strip a dataset down to what may travel back up: metadata and SQL, never rows. */
+export function toPreviousDataset(d: BuildDataset): PreviousDataset {
+  return {
+    key: d.key,
+    title: d.title,
+    sql: d.sql,
+    ...(d.shape ? { shape: d.shape } : {}),
+  };
 }
 
 // A dataset reference, repeated on every data-backed component. `data` is a
