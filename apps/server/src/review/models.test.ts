@@ -138,3 +138,8 @@ test("a spec splits on the first slash only — an org-prefixed model id keeps i
   expect(() => parseModel("no-slash")).toThrow();
   expect(() => parseModel("provider/")).toThrow();
 });
+
+test("a Command Code spec stored in the old org-prefixed form is flattened to the plugin key", () => {
+  expect(parseModel("commandcode/deepseek/deepseek-v4-flash").modelID).toBe("deepseek-v4-flash");
+  expect(parseModel("commandcode/zai-org/GLM-5.2").modelID).toBe("glm-5.2");
+});
