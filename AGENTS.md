@@ -1,6 +1,6 @@
 # AGENTS.md
 
-fouine — self-hosted AI code reviewer. GitHub App webhook → bare-clone + worktree per PR → in-process OpenCode agent posts the review to GitHub. Bun + Elysia backend, React SPA dashboard.
+fouine — self-hosted AI code reviewer. GitHub App webhook → bare-clone + worktree per PR → one long-lived OpenCode server runs a session per review, which posts the review to GitHub. Bun + Elysia backend, React SPA dashboard.
 
 ## Workspace layout
 
@@ -59,11 +59,15 @@ Schema and all prepared statements live in `apps/server/src/db.ts`. Add new colu
 
 ## Review runtime requirements
 
-A review spawns an in-process OpenCode server (via `@opencode-ai/sdk`) on an **ephemeral port** — never the SDK default 4096, concurrent reviews would collide. Requirements:
-- `git` and the `opencode` CLI must be on `PATH` (Dockerfile installs both).
-- Custom agent tools in `apps/server/opencode-config/tools/` (`post_review`, `post_comment`) are loaded via `OPENCODE_CONFIG_DIR`. `apps/server/src/config.ts` falls back to resolving that dir from `import.meta.dir` (same cwd reason as the asset paths above), so it works unset; the Dockerfile still sets it explicitly.
-- The runner sets per-review env (`FOUINE_GITHUB_TOKEN`, `FOUINE_REPO_OWNER`, `FOUINE_REPO_NAME`, `FOUINE_PR_NUMBER`) that those tools read — don't pass GitHub creds into the tools another way.
-- Bare clones are cached at `${DATA_DIR}/repos/{full_name}.git`; worktrees at `${DATA_DIR}/worktrees/`. Both accumulate under `DATA_DIR` (the Docker volume `/data`).
+**One long-lived OpenCode server for the process lifetime, one session per review** — never a server per review. `apps/server/src/effect/opencode.ts` owns the singleton; the spawn helpers live in `apps/server/src/review/opencode.ts`. Two modes, picked by env:
+- **child (default):** fouine spawns `opencode serve` itself on an **ephemeral port** (never the default 4096, so a stale or parallel fouine can't collide). The child gets a minimal env allowlist (`PATH`, `HOME`, `OPENCODE_CONFIG_DIR`, `OPENCODE_SERVER_PASSWORD`, `FOUINE_INTERNAL_URL`) — never a spread of `process.env`, because the model can read its shell env.
+- **sidecar:** when `OPENCODE_BASE_URL` is set, fouine spawns nothing and talks to that server, authenticating with `OPENCODE_SERVER_PASSWORD` (HTTP Basic, username `opencode`) when present. `docker-compose.yml` + `Dockerfile.opencode` are the reference deployment: the official `ghcr.io/anomalyco/opencode` image plus `git` (the official image has no git).
+
+Requirements in both modes:
+- `git` and an `opencode` server matching `@opencode/client` (pinned to 2.0.11) must be available. Child mode: the root `Dockerfile` installs the CLI; sidecar: `Dockerfile.opencode`.
+- Custom agent tools in `apps/server/opencode-config/plugins/` (`post_review`, `post_comment`, …) are loaded via `OPENCODE_CONFIG_DIR`. Boot's `seedOpencodeConfig()` copies the shipped dir to a fouine-owned runtime dir at `${DATA_DIR}/opencode` and re-exports `OPENCODE_CONFIG_DIR` to it; a sidecar must point at that same path on the shared volume.
+- Per-review GitHub/tool context is **server-side** now (the loopback proxy lane in `apps/server/src/server/internal.ts`), so there is no per-review env and no GitHub token in the model's process. The tools reach fouine via `FOUINE_INTERNAL_URL` — `http://fouine:3000` in the sidecar's env.
+- Bare clones are cached at `${DATA_DIR}/repos/{full_name}.git`; worktrees at `${DATA_DIR}/worktrees/`. Both accumulate under `DATA_DIR` (the Docker volume `/data`). In sidecar mode the volume **must** be mounted at the same absolute path in both containers, since `session.create`'s `location.directory` is an absolute path the sidecar resolves itself.
 
 ## Config precedence
 

@@ -60,6 +60,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reviews_repo_pr
     ON reviews(repo_full_name, pr_number);
 
+  -- The loopback proxy resolves a review from the opencode session id it was
+  -- handed (see /internal/sessions/:sid/*). Every tool call is a lookup by
+  -- session_id, so it gets its own index rather than a table scan.
+  CREATE INDEX IF NOT EXISTS idx_reviews_session
+    ON reviews(session_id);
+
   -- One row per posted finding, written back by the opencode post_* tools right
   -- after they hit GitHub (see /internal/reviews/:id/findings). This is the
   -- structured record of what fouine actually flagged — the transcript has the
@@ -375,6 +381,13 @@ export const reviews = {
     `SELECT COUNT(*) AS count FROM reviews WHERE repo_full_name = $repo AND pr_number = $pr AND trigger = 'refine'`,
   ),
   byId: db.prepare<ReviewRow, { $id: number }>("SELECT * FROM reviews WHERE id = $id"),
+  // The loopback proxy's entry point: the opencode session id is the only
+  // credential the review's tools carry, and it must resolve back to exactly one
+  // review row (repo/PR/kind are all derived from it server-side). Newest first
+  // in case a retry ever reuses a session id.
+  bySession: db.prepare<ReviewRow, { $session: string }>(
+    "SELECT * FROM reviews WHERE session_id = $session ORDER BY id DESC LIMIT 1",
+  ),
   // Rows still claiming to be in flight. At boot these are necessarily orphans:
   // the live-review map is in-memory, so nothing can still be running them.
   // `skipped` is terminal and is excluded by this list — a skip must never look

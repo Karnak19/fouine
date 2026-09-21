@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 
-// Deliberately NOT in plugin/: opencode discovers plugins by globbing
+// Deliberately NOT in plugins/: opencode discovers plugins by globbing
 // {plugin,plugins}/*.{ts,js} in this dir, so a test file next to the plugin
 // would be loaded as one — importing bun:test into the review runtime and
 // registering tests inside opencode. One level up is outside the glob.
@@ -9,23 +9,38 @@ import { afterEach, expect, test } from "bun:test";
 // query string to defeat the module cache. Asserting through the hook rather
 // than on an exported constant, because the plugin file must export nothing but
 // plugin factories (opencode calls every export).
+//
+// v2 plugin shape: the default export is a definition ({ id, setup }); setup
+// receives the plugin context and registers the `execute.before` hook through
+// `ctx.tool.hook`. We capture that callback so the tests drive it directly,
+// exactly as opencode would. The event's `input` is the mutable args object, so
+// the plugin clamps `input.timeout` in place.
+type ExecuteBefore = (event: { tool: string; input: Record<string, unknown> }) => Promise<void> | void;
+
 let n = 0;
-const hookWith = async (raw: string | undefined) => {
+const hookWith = async (raw: string | undefined): Promise<ExecuteBefore> => {
   if (raw === undefined) delete process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
   else process.env.OPENCODE_BASH_TIMEOUT_MAX_MS = raw;
-  const mod = await import(`./plugin/cap-bash-timeout.ts?case=${n++}`);
-  const plugin = await mod.CapBashTimeout({} as never);
-  return plugin["tool.execute.before"] as (
-    input: { tool: string },
-    output: { args: Record<string, unknown> },
-  ) => Promise<void>;
+  const mod = await import(`./plugins/cap-bash-timeout.ts?case=${n++}`);
+  const hooks: ExecuteBefore[] = [];
+  const ctx = {
+    tool: {
+      hook: async (name: string, cb: ExecuteBefore) => {
+        if (name === "execute.before") hooks.push(cb);
+      },
+    },
+  };
+  await mod.default.setup(ctx as never);
+  const hook = hooks[0];
+  if (!hook) throw new Error("plugin did not register an execute.before hook");
+  return hook;
 };
 
 const clamp = async (raw: string | undefined, requested: number) => {
   const hook = await hookWith(raw);
-  const output = { args: { command: "x", timeout: requested } as Record<string, unknown> };
-  await hook({ tool: "bash" }, output);
-  return output.args.timeout;
+  const event = { tool: "bash", input: { command: "x", timeout: requested } };
+  await hook(event);
+  return event.input.timeout;
 };
 
 afterEach(() => {
@@ -56,11 +71,11 @@ test.each([["oops"], [""], ["  "], ["0"], ["-5"], ["NaN"], ["Infinity"]])(
 
 test("ignores non-bash tools and requests with no timeout", async () => {
   const hook = await hookWith(undefined);
-  const other = { args: { timeout: 1_800_000 } as Record<string, unknown> };
-  await hook({ tool: "read" }, other);
-  expect(other.args.timeout).toBe(1_800_000);
+  const other = { tool: "read", input: { timeout: 1_800_000 } };
+  await hook(other);
+  expect(other.input.timeout).toBe(1_800_000);
 
-  const noTimeout = { args: { command: "x" } as Record<string, unknown> };
-  await hook({ tool: "bash" }, noTimeout);
-  expect(noTimeout.args.timeout).toBeUndefined();
+  const noTimeout = { tool: "bash", input: { command: "x" } };
+  await hook(noTimeout);
+  expect(noTimeout.input.timeout).toBeUndefined();
 });

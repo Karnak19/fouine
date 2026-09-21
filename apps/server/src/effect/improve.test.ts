@@ -22,7 +22,7 @@ function makeLayer(over: {
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
-    env: undefined as Record<string, string> | undefined,
+    opts: undefined as Record<string, unknown> | undefined,
     inserted: undefined as { pr: number; trigger: string | null } | undefined,
     fetchedRef: undefined as string | undefined,
     prompt: undefined as string | undefined,
@@ -65,9 +65,9 @@ function makeLayer(over: {
   } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (o: { agent?: string; env?: Record<string, string>; prompt?: string }) => {
+    runReview: (o: { agent?: string; prompt?: string; denyTestCommands?: boolean }) => {
       calls.agent = o.agent;
-      calls.env = o.env;
+      calls.opts = o as Record<string, unknown>;
       calls.prompt = o.prompt;
       return over.oc
         ? over.oc()
@@ -89,10 +89,9 @@ test("success path runs the improver agent and completes", async () => {
   expect(calls.failed).toEqual([]);
   expect(calls.agent).toBe("fouine-improver");
   expect(calls.inserted).toEqual({ pr: 0, trigger: "improve" });
-  // Deliberately repo-scoped: no PR binding, so post_review/post_comment fail
-  // loudly if the improver agent reaches for them.
-  expect(calls.env).not.toContainKey("FOUINE_PR_NUMBER");
-  expect(calls.env?.FOUINE_GITHUB_TOKEN).toBe("tok");
+  // The old per-run tool env is gone: the improver's repo-scoping (no PR
+  // binding) is enforced server-side now, and no env reaches the model's bash.
+  expect(calls.opts).not.toContainKey("env");
 });
 
 test("failure marks the run failed and propagates", async () => {

@@ -42,10 +42,12 @@ export function installDeps(
         const proc = Bun.spawn(
           // --ignore-scripts is a SECURITY control, NOT a perf tweak. DO NOT
           // REMOVE. Without it `bun install` runs postinstall scripts authored
-          // by the PR under review — arbitrary code, as root, in a process
-          // whose env holds FOUINE_GITHUB_TOKEN (a GitHub App installation
-          // token) and FOUINE_INTERNAL_SECRET. A PR that adds a postinstall
-          // would exfiltrate both before a human ever read the diff.
+          // by the PR under review — arbitrary code, as root, in a subprocess
+          // that inherits fouine's own app environment: GITHUB_APP_PRIVATE_KEY,
+          // BETTER_AUTH_SECRET and every other secret the server process holds.
+          // A PR that adds a postinstall would exfiltrate them before a human
+          // ever read the diff. (Note this is fouine's env, not the opencode
+          // child's — that one is allowlisted and never sees these.)
           //
           // No --frozen-lockfile on purpose: PRs legitimately change
           // package.json, and frozen fails when the lockfile lags. The worktree

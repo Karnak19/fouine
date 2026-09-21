@@ -1,24 +1,24 @@
 // Turning opencode's raw SSE firehose into something small enough to broadcast.
 //
 // The review detail page used to re-fetch the WHOLE session transcript every 2s
-// while a review ran, and since /reviews/:id/session spawns its own opencode
-// server per request, a live review booted one every two seconds. So instead we
-// forward the interesting events off the pump that already exists for the
-// watchdog.
+// while a review ran — a flood of duplicated payload through the shared
+// one-server-per-process client. So instead we forward the interesting events
+// off the pump that already exists for the watchdog.
 //
 // Two things make "just forward the event" wrong:
 //
-//  1. Size. opencode re-publishes a tool part on EVERY output chunk of a bash
-//     command (same reason observeEvent guards on inFlight.has), and each of
-//     those carries the full accumulated output plus the full input. Forwarding
-//     verbatim floods the hub with large duplicated payloads.
+//  1. Size. opencode v2 re-publishes a message's WHOLE content array on every
+//     change (`session.message.content.updated`), each tool part carrying its
+//     accumulated output and input. Forwarding verbatim floods the hub with
+//     duplicated payloads.
 //  2. Rate. Text and reasoning parts update per token.
 //
 // So this module truncates (only the fields the UI actually renders survive,
-// each capped) and coalesces (at most one delta per part per interval, with
-// terminal tool statuses always let through so a tool never sticks on
-// "running"). It is a plain fold with no I/O, kept out of observeEvent so that
-// one stays a pure watchdog fold, and tested on its own.
+// each capped), dedupes (a part whose status/output hasn't changed since the
+// last forwarded frame is skipped) and coalesces (at most one delta per part
+// per interval, with terminal tool statuses always let through so a tool never
+// sticks on "running"). A plain fold with no I/O, kept out of observeEvent so
+// that one stays a pure watchdog fold, and tested on its own.
 
 // Mirrors the subset of an opencode part the transcript UI renders. Everything
 // else — inputs, snapshots, per-part timing, token accounting — is dropped: the
@@ -50,8 +50,8 @@ export const MAX_ERROR = 1_000;
 // while collapsing the per-token storm into a few frames a second.
 export const COALESCE_MS = 400;
 
-// Paranoia bound on the dedupe map: one entry per part id for the life of a
-// review. A pathological session can't grow it without bound.
+// Paranoia bound on the dedupe maps: one entry per part/message for the life
+// of a review. A pathological session can't grow them without bound.
 const MAX_TRACKED = 2_000;
 
 function clamp(s: unknown, max: number): string | undefined {
@@ -59,56 +59,119 @@ function clamp(s: unknown, max: number): string | undefined {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
-// Rendered as nothing by the UI, emitted constantly by opencode.
-const IGNORED_PART_TYPES = new Set(["step-start", "step-finish", "snapshot", "patch"]);
-
+// v2 content parts as they arrive on the wire (subset we read).
+interface RawToolState {
+  status?: unknown;
+  input?: unknown; // string while streaming, object once resolved
+  content?: unknown; // [{type:"text", text}, ...] once finished
+  error?: { message?: unknown } | null;
+}
 interface RawPart {
-  id?: unknown;
-  messageID?: unknown;
-  sessionID?: unknown;
   type?: unknown;
   text?: unknown;
-  tool?: unknown;
-  state?: { status?: unknown; title?: unknown; output?: unknown; error?: unknown };
+  id?: unknown;
+  name?: unknown;
+  state?: RawToolState;
 }
 
-function toPart(raw: RawPart): TranscriptPart | null {
-  if (typeof raw.id !== "string" || typeof raw.type !== "string") return null;
-  if (IGNORED_PART_TYPES.has(raw.type)) return null;
-  const part: TranscriptPart = { id: raw.id, type: raw.type };
+// v2 tool statuses → the v1-era words the UI already renders.
+function mapToolStatus(status: unknown): string | undefined {
+  switch (status) {
+    case "streaming":
+      return "pending";
+    case "running":
+      return "running";
+    case "completed":
+      return "completed";
+    case "error":
+      return "error";
+    default:
+      return undefined;
+  }
+}
+
+function inputSummary(state: RawToolState): string | undefined {
+  const input = state.input;
+  const json = typeof input === "string" ? input : (() => {
+    try {
+      return JSON.stringify(input) ?? "";
+    } catch {
+      return "<unserializable>";
+    }
+  })();
+  return clamp(json, 200);
+}
+
+function outputText(state: RawToolState): string | undefined {
+  if (!Array.isArray(state.content)) return undefined;
+  const texts = state.content
+    .filter((c): c is { type: "text"; text: string } =>
+      (c as { type?: unknown })?.type === "text" && typeof (c as { text?: unknown }).text === "string",
+    )
+    .map((c) => c.text);
+  return clamp(texts.join("\n"), MAX_OUTPUT);
+}
+
+function toPart(raw: RawPart, syntheticId: string): TranscriptPart | null {
+  if (raw.type !== "text" && raw.type !== "reasoning" && raw.type !== "tool") return null;
+
+  if (raw.type === "tool") {
+    if (typeof raw.id !== "string") return null;
+    const state: TranscriptPart["state"] = {};
+    const status = mapToolStatus(raw.state?.status);
+    if (status !== undefined) state.status = status;
+    const title = inputSummary(raw.state ?? {});
+    if (title !== undefined) state.title = title;
+    const output = outputText(raw.state ?? {});
+    if (output !== undefined) state.output = output;
+    const error = clamp(raw.state?.error?.message, MAX_ERROR);
+    if (error !== undefined) state.error = error;
+    return {
+      id: raw.id,
+      type: "tool",
+      ...(typeof raw.name === "string" ? { tool: raw.name } : {}),
+      state,
+    };
+  }
+
+  // text / reasoning: v2 parts carry no id, so the fold assigns
+  // `${messageID}:${index}` — the api.ts snapshot mapper uses the same scheme,
+  // which is what lets the live delta merge into the fetched transcript.
+  const part: TranscriptPart = { id: syntheticId, type: raw.type };
   const text = clamp(raw.text, MAX_TEXT);
   if (text !== undefined) part.text = text;
-  if (typeof raw.tool === "string") part.tool = raw.tool;
-  if (raw.state) {
-    // Deliberately NOT state.input: the transcript view never renders it, and
-    // for bash it is the single largest repeated field on the wire.
-    const state: TranscriptPart["state"] = {};
-    if (typeof raw.state.status === "string") state.status = raw.state.status;
-    const title = clamp(raw.state.title, 200);
-    if (title !== undefined) state.title = title;
-    const output = clamp(raw.state.output, MAX_OUTPUT);
-    if (output !== undefined) state.output = output;
-    const error = clamp(raw.state.error, MAX_ERROR);
-    if (error !== undefined) state.error = error;
-    part.state = state;
-  }
   return part;
+}
+
+// Cheap change detector so whole-array republishes don't re-forward unchanged
+// parts: text grows, tools change status or output.
+function partSignature(part: TranscriptPart): string {
+  if (part.type === "tool") {
+    return `${part.state?.status ?? ""}:${part.state?.output?.length ?? 0}:${part.state?.error?.length ?? 0}`;
+  }
+  return `${part.text?.length ?? 0}`;
 }
 
 const TERMINAL = new Set(["completed", "error"]);
 
 export interface TranscriptStream {
   /**
-   * Fold one opencode SSE event. Returns the delta to publish, or null when the
-   * event is for another session, carries nothing renderable, or was coalesced
-   * away.
+   * Fold one opencode SSE event. Returns the deltas to publish (a part can
+   * change alongside others in the same whole-array republish), or an empty
+   * array when the event is for another session, carries nothing renderable,
+   * or was coalesced away.
    */
-  observe(event: unknown, sessionId: string | undefined, now: number): TranscriptDelta | null;
+  observe(event: unknown, sessionId: string | undefined, now: number): TranscriptDelta[];
 }
 
 export function createTranscriptStream(coalesceMs = COALESCE_MS): TranscriptStream {
   const lastAt = new Map<string, number>();
   const seenMessages = new Map<string, string>();
+  // messageId -> (partKey -> signature of last FORWARDED state). A signature
+  // is recorded only when a delta actually passes the gate, so a coalesced
+  // change stays pending and a later republish of the same state still
+  // forwards it.
+  const signatures = new Map<string, Map<string, string>>();
 
   const gate = (key: string, now: number, force: boolean): boolean => {
     const prev = lastAt.get(key);
@@ -120,34 +183,51 @@ export function createTranscriptStream(coalesceMs = COALESCE_MS): TranscriptStre
 
   return {
     observe(event, sessionId, now) {
-      if (!sessionId) return null;
-      const ev = event as { type?: string; properties?: Record<string, unknown> } | null;
-      const props = ev?.properties;
-      if (!props) return null;
+      if (!sessionId) return [];
+      const ev = event as { type?: string; data?: unknown } | null;
+      if (!ev?.type || typeof ev.data !== "object" || ev.data === null) return [];
+      const data = ev.data as {
+        sessionID?: unknown;
+        assistantMessageID?: unknown;
+        messageID?: unknown;
+        content?: unknown;
+      };
+      if (data.sessionID !== sessionId) return [];
 
-      if (ev?.type === "message.updated") {
-        const info = props.info as { id?: unknown; sessionID?: unknown; role?: unknown } | undefined;
-        if (!info || info.sessionID !== sessionId || typeof info.id !== "string") return null;
-        const role = typeof info.role === "string" ? info.role : undefined;
-        // message.updated re-fires on every token-count change; the shell only
-        // needs announcing once per (id, role).
-        if (seenMessages.get(info.id) === (role ?? "")) return null;
+      // Message shell: announce each assistant message once so the UI can
+      // create a container before its parts stream in.
+      if (ev.type === "session.step.started") {
+        if (typeof data.assistantMessageID !== "string") return [];
+        if (seenMessages.get(data.assistantMessageID) === "assistant") return [];
         if (seenMessages.size > MAX_TRACKED) seenMessages.clear();
-        seenMessages.set(info.id, role ?? "");
-        return { messageId: info.id, role };
+        seenMessages.set(data.assistantMessageID, "assistant");
+        return [{ messageId: data.assistantMessageID, role: "assistant" }];
       }
 
-      if (ev?.type !== "message.part.updated") return null;
-      const raw = props.part as RawPart | undefined;
-      if (!raw || raw.sessionID !== sessionId) return null;
-      if (typeof raw.messageID !== "string") return null;
-      const part = toPart(raw);
-      if (!part) return null;
-      // A tool reaching completed/error is the frame that must never be
-      // dropped, or the UI leaves it spinning until the next slow poll.
-      const force = part.type === "tool" && TERMINAL.has(part.state?.status ?? "");
-      if (!gate(part.id, now, force)) return null;
-      return { messageId: raw.messageID, part };
+      if (ev.type !== "session.message.content.updated") return [];
+      if (typeof data.messageID !== "string" || !Array.isArray(data.content)) return [];
+      const messageId = data.messageID;
+      let sigs = signatures.get(messageId);
+      if (!sigs) {
+        if (signatures.size > MAX_TRACKED) signatures.clear();
+        sigs = new Map();
+        signatures.set(messageId, sigs);
+      }
+
+      const deltas: TranscriptDelta[] = [];
+      data.content.forEach((raw: RawPart, idx: number) => {
+        const part = toPart(raw, `${messageId}:${idx}`);
+        if (!part) return;
+        const sig = partSignature(part);
+        if (sigs.get(part.id) === sig) return;
+        // A tool reaching completed/error is the frame that must never be
+        // dropped, or the UI leaves it spinning until the next slow poll.
+        const force = part.type === "tool" && TERMINAL.has(part.state?.status ?? "");
+        if (!gate(`${messageId}:${part.id}`, now, force)) return;
+        sigs.set(part.id, sig);
+        deltas.push({ messageId, part });
+      });
+      return deltas;
     },
   };
 }

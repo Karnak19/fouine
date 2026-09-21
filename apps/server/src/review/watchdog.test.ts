@@ -10,34 +10,38 @@ import {
 const IDLE = 60_000;
 const CEILING = 600_000;
 
-// Only shapes the watchdog reads. Field names verified against
-// @opencode-ai/sdk 1.18.11 types and against the running 1.18.18 binary.
+// Only shapes the watchdog reads. v2 envelopes carry their payload under
+// `data`, with the session id at `data.sessionID`, and tool lifecycle rides the
+// whole-content-array republish. Names verified against @opencode/client 2.0.11
+// (SessionMessage.AssistantTool).
 const toolEvent = (sessionID: string, callID: string, status: string, input: unknown) => ({
-  type: "message.part.updated",
-  properties: {
-    part: {
-      type: "tool",
-      sessionID,
-      messageID: "msg",
-      id: "prt",
-      callID,
-      tool: "bash",
-      state: { status, input },
-    },
+  type: "session.message.content.updated",
+  data: {
+    sessionID,
+    messageID: "msg",
+    content: [
+      {
+        type: "tool",
+        id: callID,
+        name: "bash",
+        state: { status, input },
+      },
+    ],
   },
 });
 
 const statusEvent = (sessionID: string) => ({
-  type: "session.status",
-  properties: { sessionID, status: { type: "busy" } },
+  type: "session.execution.started",
+  data: { sessionID },
 });
 
 test("session id is read from every place events put it", () => {
   expect(eventSessionId(statusEvent("s1"))).toBe("s1");
   expect(eventSessionId(toolEvent("s1", "c1", "running", {}))).toBe("s1");
-  const msgUpdated = { type: "message.updated", properties: { info: { sessionID: "s1" } } };
-  expect(eventSessionId(msgUpdated)).toBe("s1");
-  expect(eventSessionId({ type: "plugin.added", properties: { id: "agent" } })).toBeUndefined();
+  // v2 unified the id under `data.sessionID` for every session-scoped event.
+  const stepStarted = { type: "session.step.started", data: { sessionID: "s1", assistantMessageID: "msg" } };
+  expect(eventSessionId(stepStarted)).toBe("s1");
+  expect(eventSessionId({ type: "plugin.added", data: { id: "agent" } })).toBeUndefined();
 });
 
 // THE REGRESSION. Shipped in #67 and it killed every review in production at

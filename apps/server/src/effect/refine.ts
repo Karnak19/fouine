@@ -1,20 +1,13 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import {
-  resolveAutoReady,
-  resolveImplementLabel,
-  resolveRefineModel,
-  resolveRefinePrompt,
-} from "~/settings";
+import { resolveRefineModel, resolveRefinePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
-import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { OpenCodeService } from "~/effect/opencode";
-import { refineToolEnv } from "~/review/opencode";
 import { buildRefinePrompt } from "~/review/refine-prompt";
 import { fetchIssueInfo } from "~/github";
 import { GitHubError, type ReviewError } from "~/effect/errors";
@@ -101,22 +94,6 @@ export function refinePipeline(
             model,
             agent: "fouine-refiner",
             transcript: { reviewId: id, repo: target.repoFullName },
-            // Keeps FOUINE_PR_NUMBER on purpose — see refineToolEnv.
-            env: refineToolEnv({
-              githubToken: token,
-              owner,
-              repo: repoName,
-              issueNumber: target.issueNumber,
-              reviewId: id,
-              internalUrl: internalBaseUrl,
-              internalSecret,
-              // Only when the repo opted in: without the env var,
-              // mark_issue_ready is a no-op that tells the agent a human must
-              // label — the flag stays the single switch for auto-labelling.
-              readyLabel: resolveAutoReady(repoRow?.auto_ready ?? null)
-                ? resolveImplementLabel(repoRow?.implement_label ?? null)
-                : undefined,
-            }),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),

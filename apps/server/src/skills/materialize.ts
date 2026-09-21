@@ -12,129 +12,18 @@ import {
   COMMANDCODE_PROVIDER_NAME,
 } from "~/review/commandcode";
 
-// Commands the reviewer agent must never run itself. fouine installs the repo's
-// dependencies for it (bounded, before the session starts), so an agent-initiated
-// install is always either a duplicate or an unbounded network wait — and it was
-// a reliable way to burn the whole review budget.
-//
-// Pattern semantics (opencode's own matcher, NOT real globs): `*` expands to `.*`
-// and crosses `/`, and the WHOLE string must match. opencode special-cases a
-// trailing " *" so that "yarn *" also matches a bare "yarn" — but that special
-// case is the one rule here we did not verify ourselves, so every command is
-// listed in both bare and trailing-`*` form. Redundant if the special case works,
-// correct either way.
-//
-// Matching is per parsed command node, so `cd /tmp && npm install` is checked as
-// two commands and still denied.
-//
-// ponytail: textual/AST matching, not a sandbox. `sh -c 'npm install'`, `eval`, a
-// shell script, or an alias does not decompose into the inner command and slips
-// straight through. This stops the model doing the obvious thing, which is the
-// actual failure mode; it is not a containment boundary. The container is.
-const INSTALL_COMMANDS = [
-  "bun install",
-  "bun add",
-  "bun i",
-  "npm install",
-  "npm ci",
-  "npm add",
-  "npm i",
-  "pnpm install",
-  "pnpm add",
-  "pnpm i",
-  "yarn",
-  "yarn install",
-  "yarn add",
-];
-
-// Commands the reviewer agent is denied when the deny-test-commands toggle is on
-// (global setting, per-repo override). CI already ran these on the same commit,
-// and the review worktree usually has no env vars — so a local run mostly
-// produces failures that belong to the environment, not the PR, and the agent
-// can report them as findings. Same pattern semantics as INSTALL_COMMANDS above:
-// specific patterns only, both bare and trailing-`*` form.
-const TEST_COMMANDS = [
-  "bun test",
-  "bun run test",
-  "bun run build",
-  "bun run lint",
-  "bun run typecheck",
-  "bunx vitest",
-  "bunx oxlint",
-  "bunx tsc",
-  "vitest",
-  "oxlint",
-  "eslint",
-  "jest",
-  "tsc",
-  "npx vitest",
-  "npx eslint",
-  "npx jest",
-  "npx tsc",
-  "npm test",
-  "npm run test",
-  "npm run build",
-  "npm run lint",
-  "npm run typecheck",
-  "pnpm test",
-  "pnpm build",
-  "pnpm lint",
-  "pnpm typecheck",
-  "yarn test",
-  "yarn build",
-  "yarn lint",
-  "yarn typecheck",
-];
-
-// The per-spawn config passed to createOpencode, layered on top of the config
-// dir's opencode.json. Empirically (opencode 1.18.21) opencode DEEP-MERGES
-// permission.bash key-by-key and appends the per-spawn keys AFTER the dir's,
-// insertion order preserved — and last matching rule wins, so these denies land
-// after the dir's blanket `"*": "allow"` and take effect.
-//
-// Consequence: this map must carry ONLY deny keys. Re-sending `"*": "allow"`
-// here would be deduped in place at position 0, not moved to the end, so it
-// would buy nothing — and a `"*"` DENY must never appear (opencode drops bash
-// from the model's tool list entirely, leaving the reviewer unable to run
-// anything). Denylist of specific patterns, always.
-export function reviewOpencodeConfig(denyTestCommands: boolean): Record<string, unknown> {
-  if (!denyTestCommands) return {};
-  const bash: Record<string, string> = {};
-  for (const cmd of TEST_COMMANDS) {
-    bash[cmd] = "deny";
-    bash[`${cmd} *`] = "deny";
-  }
-  return { permission: { bash } };
-}
-
 // The opencode.json fouine writes into the runtime config dir. Pure so the
-// interesting part — which keys appear, and the POSTHOG_API_KEY branch — is
-// testable without touching the filesystem.
+// interesting part — which keys appear — is testable without touching the
+// filesystem.
 //
-// Relies on opencode reading opencode.json from OPENCODE_CONFIG_DIR, and on that
-// dir being LAST in opencode's config-dir list so these keys win over global and
-// project config. Verified empirically against opencode 1.18.18 (`opencode debug
-// config` and the server's /config endpoint both echo these keys back, including
-// under the SDK's OPENCODE_CONFIG_CONTENT={} spawn env, and with insertion order
-// preserved so the deny-after-allow ordering below survives).
-//
-// This is NOT a documented guarantee — opencode's docs only promise
-// agents/commands/modes/plugins from that dir, so re-run that check when bumping
-// the pinned opencode version in the Dockerfile.
-export function buildOpencodeConfig(): Record<string, unknown> {
+// Relies on opencode v2 reading opencode.json from OPENCODE_CONFIG_DIR
+// (verified against 2.0.11 via `opencode debug config`) and normalizing the
+// native `update` and `skills` fields.
+export function buildOpencodeConfig(skillsDir?: string): Record<string, unknown> {
   const bash: Record<string, string> = { "*": "allow" };
-  // Last matching rule wins, so the blanket allow must be written first and the
-  // denies after it. Never use a "*" DENY here: a "*"-pattern deny makes opencode
-  // drop the tool from the model's tool list entirely, which would leave the
-  // reviewer unable to run anything at all.
-  for (const cmd of INSTALL_COMMANDS) {
-    bash[cmd] = "deny";
-    bash[`${cmd} *`] = "deny";
-  }
-
   return {
     $schema: "https://opencode.ai/config.json",
-    // The Dockerfile pins the CLI to the version @opencode-ai/sdk expects
+    // The Dockerfile pins the CLI to the version @opencode/client speaks
     // (see its ponytail comment); a binary that upgrades itself inside a
     // long-running container silently breaks that pin and can drift the
     // server protocol away from what the SDK speaks. If a future CLI stops
@@ -146,6 +35,11 @@ export function buildOpencodeConfig(): Record<string, unknown> {
       skill: { "*": "allow" },
       bash,
     },
+    // Skills are materialised under skillsDir by reconcileSkills. Declared
+    // explicitly rather than relying on v2 auto-discovering `<config
+    // dir>/skills/` — the documented discovery paths are project `.opencode/`
+    // dirs, and an explicit path removes the question entirely.
+    ...(skillsDir ? { skills: [skillsDir] } : {}),
     // Command Code is not in models.dev, so opencode only knows it through this
     // declaration: an OpenAI-compatible gateway whose model list the
     // @brainervirus/opencode-commandcode plugin fills in from its bundled
@@ -174,21 +68,14 @@ export function buildOpencodeConfig(): Record<string, unknown> {
       : {}),
     // PostHog AI observability ($ai_generation per LLM roundtrip, $ai_span per
     // tool call with real latency, $ai_trace per prompt). Declared only when an
-    // API key is present, for two reasons: the plugin is a no-op without one
-    // anyway (it returns zero hooks), and listing it unconditionally would make
-    // every fresh deployment fetch the package from npm on its first review for
-    // no benefit. Self-hosters with no PostHog therefore get byte-identical
-    // behaviour to before: no package fetch, no network, no log output.
+    // API key is present; the install is cached per package spec under
+    // ~/.cache/opencode/packages/, so when enabled it is a one-time cost.
     //
-    // The install is cached per package spec under ~/.cache/opencode/packages/,
-    // so even when enabled it is a one-time cost, not per-spawn. It also happens
-    // after the server is already listening, so it does not block the spawn.
-    //
-    // Blind spot worth knowing before trusting a PostHog dashboard: spans are
-    // emitted only when a tool reaches completed/error, and $ai_trace only on
-    // session.idle. A tool call that HANGS produces neither — PostHog shows the
-    // generations up to the hang and then silence, with no error event. Absence
-    // of a trace means "wedged", not "never ran".
+    // Known gap: @posthog/opencode implements the V1 plugin API, and V1 plugin
+    // implementations do not run in v2 — so until upstream ships a v2 build
+    // this entry is inert (opencode logs a load warning). Kept so operators
+    // who set POSTHOG_API_KEY get observability back the moment upstream
+    // catches up, with no fouine change.
     ...pluginList(),
   };
 }
@@ -215,15 +102,16 @@ export function writeOpencodeConfig(): void {
 
 // fouine points opencode at a config dir it fully owns on the data volume,
 // rather than the read-only shipped dir. This seeds that runtime dir: copy
-// every shipped entry (agent, tools, …) across so the fouine agent + custom
-// tools still load, drop an opencode.json that allows the skill tool, and expose
-// a skills/ dir we materialise installed skills into. Re-exports
-// OPENCODE_CONFIG_DIR so every opencode subprocess spawned after boot sees it.
-// Copies, not symlinks: opencode installs tool deps (@opencode-ai/plugin) into
-// a node_modules under the config dir, and Bun resolves imports from a tool
-// file's REALPATH — a symlinked tools/ resolves back inside the shipped dir,
-// misses that node_modules, and every session.prompt dies with UnknownError.
+// every shipped entry (agent, plugins, …) across so the fouine agent + custom
+// tools still load, drop an opencode.json with the v2-native keys, and expose
+// a skills/ dir we materialise installed skills into. Sets OPENCODE_CONFIG_DIR
+// so the one long-lived server the manager spawns (effect/opencode.ts) reads it.
+// Copies, not symlinks: the v1 realpath/node_modules resolution trap is gone
+// (the v2 plugin files import nothing at runtime — `import type` only), but
+// copies also keep the runtime dir self-contained on the data volume.
 // Idempotent: rebuilt from scratch on each call (cheap — a handful of files).
+// A running server does not notice a rebuild by itself — mutation callers ask
+// it to reload (see reloadOpencodeConfig in skills/index.ts).
 export function seedOpencodeConfig(): void {
   const { shippedConfigDir, runtimeDir } = config.opencode;
   rmSync(runtimeDir, { recursive: true, force: true });
@@ -236,25 +124,27 @@ export function seedOpencodeConfig(): void {
     // No shipped config dir (unusual, but the agent may be resolved elsewhere).
   }
   for (const entry of shipped) {
-    // skills/ and opencode.json are fouine-owned in the runtime dir; opencode's
-    // own dep install (node_modules, package*.json) regenerates in the runtime
-    // dir on first prompt, so don't drag a stale dev copy across.
-    // NOTE: plugin/ is NOT skipped — it must be copied, since opencode discovers
-    // local plugins by globbing {plugin,plugins}/*.{ts,js} inside each config
-    // dir, and the dir it globs is this runtime dir, not the shipped one.
+    // skills/ and opencode.json are fouine-owned in the runtime dir; the v2
+    // plugin files have no runtime deps, so no node_modules is needed — skip
+    // one if a dev copy ever appears.
     if (
       entry === "skills" ||
       entry === "opencode.json" ||
       entry === "node_modules" ||
       entry === "package.json" ||
-      entry === "package-lock.json"
+      entry === "package-lock.json" ||
+      entry === "bun.lock"
     )
       continue;
     cpSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry), { recursive: true });
   }
 
-  writeOpencodeConfig();
-  mkdirSync(config.opencode.skillsDir, { recursive: true });
+  const skillsDir = config.opencode.skillsDir;
+  writeFileSync(
+    join(runtimeDir, "opencode.json"),
+    JSON.stringify(buildOpencodeConfig(skillsDir), null, 2),
+  );
+  mkdirSync(skillsDir, { recursive: true });
   process.env.OPENCODE_CONFIG_DIR = runtimeDir;
   log.info("seeded opencode config", { runtimeDir, shippedConfigDir, copied: shipped.length });
 }
@@ -262,7 +152,9 @@ export function seedOpencodeConfig(): void {
 // Rebuild the on-disk skills dir from the DB (the source of truth) so drift —
 // a backup restore, a manual edit — never survives. Writes only enabled skills;
 // disabled/removed ones simply vanish from disk. Called on boot and after every
-// install/toggle/remove, so the next review's opencode picks up the change.
+// install/toggle/remove; the mutation callers then ask the running server to
+// reload (skills/index.ts), because a warm server caches the config it read at
+// spawn and would otherwise keep serving the old skills.
 export function reconcileSkills(): void {
   const dir = config.opencode.skillsDir;
   rmSync(dir, { recursive: true, force: true });

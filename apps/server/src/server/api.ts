@@ -49,11 +49,52 @@ const RANGE_SECONDS: Record<string, number | null> = {
 // Empty query strings are "no filter", not a filter on the empty string.
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
-// The SDK returns { data?, error? }; turn a missing payload into a throw so the
-// route's catch maps it to a 503 instead of serving `undefined`.
-function unwrapSession<T, E>(res: { data?: T; error?: E }, op: string): T {
-  if (!res.data) throw new Error(`opencode ${op} failed: ${JSON.stringify(res.error)}`);
-  return res.data;
+// Map a v2 opencode message onto the transcript shape the dashboard renders:
+// { info: {id, role, modelID}, parts: [{id, type, text?, tool?, state?}] }.
+// Part ids must match the live transcript fold's scheme
+// (`${messageID}:${index}` for text/reasoning, the tool call id for tools) so
+// streamed deltas merge into the fetched snapshot. Web consumes this via Eden.
+function toUiMessage(m: {
+  id: string;
+  type: string;
+  model?: { id?: string; providerID?: string };
+  content?: Array<{
+    type?: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    state?: {
+      status?: string;
+      input?: unknown;
+      content?: Array<{ type?: string; text?: string }>;
+      error?: { message?: string };
+    };
+  }>;
+}) {
+  const parts = (m.content ?? []).map((c, idx) => {
+    if (c.type === "tool") {
+      const output = (c.state?.content ?? [])
+        .filter((t) => t.type === "text")
+        .map((t) => t.text ?? "")
+        .join("\n");
+      return {
+        id: c.id ?? `${m.id}:${idx}`,
+        type: "tool",
+        tool: c.name,
+        state: {
+          status: c.state?.status,
+          title: c.state?.input === undefined ? undefined : JSON.stringify(c.state.input),
+          output: output || undefined,
+          error: c.state?.error?.message,
+        },
+      };
+    }
+    return { id: `${m.id}:${idx}`, type: c.type, text: c.text };
+  });
+  return {
+    info: { id: m.id, role: m.type, modelID: m.model?.id },
+    parts,
+  };
 }
 
 // A YYYY-MM-DD picker value as a UTC epoch, or null for anything that isn't one.
@@ -568,27 +609,13 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     if (!r?.session_id) return new Response("Not found", { status: 404 });
     const sessionId = r.session_id;
     try {
-      // Session lookup is global by id: a fresh server resolves a session a
-      // previous (now closed) one created, no `directory` needed. Spawning a
-      // server per request costs latency; accepted, no shared client.
+      // Session lookup is global by id, no `directory` needed, and the shared
+      // singleton client serves it — the manager owns one server for the whole
+      // process rather than spawning one per request.
       return await withOpencode(async (client) => {
-        const info = await client.session
-          .get({ path: { id: sessionId } })
-          .then((res) => unwrapSession(res, "session.get"));
-        const messages = await client.session
-          .messages({ path: { id: sessionId } })
-          .then((res) => unwrapSession(res, "session.messages"));
-        // session.get() carries no model, but the UI renders a model badge —
-        // derive it from the last assistant message.
-        const last = [...messages]
-          .reverse()
-          .map((m) => m.info as { role?: string; modelID?: string; providerID?: string })
-          .find((i) => i.role === "assistant");
-        const model =
-          last?.modelID && last.providerID
-            ? { id: last.modelID, providerID: last.providerID }
-            : undefined;
-        return { info: model ? { ...info, model } : info, messages };
+        const info = await client.session.get({ sessionID: sessionId });
+        const msgs = (await client.message.list({ sessionID: sessionId })).data;
+        return { info, messages: msgs.map(toUiMessage) };
       });
     } catch (err) {
       set.status = 503;

@@ -49,7 +49,7 @@ function makeLayer(
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
-    env: undefined as Record<string, string> | undefined,
+    opts: undefined as Record<string, unknown> | undefined,
     prompt: undefined as string | undefined,
     inserted: undefined as { pr: number; trigger: string | null; title: string } | undefined,
     fetchedRef: undefined as string | undefined,
@@ -115,9 +115,9 @@ function makeLayer(
   } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (o: { agent?: string; env?: Record<string, string>; prompt?: string }) => {
+    runReview: (o: { agent?: string; prompt?: string }) => {
       calls.agent = o.agent;
-      calls.env = o.env;
+      calls.opts = o as Record<string, unknown>;
       calls.prompt = o.prompt;
       return over.oc
         ? over.oc()
@@ -138,7 +138,8 @@ test("happy path implements, commits, pushes and opens a PR", async () => {
   expect(calls.failed).toEqual([]);
   expect(calls.agent).toBe("fouine-implementer");
   expect(calls.inserted).toEqual({ pr: 12, trigger: "implement", title: "Add a dark mode toggle" });
-  expect(calls.env?.FOUINE_PR_NUMBER).toBe("12");
+  // No per-review env any more — the issue-number write-back is server-side.
+  expect(calls.opts).not.toContainKey("env");
   // No existing branch → checked out off the default branch.
   expect(calls.fetchedRef).toBe("refs/heads/main");
   expect(calls.committed).toBe(true);

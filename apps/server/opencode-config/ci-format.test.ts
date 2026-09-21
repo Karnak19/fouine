@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-// Not inside tools/: opencode loads every file in that dir looking for tools, so a
+// Not inside plugins/: opencode loads every file in that dir looking for plugins, so a
 // test file there would be pulled into the review runtime (same reason as
-// cap-bash-timeout.test.ts living one level up from plugin/).
-import { type Annotation, type CheckRun, formatCiResults } from "./tools/_ci_format";
+// cap-bash-timeout.test.ts living one level up from plugins/).
+import { type Annotation, type CheckRun, formatCiResults } from "./plugins/_ci_format";
 
 const SHA = "abcdef1234567890";
 

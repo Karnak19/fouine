@@ -7,13 +7,11 @@ import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolveDenyTestCommands, resolvePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
-import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { installDeps } from "~/effect/install";
 import { OpenCodeService } from "~/effect/opencode";
-import { reviewToolEnv } from "~/review/opencode";
 import { type ReviewError } from "~/effect/errors";
 
 export function cloneUrl(token: string, fullName: string): string {
@@ -213,21 +211,6 @@ export function reviewPipeline(
         );
         const model = repo?.model ?? resolveDefaultModel();
 
-        // Custom tools (opencode-config/tools) read these to post to GitHub, then
-        // write the findings back to us over the loopback FOUINE_INTERNAL_* channel
-        // so the dashboard has a structured record (not just the transcript). Passed
-        // as per-review env (isolated at subprocess spawn) rather than mutated onto
-        // the shared process.env, so concurrent reviews stay isolated (#23).
-        const toolEnv = reviewToolEnv({
-          githubToken: token,
-          owner,
-          repo: repoName,
-          prNumber: pr.number,
-          reviewId: id,
-          internalUrl: internalBaseUrl,
-          internalSecret,
-        });
-
         const result = yield* oc.runReview(
           {
             directory: worktree,
@@ -236,10 +219,9 @@ export function reviewPipeline(
             // Fixed output-structure + posting rules live in this agent's system
             // prompt, so they survive any per-repo prompt override.
             agent: "fouine",
-            env: toolEnv,
             // Live transcript: deltas go out on the SSE hub scoped to this
-            // repo, so the detail page streams instead of re-exporting the
-            // whole session (which spawns an opencode server per request).
+            // repo, so the detail page streams instead of re-fetching the whole
+            // session (which the shared server serves, no per-request spawn).
             transcript: { reviewId: id, repo: pr.repoFullName },
             denyTestCommands,
             // Sync SQLite read, same runSync bridge as setSession below. On a DB

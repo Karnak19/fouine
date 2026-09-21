@@ -35,7 +35,7 @@ function makeLayer(over: {
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
-    env: undefined as Record<string, string> | undefined,
+    opts: undefined as Record<string, unknown> | undefined,
     conclusions: [] as string[],
     checkBodies: [] as string[],
     checkRuns: [] as number[],
@@ -92,13 +92,13 @@ function makeLayer(over: {
 
   const oc = Layer.succeed(OpenCodeService, {
     runReview: (
-      o: { agent?: string; env?: Record<string, string> },
+      o: { agent?: string; directory?: string; denyTestCommands?: boolean },
       _s: unknown,
       signal: AbortSignal,
     ) => {
       calls.reviewsRun++;
       calls.agent = o.agent;
-      calls.env = o.env;
+      calls.opts = o as Record<string, unknown>;
       return over.oc
         ? over.oc(signal)
         : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 });
@@ -242,32 +242,38 @@ test("a failure after complete closes the check as failure without touching the 
   expect(calls.conclusions).toEqual(["failure"]);
 });
 
-test("tool GitHub context is passed per-review, not via global process.env (#23)", async () => {
-  // The context that used to be smeared onto process.env — where two concurrent
-  // reviews clobbered each other — must now ride opts.env, isolated to this run.
-  delete process.env.FOUINE_GITHUB_TOKEN;
-  delete process.env.FOUINE_PR_NUMBER;
+test("the review targets its worktree session with no per-review env leak (#23)", async () => {
+  // The old model staged the review's FOUINE_* context onto the child's env at
+  // spawn. That plumbing is gone: per-review GitHub/tool context now lives
+  // server-side, and no env is handed down at all — so fouine's app secrets
+  // can't reach the model's bash. The parent process env is never written.
+  const hadToken = process.env.FOUINE_GITHUB_TOKEN;
+  const hadPr = process.env.FOUINE_PR_NUMBER;
+  process.env.FOUINE_GITHUB_TOKEN = "parent-tok";
+  process.env.FOUINE_PR_NUMBER = "999";
+  try {
+    const { layer, calls } = makeLayer({});
+    const exit = await Effect.runPromiseExit(
+      reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
 
-  const { layer, calls } = makeLayer({});
-  const exit = await Effect.runPromiseExit(
-    reviewPipeline(pr, null, noAbort(), () => {}, () => {}).pipe(Effect.provide(layer)),
-  );
-  expect(Exit.isSuccess(exit)).toBe(true);
+    // The run names this review's worktree directory and carries the repo's
+    // deny-test decision; the manager turns that into session permissions.
+    expect(String(calls.opts?.directory)).toContain("acme__widget#7-42");
+    expect(calls.opts?.denyTestCommands).toBe(false);
+    // No per-review env is passed down any more.
+    expect(calls.opts).not.toContainKey("env");
 
-  // The per-review env carries the full FOUINE_* context, keyed to this PR/token.
-  expect(calls.env).toMatchObject({
-    FOUINE_GITHUB_TOKEN: "tok",
-    FOUINE_REPO_OWNER: "acme",
-    FOUINE_REPO_NAME: "widget",
-    FOUINE_PR_NUMBER: "7",
-    FOUINE_REVIEW_ID: "42",
-  });
-
-  // The pipeline itself must not touch the shared process.env — that global
-  // write is the clobber the fix removes; staging onto it happens only inside
-  // OpenCodeService under a mutex, right before the subprocess snapshots it.
-  expect(process.env.FOUINE_GITHUB_TOKEN).toBeUndefined();
-  expect(process.env.FOUINE_PR_NUMBER).toBeUndefined();
+    // The shared parent env is never touched, so our sentinels survive verbatim.
+    expect(process.env.FOUINE_GITHUB_TOKEN).toBe("parent-tok");
+    expect(process.env.FOUINE_PR_NUMBER).toBe("999");
+  } finally {
+    if (hadToken === undefined) delete process.env.FOUINE_GITHUB_TOKEN;
+    else process.env.FOUINE_GITHUB_TOKEN = hadToken;
+    if (hadPr === undefined) delete process.env.FOUINE_PR_NUMBER;
+    else process.env.FOUINE_PR_NUMBER = hadPr;
+  }
 });
 
 // ── Final-failure PR comment ─────────────────────────────────────────────────

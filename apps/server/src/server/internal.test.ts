@@ -1,0 +1,166 @@
+import { test, expect } from "bun:test";
+import { findings, repos, reviews, type ReviewRow } from "~/db";
+import { internalRoutes, internalSecret, INTERNAL_SECRET_HEADER } from "~/server/internal";
+
+// The loopback proxy's authorization matrix. These hit the real Elysia routes
+// through .handle() — no GitHub call is reached on any denied path, so the test
+// stays hermetic (the allowed paths are exercised in the plugins/broker lane).
+
+let repoSeq = 0;
+
+function makeSession(opts: {
+  pr: number;
+  trigger: string | null;
+  status?: string;
+  sessionId?: string;
+}): ReviewRow {
+  // Unique repo per session so FK-required rows never collide across tests.
+  const repo = `acme/widget-${repoSeq++}`;
+  repos.upsert.run({
+    $full_name: repo,
+    $installation_id: 1,
+    $prompt: null,
+    $model: null,
+  });
+  const sessionId = opts.sessionId ?? `sess-${crypto.randomUUID()}`;
+  return reviews.insert.get({
+    $repo: repo,
+    $pr: opts.pr,
+    $title: "test",
+    $session: sessionId,
+    $status: opts.status ?? "running",
+    $trigger: opts.trigger,
+    $attempt: 0,
+  })!;
+}
+
+const BASE = "http://localhost";
+
+function request(path: string, init?: RequestInit): Promise<Response> {
+  return internalRoutes.handle(new Request(`${BASE}${path}`, init));
+}
+
+function authHeaders(): Record<string, string> {
+  return { [INTERNAL_SECRET_HEADER]: internalSecret, "content-type": "application/json" };
+}
+
+test("unknown session → 404", async () => {
+  const res = await request("/internal/sessions/does-not-exist/context");
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: "unknown session" });
+});
+
+test("a non-running row → 403", async () => {
+  const row = makeSession({ pr: 12, trigger: "opened", status: "completed" });
+  const res = await request(`/internal/sessions/${row.session_id}/context`);
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "session is not running (completed)" });
+});
+
+test("context resolves owner/repo/pr/kind from the row", async () => {
+  const row = makeSession({ pr: 42, trigger: "opened" });
+  const res = await request(`/internal/sessions/${row.session_id}/context`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, unknown>;
+  const [owner, repo] = row.repo_full_name.split("/");
+  expect(body).toEqual({
+    kind: "review",
+    owner,
+    repo,
+    pr: 42,
+    reviewId: row.id,
+  });
+});
+
+test("an improve-kind row cannot post a review → 403", async () => {
+  const row = makeSession({ pr: 0, trigger: "improve" });
+  const res = await request(`/internal/sessions/${row.session_id}/review`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ summary: "hi" }),
+  });
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({
+    error: "session kind 'improve' cannot post a review",
+  });
+});
+
+test("a review-kind row cannot add the ready label or open a proposal → 403", async () => {
+  const row = makeSession({ pr: 12, trigger: "opened" });
+  const label = await request(`/internal/sessions/${row.session_id}/ready-label`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({}),
+  });
+  expect(label.status).toBe(403);
+  expect(await label.json()).toEqual({
+    error: "session kind 'review' cannot label issues ready",
+  });
+
+  const proposal = await request(`/internal/sessions/${row.session_id}/proposal`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ content: "x", summary: "y" }),
+  });
+  expect(proposal.status).toBe(403);
+  expect(await proposal.json()).toEqual({
+    error: "session kind 'review' cannot open a review-notes proposal",
+  });
+});
+
+test("the request body cannot override the row's owner/repo/pr", async () => {
+  // An improve row carries pr = 0. If the route trusted the body, this would
+  // post to the spoofed PR; instead it refuses before any GitHub call.
+  const row = makeSession({ pr: 0, trigger: "improve" });
+  const res = await request(`/internal/sessions/${row.session_id}/comment`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ body: "hi", pr: 999, owner: "evil", repo: "spoof" }),
+  });
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({
+    error: "session has no PR/issue number to comment on",
+  });
+});
+
+test("a wrong shared secret is rejected (defence-in-depth), but its absence is fine", async () => {
+  const row = makeSession({ pr: 7, trigger: "opened" });
+  const bad = await request(`/internal/sessions/${row.session_id}/context`, {
+    headers: { [INTERNAL_SECRET_HEADER]: "not-the-secret" },
+  });
+  expect(bad.status).toBe(401);
+
+  const noSecret = await request(`/internal/sessions/${row.session_id}/context`);
+  expect(noSecret.status).toBe(200);
+});
+
+test("findings alias still works: secret required, unknown review 404, stores rows", async () => {
+  const row = makeSession({ pr: 3, trigger: "opened" });
+
+  const unauth = await request(`/internal/reviews/${row.id}/findings`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ findings: [] }),
+  });
+  expect(unauth.status).toBe(401);
+
+  const unknown = await request("/internal/reviews/999999/findings", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ findings: [] }),
+  });
+  expect(unknown.status).toBe(404);
+
+  const ok = await request(`/internal/reviews/${row.id}/findings`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      findings: [{ kind: "comment", body: "hello" }],
+    }),
+  });
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ ok: true, stored: 1 });
+  const stored = findings.byReview.get({ $review: row.id });
+  expect(stored?.kind).toBe("comment");
+  expect(stored?.body).toBe("hello");
+});
