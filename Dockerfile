@@ -1,26 +1,28 @@
-# syntax=docker/dockerfile:1
+#
+# Layout follows turborepo's Docker guide (turborepo.dev/docs/guides/tools/docker):
+# `turbo prune --docker` splits the monorepo into out/json (manifests only, for
+# a cacheable install) and out/full (sources). Installing INSIDE the image is
+# what gives every workspace package its own node_modules — bun's isolated
+# linker puts @fouine/shared's deps under packages/shared/node_modules, which a
+# git checkout never carries, and copying that folder from the repo is how the
+# 2026-09-21 deploy broke on `@json-render/core` from packages/shared.
 
-FROM oven/bun:1.4-debian AS deps
+FROM oven/bun:1.4-debian AS base
 WORKDIR /app
-COPY package.json bun.lock ./
-COPY apps/server/package.json ./apps/server/
-COPY apps/web/package.json ./apps/web/
-COPY apps/docs/package.json ./apps/docs/
-COPY packages/shared/package.json ./packages/shared/
+
+FROM base AS prepare
+COPY . .
+RUN bunx turbo prune @fouine/server @fouine/web --docker
+
+FROM base AS builder
+COPY --from=prepare /app/out/json/ .
 RUN bun install --frozen-lockfile
+COPY --from=prepare /app/out/full/ .
+# prune copies only the root manifests; every workspace tsconfig extends this.
+COPY tsconfig.base.json .
+RUN bunx turbo run build --filter=@fouine/web
 
-FROM oven/bun:1.4-debian AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps ./apps
-COPY package.json tsconfig.base.json ./
-COPY packages ./packages
-COPY apps/web ./apps/web
-RUN cd apps/web && bunx vite build
-
-FROM oven/bun:1.4-debian
-WORKDIR /app
-
+FROM base AS runner
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl bash \
@@ -32,15 +34,11 @@ RUN curl -fsSL https://opencode.ai/install | VERSION="$OPENCODE_VERSION" bash \
     && ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode \
     && opencode --version
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps ./apps
-# apps/web/dist must sit next to apps/server so app.ts resolves it from
-# import.meta.dir (../../../web/dist).
-COPY --from=build /app/apps/web/dist ./apps/web/dist
-COPY package.json bun.lock tsconfig.base.json ./
-# @fouine/shared ships as TypeScript source — bun imports it directly, no build.
-COPY packages ./packages
-COPY apps/server ./apps/server
+# The pruned tree, installed and built: node_modules at root and per workspace,
+# @fouine/shared as TypeScript source (bun imports it directly, no build), the
+# server source, and apps/web/dist next to apps/server so app.ts resolves it
+# from import.meta.dir (../../../web/dist).
+COPY --from=builder /app .
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \

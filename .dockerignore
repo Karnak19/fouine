@@ -1,10 +1,11 @@
 node_modules
+**/node_modules
 data
 dist
 apps/*/dist
+# apps/docs sources stay out; turbo prune only needs its manifest to see the
+# workspace graph, and bun install needs every workspace package.json present.
 apps/docs
-# but the manifest must reach the build context: workspaces is apps/*, so
-# `bun install --frozen-lockfile` fails on a missing workspace package.json.
 !apps/docs/package.json
 .turbo
 .git
