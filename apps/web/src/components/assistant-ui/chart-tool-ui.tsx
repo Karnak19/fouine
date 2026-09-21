@@ -4,16 +4,13 @@ import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import { AlertTriangleIcon } from "lucide-react";
 import {
   BarChart,
-  CategoryAxis,
   LegendDot,
   LineChart,
   Panel,
   PanelEmpty,
   PanelSkeleton,
   StackedBarChart,
-  categoriesOf,
   pointsFromRows,
-  scaleMax,
   seriesColor,
   stackedFromRows,
 } from "@/components/charts";
@@ -41,14 +38,12 @@ export type RenderChartResult =
 
 function ChartBody({ result }: { result: Extract<RenderChartResult, { ok: true }> }) {
   const { spec, rows } = result;
-  const cats = categoriesOf(rows, spec.x);
 
   if (spec.type === "stacked_bar" && spec.series) {
     const { bars, ranked, legend } = stackedFromRows(rows, spec.x, spec.y, spec.series);
     return (
       <>
         <StackedBarChart height="h-32" bars={bars} />
-        <CategoryAxis cats={cats} />
         {/* A legend is required the moment there are two series — the title can
             only name one thing. */}
         <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem]">
@@ -60,14 +55,13 @@ function ChartBody({ result }: { result: Extract<RenderChartResult, { ok: true }
     );
   }
 
+  // The charts draw their own axes and tooltip; the bar chart picks its
+  // orientation from the labels and caps what it draws.
   const points = pointsFromRows(rows, spec.x, spec.y);
-  const peak = scaleMax(points.map((p) => p.value));
-
-  return (
-    <>
-      {spec.type === "line" ? <LineChart points={points} /> : <BarChart bars={points} />}
-      <CategoryAxis cats={cats} peak={peak} />
-    </>
+  return spec.type === "line" ? (
+    <LineChart points={points} unit={spec.y} />
+  ) : (
+    <BarChart bars={points} unit={spec.y} />
   );
 }
 

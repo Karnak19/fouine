@@ -1,6 +1,6 @@
-// There are no axes anywhere in these charts — a legend row and a caption row
-// carry the meaning instead, which keeps a chart readable at 390px where axis
-// labels would collide.
+// A legend row names the series a chart's colours stand for; the axes carry
+// the values. Kept as an inline element so it lays out in a flex-wrap row at
+// 390px where a chart-drawn legend would collide.
 export function LegendDot({ className, label }: { className: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">

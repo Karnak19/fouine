@@ -22,7 +22,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `OPENCODE_API_KEY` | recommended | — | OpenCode provider API key |
 | `ZAI_API_KEY` | no | — | Z.ai GLM Coding Plan key, used for `zai-coding-plan/*` models |
 | `OPENCODE_MODEL` | no | `opencode-go/deepseek-v4-flash` | Default model for reviews |
-| `OPENCODE_CHAT_MODEL` | no | `opencode-go/mimo-v2.5` | Model for Chat. Env-only — the dashboard's default-model setting does not apply, since Chat is a cheap high-volume workload |
+| `OPENCODE_CHAT_MODEL` | no | `opencode-go/deepseek-v4.1-flash` | Model for Chat and `/build`. Overridden by the dashboard's **Chat** model setting; independent of the review default, since Chat is a cheap high-volume workload |
 | `REVIEW_IDLE_TIMEOUT_MS` | no | `300000` (5 min) | Kill a review after this long with no activity from OpenCode |
 | `REVIEW_TIMEOUT_MS` | no | `2700000` (45 min) | Absolute backstop on review duration, in milliseconds |
 | `REVIEW_INSTALL_TIMEOUT_MS` | no | `300000` (5 min) | Cap on the pre-review dependency install; on timeout the review continues without `node_modules` |
@@ -42,7 +42,8 @@ The dashboard (accessible at your server URL) allows setting:
 
 - **OpenCode API key** — overrides `OPENCODE_API_KEY`
 - **GLM Coding Plan API key** — overrides `ZAI_API_KEY`
-- **Default model** — overrides `OPENCODE_MODEL` (reviews only; Chat uses `OPENCODE_CHAT_MODEL`)
+- **Default model** — overrides `OPENCODE_MODEL` (reviews only)
+- **Chat model** — overrides `OPENCODE_CHAT_MODEL` for Chat and `/build`; empty falls back to the env var, then the repo default
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 - **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).
 - **Merge method** — `merge` / `squash` / `rebase`, default `squash`. See the [merger guide](/guide/merger).
