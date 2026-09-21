@@ -163,7 +163,13 @@ export default function ReviewDetailPage() {
   } = useQuery({
     queryKey: ["reviews", numId],
     queryFn: () => api.reviews.get(numId),
-    refetchOnWindowFocus: false,
+    // No refetchOnWindowFocus opt-out: the global default (true) is what makes
+    // this page converge when a tab wakes from sleep. The row is the one query
+    // that must recover — a terminal review:updated published while the tab was
+    // frozen never arrives, the socket can reconnect without firing onerror so
+    // `resync` never bumps, and a completed review publishes nothing further,
+    // so the poll below is off too: without focus refetch the row sits at
+    // "running" until a manual reload (#133).
     // Every write to this row publishes review:updated (setRunning, setSession,
     // complete, skip, fail, the stop route, the boot reaper), so a healthy
     // stream already pushes us every transition — polling on top of it is pure
