@@ -192,7 +192,12 @@ export async function rerunPreviousDataset(
   // A shape that never reached us (older client, hand-made body) is capped
   // like a table: the widest cap the page can actually draw.
   const shape: DatasetShape = prev.shape ?? "table";
-  const element = Object.values(spec.elements).find((el) => el?.props?.data === prev.key);
+  // One key can be drawn several ways (a chart plus a table of it); only the
+  // chart names the axis, so prefer a consumer that carries an `x`. A key only
+  // tables and tiles read has no axis and keeps the (correct) row cap.
+  const element = Object.values(spec.elements).find(
+    (el) => el?.props?.data === prev.key && typeof el?.props?.x === "string",
+  );
   const x = typeof element?.props?.x === "string" ? element.props.x : undefined;
   const series = typeof element?.props?.series === "string" ? element.props.series : undefined;
   return runDataset({ key: prev.key, title: prev.title, sql: prev.sql, shape, x, series }, signal);

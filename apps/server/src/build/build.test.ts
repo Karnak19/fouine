@@ -460,8 +460,12 @@ test("a re-run stacked bar is capped by category, like the first build — never
     over +
     ") SELECT i AS cat, s AS series, i AS v FROM n CROSS JOIN (SELECT 'a' AS s UNION ALL SELECT 'b') ORDER BY i, s";
   const spec: BuildPrevious["spec"] = {
-    root: "chart",
+    root: "stack",
     elements: {
+      // The table comes FIRST and has no axis: the lookup must skip it and
+      // read `x`/`series` off the chart, or the re-run caps by row again.
+      stack: { type: "Stack", props: {}, children: ["table", "chart"] },
+      table: { type: "Table", props: { title: "T", data: "by_cat" }, children: [] },
       chart: {
         type: "StackedBarChart",
         props: { title: "T", data: "by_cat", x: "cat", y: "v", series: "series" },
