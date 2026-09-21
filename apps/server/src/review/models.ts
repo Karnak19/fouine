@@ -8,7 +8,7 @@ import {
   ZAI_PROVIDER,
   COMMANDCODE_PROVIDER,
 } from "~/settings";
-import { COMMANDCODE_MODELS, COMMANDCODE_PROVIDER_NAME } from "~/review/commandcode";
+import { commandcodeModels, COMMANDCODE_PROVIDER_NAME } from "~/review/commandcode";
 import { repos } from "~/db";
 import { log } from "~/server/log";
 
@@ -99,10 +99,10 @@ export function flatten(providers: ProviderMap, all: boolean): ModelOption[] {
       });
     }
   }
-  // Command Code is not in models.dev, so its options come from our own list —
-  // same filter rule as the catalog above.
+  // Command Code is not in models.dev, so its options come from the catalog the
+  // opencode plugin bundles (review/commandcode.ts) — same filter rule as above.
   if (all || configured.has(COMMANDCODE_PROVIDER)) {
-    for (const m of COMMANDCODE_MODELS) {
+    for (const m of commandcodeModels()) {
       out.push({
         id: `${COMMANDCODE_PROVIDER}/${m.id}`,
         provider: COMMANDCODE_PROVIDER,

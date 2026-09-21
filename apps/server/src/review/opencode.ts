@@ -1,5 +1,6 @@
 import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
 import { resolveApiKey, resolveDefaultModel } from "~/settings";
+import { COMMANDCODE_PROVIDER, toConfigKey } from "~/review/commandcode";
 import { log } from "~/server/log";
 import { createServer } from "node:net";
 
@@ -21,15 +22,20 @@ export function freePort(): Promise<number> {
 }
 
 export function parseModel(spec: string): { providerID: string; modelID: string } {
-  // First slash only: some providers' model ids contain a slash themselves
-  // (Command Code's `commandcode/deepseek/deepseek-v4-flash`), and the rest of
-  // the spec must reach opencode untouched.
+  // First slash only: a provider's model ids may contain a slash themselves
+  // (an org-prefixed id like `openrouter/deepseek/deepseek-v4-flash`), and the
+  // rest of the spec must reach opencode untouched.
   const cut = spec.indexOf("/");
   const providerID = cut === -1 ? "" : spec.slice(0, cut);
   const modelID = cut === -1 ? "" : spec.slice(cut + 1);
   if (!providerID || !modelID) {
     throw new Error(`Invalid model spec "${spec}", expected "provider/model"`);
   }
+  // Command Code specs briefly used the upstream org-prefixed id
+  // (`commandcode/deepseek/deepseek-v4-flash`) before the plugin catalog
+  // flattened keys to `deepseek-v4-flash`. Normalise so a spec stored under the
+  // old shape keeps resolving instead of failing at spawn.
+  if (providerID === COMMANDCODE_PROVIDER) return { providerID, modelID: toConfigKey(modelID) };
   return { providerID, modelID };
 }
 

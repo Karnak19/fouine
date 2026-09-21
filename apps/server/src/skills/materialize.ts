@@ -4,9 +4,10 @@ import { config } from "~/config";
 import { skills as skillsDb, type SkillRow } from "~/db";
 import { log } from "~/server/log";
 import type { SkillFile } from "~/skills/install";
+import { hasCommandcodeKey } from "~/settings";
 import {
   COMMANDCODE_BASE_URL,
-  COMMANDCODE_MODELS,
+  COMMANDCODE_PLUGIN,
   COMMANDCODE_PROVIDER,
   COMMANDCODE_PROVIDER_NAME,
 } from "~/review/commandcode";
@@ -146,19 +147,31 @@ export function buildOpencodeConfig(): Record<string, unknown> {
       bash,
     },
     // Command Code is not in models.dev, so opencode only knows it through this
-    // declaration: an OpenAI-compatible gateway plus the models fouine offers
-    // in its picker. Always emitted — harmless without a key, since nothing
-    // selects a `commandcode/*` model then. The key itself is NOT written here:
-    // setProviderApiKey (review/opencode.ts) sets it through auth.set per
-    // spawn, so the on-disk config never carries a secret.
-    provider: {
-      [COMMANDCODE_PROVIDER]: {
-        npm: "@ai-sdk/openai-compatible",
-        name: COMMANDCODE_PROVIDER_NAME,
-        options: { baseURL: COMMANDCODE_BASE_URL },
-        models: Object.fromEntries(COMMANDCODE_MODELS.map((m) => [m.id, { name: m.name }])),
-      },
-    },
+    // declaration: an OpenAI-compatible gateway whose model list the
+    // @brainervirus/opencode-commandcode plugin fills in from its bundled
+    // catalog (its `config` hook only does so when the block has no `models`
+    // key — so none is written here). Both the plugin and the provider block
+    // are gated on a Command Code key being configured: listing the plugin
+    // unconditionally would make every fresh deployment fetch it from npm on
+    // its first review for nothing, and the block is useless without the key.
+    // The gate is cheap to honour because PUT /api/settings re-writes this file
+    // (writeOpencodeConfig) whenever the key field is saved, so the next spawn
+    // sees the change — same install-once caching as PostHog below. The key
+    // itself is NOT written here: setProviderApiKey (review/opencode.ts) sets
+    // it through auth.set per spawn, so the on-disk config never carries a
+    // secret; `env` only mirrors the plugin's own declaration.
+    ...(hasCommandcodeKey()
+      ? {
+          provider: {
+            [COMMANDCODE_PROVIDER]: {
+              npm: "@ai-sdk/openai-compatible",
+              name: COMMANDCODE_PROVIDER_NAME,
+              env: ["COMMANDCODE_API_KEY"],
+              options: { baseURL: COMMANDCODE_BASE_URL },
+            },
+          },
+        }
+      : {}),
     // PostHog AI observability ($ai_generation per LLM roundtrip, $ai_span per
     // tool call with real latency, $ai_trace per prompt). Declared only when an
     // API key is present, for two reasons: the plugin is a no-op without one
@@ -176,8 +189,28 @@ export function buildOpencodeConfig(): Record<string, unknown> {
     // session.idle. A tool call that HANGS produces neither — PostHog shows the
     // generations up to the hang and then silence, with no error event. Absence
     // of a trace means "wedged", not "never ran".
-    ...(process.env.POSTHOG_API_KEY ? { plugin: ["@posthog/opencode"] } : {}),
+    ...pluginList(),
   };
+}
+
+// The `plugin` key is omitted entirely when no plugin applies: opencode treats
+// an absent key and an empty array the same, and the old tests pin "absent".
+function pluginList(): { plugin?: string[] } {
+  const plugins: string[] = [];
+  if (hasCommandcodeKey()) plugins.push(COMMANDCODE_PLUGIN);
+  if (process.env.POSTHOG_API_KEY) plugins.push("@posthog/opencode");
+  return plugins.length ? { plugin: plugins } : {};
+}
+
+// (Re)write the runtime dir's opencode.json from current settings. Called by
+// seedOpencodeConfig on boot and by PUT /api/settings when the Command Code key
+// changes, since buildOpencodeConfig's output depends on it. A running review
+// is unaffected: opencode reads the file once at spawn.
+export function writeOpencodeConfig(): void {
+  writeFileSync(
+    join(config.opencode.runtimeDir, "opencode.json"),
+    JSON.stringify(buildOpencodeConfig(), null, 2),
+  );
 }
 
 // fouine points opencode at a config dir it fully owns on the data volume,
@@ -220,7 +253,7 @@ export function seedOpencodeConfig(): void {
     cpSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry), { recursive: true });
   }
 
-  writeFileSync(join(runtimeDir, "opencode.json"), JSON.stringify(buildOpencodeConfig(), null, 2));
+  writeOpencodeConfig();
   mkdirSync(config.opencode.skillsDir, { recursive: true });
   process.env.OPENCODE_CONFIG_DIR = runtimeDir;
   log.info("seeded opencode config", { runtimeDir, shippedConfigDir, copied: shipped.length });

@@ -9,6 +9,7 @@ import {
   type ServerEvent,
 } from "~/server/events";
 import { SETTINGS, resolveDefaultModel } from "~/settings";
+import { writeOpencodeConfig } from "~/skills";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
@@ -684,6 +685,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.API_KEY, body.opencode_api_key);
       setKey(SETTINGS.ZAI_API_KEY, body.zai_api_key);
       setKey(SETTINGS.COMMANDCODE_API_KEY, body.commandcode_api_key);
+      // The generated opencode.json declares the Command Code provider + plugin
+      // only while a key exists, so a saved or cleared key must re-write it.
+      if (body.commandcode_api_key !== undefined) writeOpencodeConfig();
       // "1" turns it on, "" deletes the row -> back to off (the default).
       setKey(SETTINGS.DENY_TEST_COMMANDS, body.deny_test_commands);
       setKey(SETTINGS.AUTO_MERGE, body.auto_merge);
