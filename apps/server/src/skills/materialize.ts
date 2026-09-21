@@ -4,6 +4,12 @@ import { config } from "~/config";
 import { skills as skillsDb, type SkillRow } from "~/db";
 import { log } from "~/server/log";
 import type { SkillFile } from "~/skills/install";
+import {
+  COMMANDCODE_BASE_URL,
+  COMMANDCODE_MODELS,
+  COMMANDCODE_PROVIDER,
+  COMMANDCODE_PROVIDER_NAME,
+} from "~/review/commandcode";
 
 // Commands the reviewer agent must never run itself. fouine installs the repo's
 // dependencies for it (bounded, before the session starts), so an agent-initiated
@@ -138,6 +144,20 @@ export function buildOpencodeConfig(): Record<string, unknown> {
       // there's no third party to gate against — allow the skill tool outright.
       skill: { "*": "allow" },
       bash,
+    },
+    // Command Code is not in models.dev, so opencode only knows it through this
+    // declaration: an OpenAI-compatible gateway plus the models fouine offers
+    // in its picker. Always emitted — harmless without a key, since nothing
+    // selects a `commandcode/*` model then. The key itself is NOT written here:
+    // setProviderApiKey (review/opencode.ts) sets it through auth.set per
+    // spawn, so the on-disk config never carries a secret.
+    provider: {
+      [COMMANDCODE_PROVIDER]: {
+        npm: "@ai-sdk/openai-compatible",
+        name: COMMANDCODE_PROVIDER_NAME,
+        options: { baseURL: COMMANDCODE_BASE_URL },
+        models: Object.fromEntries(COMMANDCODE_MODELS.map((m) => [m.id, { name: m.name }])),
+      },
     },
     // PostHog AI observability ($ai_generation per LLM roundtrip, $ai_span per
     // tool call with real latency, $ai_trace per prompt). Declared only when an

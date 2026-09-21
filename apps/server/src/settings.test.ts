@@ -3,6 +3,7 @@ import { settings } from "~/db";
 import {
   SETTINGS,
   ZAI_PROVIDER,
+  COMMANDCODE_PROVIDER,
   resolveApiKey,
   resolveAutoMerge,
   resolveMergeMethod,
@@ -24,6 +25,7 @@ import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
 afterEach(() => {
   settings.set.run({ $key: SETTINGS.API_KEY, $value: "" });
   settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: "" });
+  settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "" });
   settings.del.run({ $key: SETTINGS.AUTO_MERGE });
   settings.del.run({ $key: SETTINGS.MERGE_METHOD });
   settings.del.run({ $key: SETTINGS.REFINE_ENABLED });
@@ -74,6 +76,26 @@ test("a GLM model never borrows the OpenCode key", () => {
 test("the Z.ai key never leaks to a non-GLM provider", () => {
   settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: "zai-key" });
   expect(resolveApiKey("opencode-go")).toBeFalsy();
+});
+
+test("Command Code models use the Command Code key, other providers use the OpenCode key", () => {
+  settings.set.run({ $key: SETTINGS.API_KEY, $value: "oc-key" });
+  settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+
+  expect(resolveApiKey(COMMANDCODE_PROVIDER)).toBe("cc-key");
+  expect(resolveApiKey("opencode-go")).toBe("oc-key");
+  expect(resolveApiKey(ZAI_PROVIDER)).toBeUndefined();
+});
+
+test("a Command Code model never borrows the OpenCode key", () => {
+  settings.set.run({ $key: SETTINGS.API_KEY, $value: "oc-key" });
+  expect(resolveApiKey(COMMANDCODE_PROVIDER)).toBeUndefined();
+});
+
+test("the Command Code key never leaks to another provider", () => {
+  settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+  expect(resolveApiKey("opencode-go")).toBeFalsy();
+  expect(resolveApiKey(ZAI_PROVIDER)).toBeUndefined();
 });
 
 test("resolveRefineEnabled: default off, repo override wins whenever set", () => {

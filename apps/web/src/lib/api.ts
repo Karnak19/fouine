@@ -136,6 +136,7 @@ export interface ModelOption {
 export interface Settings {
   opencode_api_key?: string;
   zai_api_key?: string;
+  commandcode_api_key?: string;
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;

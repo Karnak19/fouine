@@ -1,7 +1,15 @@
 import { test, expect } from "bun:test";
-import { searchModels, configuredProviders, SEARCH_LIMIT, type ModelOption } from "~/review/models";
+import {
+  searchModels,
+  configuredProviders,
+  flatten,
+  SEARCH_LIMIT,
+  type ModelOption,
+} from "~/review/models";
 import { settings } from "~/db";
-import { SETTINGS, ZAI_PROVIDER, resolveDefaultModel } from "~/settings";
+import { SETTINGS, ZAI_PROVIDER, COMMANDCODE_PROVIDER, resolveDefaultModel } from "~/settings";
+import { COMMANDCODE_MODELS } from "~/review/commandcode";
+import { parseModel } from "~/review/opencode";
 
 const opt = (id: string): ModelOption => {
   const [provider, model] = id.split("/") as [string, string];
@@ -60,4 +68,53 @@ test("configuredProviders picks up the GLM plan once its key is set", () => {
   } finally {
     settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: "" });
   }
+});
+
+test("configuredProviders picks up Command Code once its key is set", () => {
+  expect(configuredProviders().has(COMMANDCODE_PROVIDER)).toBe(false);
+  settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+  try {
+    expect(configuredProviders().has(COMMANDCODE_PROVIDER)).toBe(true);
+  } finally {
+    settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "" });
+  }
+});
+
+test("Command Code models are appended to the catalog, honouring the configured filter", () => {
+  // models.dev has no Command Code entry, so the options come from our own list.
+  type Providers = Parameters<typeof flatten>[0];
+  const empty = {} as Providers;
+
+  // No key, no `all`: hidden like any other unconfigured provider.
+  expect(flatten(empty, false).filter((m) => m.provider === COMMANDCODE_PROVIDER)).toEqual([]);
+
+  // `all` shows them, flagged as not configured.
+  const shown = flatten(empty, true).filter((m) => m.provider === COMMANDCODE_PROVIDER);
+  expect(shown.map((m) => m.id)).toEqual(
+    COMMANDCODE_MODELS.map((m) => `${COMMANDCODE_PROVIDER}/${m.id}`).sort(),
+  );
+  expect(shown.every((m) => m.configured === false)).toBe(true);
+  expect(shown[0]?.providerName).toBe("Command Code");
+
+  settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+  try {
+    const configured = flatten(empty, false).filter((m) => m.provider === COMMANDCODE_PROVIDER);
+    expect(configured.length).toBe(COMMANDCODE_MODELS.length);
+    expect(configured.every((m) => m.configured)).toBe(true);
+  } finally {
+    settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "" });
+  }
+});
+
+test("a Command Code spec splits on the first slash only — the model id keeps its own", () => {
+  expect(parseModel("commandcode/deepseek/deepseek-v4-flash")).toEqual({
+    providerID: "commandcode",
+    modelID: "deepseek/deepseek-v4-flash",
+  });
+  expect(parseModel("opencode-go/glm-5.2")).toEqual({
+    providerID: "opencode-go",
+    modelID: "glm-5.2",
+  });
+  expect(() => parseModel("no-slash")).toThrow();
+  expect(() => parseModel("provider/")).toThrow();
 });

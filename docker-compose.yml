@@ -26,3 +26,5 @@ services:
       OPENCODE_CHAT_MODEL: ${OPENCODE_CHAT_MODEL:-opencode-go/deepseek-v4.1-flash}
       # Z.ai GLM Coding Plan key — only needed for zai-coding-plan/* models.
       ZAI_API_KEY: ${ZAI_API_KEY:-}
+      # Command Code key — only needed for commandcode/* models.
+      COMMANDCODE_API_KEY: ${COMMANDCODE_API_KEY:-}

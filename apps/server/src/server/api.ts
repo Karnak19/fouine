@@ -675,14 +675,15 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     ({ body }) => {
       // Keys: an absent field keeps the stored value, an explicit "" (or, for
       // merge_method, null) deletes the row. Without the delete the row would
-      // shadow the env var forever, so a rotated OPENCODE_API_KEY/ZAI_API_KEY
-      // could never take effect.
+      // shadow the env var forever, so a rotated OPENCODE_API_KEY/ZAI_API_KEY/
+      // COMMANDCODE_API_KEY could never take effect.
       const setKey = (key: string, value?: string | null) => {
         if (value) settings.set.run({ $key: key, $value: value });
         else if (value === "" || value === null) settings.del.run({ $key: key });
       };
       setKey(SETTINGS.API_KEY, body.opencode_api_key);
       setKey(SETTINGS.ZAI_API_KEY, body.zai_api_key);
+      setKey(SETTINGS.COMMANDCODE_API_KEY, body.commandcode_api_key);
       // "1" turns it on, "" deletes the row -> back to off (the default).
       setKey(SETTINGS.DENY_TEST_COMMANDS, body.deny_test_commands);
       setKey(SETTINGS.AUTO_MERGE, body.auto_merge);
@@ -711,6 +712,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       body: t.Object({
         opencode_api_key: t.Optional(t.String()),
         zai_api_key: t.Optional(t.String()),
+        commandcode_api_key: t.Optional(t.String()),
         opencode_model: t.Optional(t.String()),
         default_prompt: t.Optional(t.String()),
         improver_model: t.Optional(t.String()),

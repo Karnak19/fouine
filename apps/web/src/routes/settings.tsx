@@ -27,6 +27,7 @@ export default function SettingsPage() {
 
   const [apiKey, setApiKey] = useState("");
   const [zaiApiKey, setZaiApiKey] = useState("");
+  const [commandcodeApiKey, setCommandcodeApiKey] = useState("");
   const [model, setModel] = useState("");
   const [refineModel, setRefineModel] = useState("");
   const [implementModel, setImplementModel] = useState("");
@@ -44,7 +45,7 @@ export default function SettingsPage() {
   const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
-  // apiKey/zaiApiKey never round-trip from the server (write-only secrets), so
+  // apiKey/zaiApiKey/commandcodeApiKey never round-trip from the server (write-only secrets), so
   // they aren't part of the baseline — any non-empty value in them is dirty.
   const [baseline, setBaseline] = useState({
     model: "",
@@ -124,6 +125,7 @@ export default function SettingsPage() {
   const dirty =
     apiKey.trim() !== "" ||
     zaiApiKey.trim() !== "" ||
+    commandcodeApiKey.trim() !== "" ||
     model !== baseline.model ||
     refineModel !== baseline.refineModel ||
     implementModel !== baseline.implementModel ||
@@ -143,6 +145,7 @@ export default function SettingsPage() {
   const reset = () => {
     setApiKey("");
     setZaiApiKey("");
+    setCommandcodeApiKey("");
     setModel(baseline.model);
     setRefineModel(baseline.refineModel);
     setImplementModel(baseline.implementModel);
@@ -178,6 +181,7 @@ export default function SettingsPage() {
       const data: Settings = {};
       if (apiKey.trim()) data.opencode_api_key = apiKey.trim();
       if (zaiApiKey.trim()) data.zai_api_key = zaiApiKey.trim();
+      if (commandcodeApiKey.trim()) data.commandcode_api_key = commandcodeApiKey.trim();
       // Models round-trip from the server, so blank means "clear the row" and
       // the cascade takes over (per-repo override → repo review model → the
       // review default) — unlike the secrets above where blank means "keep".
@@ -204,6 +208,7 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setApiKey("");
       setZaiApiKey("");
+      setCommandcodeApiKey("");
       setBaseline({
         model,
         refineModel,
@@ -377,6 +382,20 @@ export default function SettingsPage() {
                   Only used when a model spec starts with <code>zai-coding-plan/</code>. When
                   unset, opencode uses whatever credential it already has for that provider. Leave
                   blank to keep the current value.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="commandcode_api_key">Command Code API key</Label>
+                <Input
+                  id="commandcode_api_key"
+                  type="password"
+                  placeholder="commandcode.ai key — used for commandcode/* models"
+                  value={commandcodeApiKey}
+                  onChange={(e) => setCommandcodeApiKey(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">
+                  Only used when a model spec starts with <code>commandcode/</code>. Leave blank to
+                  keep the current value.
                 </p>
               </div>
             </div>

@@ -4,8 +4,11 @@ import {
   resolveImproverModel,
   hasZaiKey,
   hasOpencodeKey,
+  hasCommandcodeKey,
   ZAI_PROVIDER,
+  COMMANDCODE_PROVIDER,
 } from "~/settings";
+import { COMMANDCODE_MODELS, COMMANDCODE_PROVIDER_NAME } from "~/review/commandcode";
 import { repos } from "~/db";
 import { log } from "~/server/log";
 
@@ -46,9 +49,10 @@ async function fetchProviders(): Promise<ProviderMap> {
   }
 }
 
-// Providers fouine can actually reach. It has exactly two key slots — the Z.ai
-// key (GLM Coding Plan only) and the OpenCode key — so the set is small and
-// worth computing rather than showing all 172 providers models.dev knows.
+// Providers fouine can actually reach. It has exactly three key slots — the
+// Z.ai key (GLM Coding Plan only), the Command Code key (commandcode/* only)
+// and the OpenCode key — so the set is small and worth computing rather than
+// showing all 172 providers models.dev knows.
 //
 // Providers already named by a setting are always included even if the matching
 // key is missing: a config that's live must never vanish from its own picker,
@@ -56,6 +60,7 @@ async function fetchProviders(): Promise<ProviderMap> {
 export function configuredProviders(): Set<string> {
   const out = new Set<string>();
   if (hasZaiKey()) out.add(ZAI_PROVIDER);
+  if (hasCommandcodeKey()) out.add(COMMANDCODE_PROVIDER);
   if (hasOpencodeKey()) {
     // The OpenCode key authenticates opencode's own gateway providers.
     out.add("opencode");
@@ -77,7 +82,8 @@ function repoModels(): string[] {
   }
 }
 
-function flatten(providers: ProviderMap, all: boolean): ModelOption[] {
+// Exported for tests: listModels needs the models.dev catalog, this doesn't.
+export function flatten(providers: ProviderMap, all: boolean): ModelOption[] {
   const configured = configuredProviders();
   const out: ModelOption[] = [];
   for (const p of Object.values(providers)) {
@@ -90,6 +96,20 @@ function flatten(providers: ProviderMap, all: boolean): ModelOption[] {
         model: m.id,
         modelName: m.name,
         configured: configured.has(p.id),
+      });
+    }
+  }
+  // Command Code is not in models.dev, so its options come from our own list —
+  // same filter rule as the catalog above.
+  if (all || configured.has(COMMANDCODE_PROVIDER)) {
+    for (const m of COMMANDCODE_MODELS) {
+      out.push({
+        id: `${COMMANDCODE_PROVIDER}/${m.id}`,
+        provider: COMMANDCODE_PROVIDER,
+        providerName: COMMANDCODE_PROVIDER_NAME,
+        model: m.id,
+        modelName: m.name,
+        configured: configured.has(COMMANDCODE_PROVIDER),
       });
     }
   }

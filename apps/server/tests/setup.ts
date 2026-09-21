@@ -18,5 +18,6 @@ process.env.GITHUB_WEBHOOK_SECRET =
 // assertions about which providers are configured.
 delete process.env.OPENCODE_API_KEY;
 delete process.env.ZAI_API_KEY;
+delete process.env.COMMANDCODE_API_KEY;
 
 process.on("exit", () => rmSync(tmp, { recursive: true, force: true }));

@@ -4,10 +4,12 @@ import type { RepoRow } from "@fouine/shared";
 import { DEFAULT_PROMPT } from "~/review/prompt";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
 import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
+import { COMMANDCODE_PROVIDER } from "~/review/commandcode";
 
 export const SETTINGS = {
   API_KEY: "opencode_api_key",
   ZAI_API_KEY: "zai_api_key",
+  COMMANDCODE_API_KEY: "commandcode_api_key",
   MODEL: "opencode_model",
   PROMPT: "default_prompt",
   IMPROVER_MODEL: "improver_model",
@@ -36,9 +38,15 @@ export const MERGE_METHODS: readonly MergeMethod[] = ["merge", "squash", "rebase
 // specced as `zai-coding-plan/glm-5.2`.
 export const ZAI_PROVIDER = "zai-coding-plan";
 
+// The provider id fouine declares for Command Code in the generated
+// opencode.json (see review/commandcode.ts). Models under it are specced as
+// `commandcode/deepseek/deepseek-v4-flash` — the model id itself has a slash.
+export { COMMANDCODE_PROVIDER };
+
 // The key opencode should authenticate the model's provider with. GLM Coding
-// Plan is billed by Z.ai, not by the OpenCode provider, so it carries its own
-// key; every other provider uses the single OpenCode key.
+// Plan is billed by Z.ai and Command Code by commandcode.ai, not by the
+// OpenCode provider, so each carries its own key; every other provider uses
+// the single OpenCode key.
 export function hasOpencodeKey(): boolean {
   return !!(settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey);
 }
@@ -47,12 +55,21 @@ export function hasZaiKey(): boolean {
   return !!(settingValue(SETTINGS.ZAI_API_KEY) ?? config.opencode.zaiApiKey);
 }
 
+export function hasCommandcodeKey(): boolean {
+  return !!(settingValue(SETTINGS.COMMANDCODE_API_KEY) ?? config.opencode.commandcodeApiKey);
+}
+
 export function resolveApiKey(providerID?: string): string | undefined {
   // No fallback to the OpenCode key here: it would authenticate as the wrong
   // account and, worse, overwrite any credential the user set up with
   // `opencode auth login`. Undefined leaves opencode's own auth alone.
   if (providerID === ZAI_PROVIDER) {
     return settingValue(SETTINGS.ZAI_API_KEY) || config.opencode.zaiApiKey || undefined;
+  }
+  if (providerID === COMMANDCODE_PROVIDER) {
+    return (
+      settingValue(SETTINGS.COMMANDCODE_API_KEY) || config.opencode.commandcodeApiKey || undefined
+    );
   }
   return settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey;
 }
