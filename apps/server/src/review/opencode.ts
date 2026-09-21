@@ -21,9 +21,9 @@ export function freePort(): Promise<number> {
 }
 
 export function parseModel(spec: string): { providerID: string; modelID: string } {
-  // First slash only: some providers' model ids contain a slash themselves
-  // (Command Code's `commandcode/deepseek/deepseek-v4-flash`), and the rest of
-  // the spec must reach opencode untouched.
+  // First slash only: a provider's model ids may contain a slash themselves
+  // (an org-prefixed id like `openrouter/deepseek/deepseek-v4-flash`), and the
+  // rest of the spec must reach opencode untouched.
   const cut = spec.indexOf("/");
   const providerID = cut === -1 ? "" : spec.slice(0, cut);
   const modelID = cut === -1 ? "" : spec.slice(cut + 1);

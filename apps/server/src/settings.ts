@@ -40,7 +40,7 @@ export const ZAI_PROVIDER = "zai-coding-plan";
 
 // The provider id fouine declares for Command Code in the generated
 // opencode.json (see review/commandcode.ts). Models under it are specced as
-// `commandcode/deepseek/deepseek-v4-flash` — the model id itself has a slash.
+// `commandcode/deepseek-v4-flash` — the plugin's config key, org prefix dropped.
 export { COMMANDCODE_PROVIDER };
 
 // The key opencode should authenticate the model's provider with. GLM Coding

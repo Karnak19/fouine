@@ -8,7 +8,7 @@ import {
 } from "~/review/models";
 import { settings } from "~/db";
 import { SETTINGS, ZAI_PROVIDER, COMMANDCODE_PROVIDER, resolveDefaultModel } from "~/settings";
-import { COMMANDCODE_MODELS } from "~/review/commandcode";
+import { commandcodeModels, toConfigKey } from "~/review/commandcode";
 import { parseModel } from "~/review/opencode";
 
 const opt = (id: string): ModelOption => {
@@ -81,7 +81,8 @@ test("configuredProviders picks up Command Code once its key is set", () => {
 });
 
 test("Command Code models are appended to the catalog, honouring the configured filter", () => {
-  // models.dev has no Command Code entry, so the options come from our own list.
+  // models.dev has no Command Code entry, so the options come from the catalog
+  // bundled with the opencode plugin.
   type Providers = Parameters<typeof flatten>[0];
   const empty = {} as Providers;
 
@@ -91,25 +92,44 @@ test("Command Code models are appended to the catalog, honouring the configured 
   // `all` shows them, flagged as not configured.
   const shown = flatten(empty, true).filter((m) => m.provider === COMMANDCODE_PROVIDER);
   expect(shown.map((m) => m.id)).toEqual(
-    COMMANDCODE_MODELS.map((m) => `${COMMANDCODE_PROVIDER}/${m.id}`).sort(),
+    commandcodeModels()
+      .map((m) => `${COMMANDCODE_PROVIDER}/${m.id}`)
+      .sort(),
   );
+  // Specs carry the plugin's config key, never the org-prefixed upstream id.
+  expect(shown.map((m) => m.id)).toContain(`${COMMANDCODE_PROVIDER}/deepseek-v4-flash`);
+  expect(shown.every((m) => !m.model.includes("/"))).toBe(true);
   expect(shown.every((m) => m.configured === false)).toBe(true);
   expect(shown[0]?.providerName).toBe("Command Code");
 
   settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
   try {
     const configured = flatten(empty, false).filter((m) => m.provider === COMMANDCODE_PROVIDER);
-    expect(configured.length).toBe(COMMANDCODE_MODELS.length);
+    expect(configured.length).toBe(commandcodeModels().length);
     expect(configured.every((m) => m.configured)).toBe(true);
   } finally {
     settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "" });
   }
 });
 
-test("a Command Code spec splits on the first slash only — the model id keeps its own", () => {
-  expect(parseModel("commandcode/deepseek/deepseek-v4-flash")).toEqual({
-    providerID: "commandcode",
+test("Command Code picker ids are the plugin's config keys: org prefix dropped, lowercased", () => {
+  expect(toConfigKey("deepseek/deepseek-v4-flash")).toBe("deepseek-v4-flash");
+  expect(toConfigKey("zai-org/GLM-5.2")).toBe("glm-5.2");
+  expect(toConfigKey("moonshotai/Kimi-K2.7-Code")).toBe("kimi-k2.7-code");
+  expect(toConfigKey("gpt-5.5")).toBe("gpt-5.5");
+  // No two catalog entries may collapse onto one key.
+  const ids = commandcodeModels().map((m) => m.id);
+  expect(new Set(ids).size).toBe(ids.length);
+});
+
+test("a spec splits on the first slash only — an org-prefixed model id keeps its own", () => {
+  expect(parseModel("openrouter/deepseek/deepseek-v4-flash")).toEqual({
+    providerID: "openrouter",
     modelID: "deepseek/deepseek-v4-flash",
+  });
+  expect(parseModel("commandcode/deepseek-v4-flash")).toEqual({
+    providerID: "commandcode",
+    modelID: "deepseek-v4-flash",
   });
   expect(parseModel("opencode-go/glm-5.2")).toEqual({
     providerID: "opencode-go",

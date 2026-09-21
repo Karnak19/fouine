@@ -83,19 +83,27 @@ model or a per-repo override.
 
 [Command Code](https://commandcode.ai) is an OpenAI-compatible gateway that
 models.dev does not list, so fouine declares the provider to opencode itself and
-ships a short built-in model list. Same two settings as the GLM plan:
+pulls the model catalog from the community plugin
+[`@brainervirus/opencode-commandcode`](https://github.com/BrainerVirus/opencode-commandcode).
+Same two settings as the GLM plan:
 
 1. Set the **Command Code API key** (or `COMMANDCODE_API_KEY`) to your key. Only
    the Pro and GOAT plans include API access; lower plans have no key to use here.
-2. Set the model to one of `commandcode/zai-org/GLM-5.2`,
-   `commandcode/deepseek/deepseek-v4-flash` or `commandcode/moonshotai/Kimi-K2.7-code`
-   — as the default model, an agent model, or a per-repo override. Note the model
-   id itself contains a slash; the spec is `commandcode/<model id>` as Command
-   Code names it.
+2. Set the model to a `commandcode/<model>` spec — `commandcode/deepseek-v4-flash`,
+   `commandcode/glm-5.2`, `commandcode/kimi-k2.7-code`, … — as the default model,
+   an agent model, or a per-repo override. The model part is the plugin's config
+   key: Command Code's own id with the org prefix dropped and lowercased
+   (`deepseek/deepseek-v4-flash` → `deepseek-v4-flash`). The picker lists them.
 
-The Command Code key is only sent to `commandcode/*` models. Because the catalog
-is built in rather than fetched, a model Command Code adds later won't show up in
-the picker until fouine's list is updated.
+The Command Code key is only sent to `commandcode/*` models. While a key is
+configured, fouine's generated `opencode.json` lists the plugin (pinned to the
+version in `apps/server/package.json`) so opencode fetches it from npm once, on
+the first review after boot, and its `config` hook fills the provider's model
+list from the catalog it bundles — the same file fouine's picker reads, so the
+two can't disagree. Without a key neither the plugin nor the provider is
+declared, and nothing is fetched. To pick up models Command Code adds later,
+bump that dependency: the plugin's CI re-syncs its catalog from the Command Code
+API every few hours and publishes a patch release.
 
 ## Per-repo settings
 

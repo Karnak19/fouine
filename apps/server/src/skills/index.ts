@@ -2,7 +2,7 @@ import { skills as skillsDb, type SkillMetaRow } from "~/db";
 import { fetchSkill } from "~/skills/install";
 import { reconcileSkills } from "~/skills/materialize";
 
-export { seedOpencodeConfig, reconcileSkills } from "~/skills/materialize";
+export { seedOpencodeConfig, writeOpencodeConfig, reconcileSkills } from "~/skills/materialize";
 export { parseSkillUrl } from "~/skills/source";
 
 // Install (or re-install) a skill from a skills.sh / GitHub URL. Fetches +

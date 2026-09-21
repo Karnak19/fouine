@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.30",
+    "@brainervirus/opencode-commandcode": "0.7.73",
     "@elysia/static": "^1.4.11",
     "@fouine/shared": "workspace:*",
     "@json-render/core": "0.21.0",

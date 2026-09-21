@@ -310,8 +310,10 @@ on a provider whose key you haven't added yet.
 A provider is **configured** when fouine holds a key that reaches it:
 
 - `zai-coding-plan` when the GLM Coding Plan key is set
-- `commandcode` when the Command Code key is set (its models come from a
-  built-in list, since models.dev does not carry the provider)
+- `commandcode` when the Command Code key is set (its models come from the
+  catalog bundled with the `@brainervirus/opencode-commandcode` plugin, since
+  models.dev does not carry the provider; ids are `commandcode/<config key>`,
+  e.g. `commandcode/deepseek-v4-flash`)
 - `opencode` and `opencode-go` when the OpenCode key is set
 - any provider already named by the default model, the improver model, or a
   per-repo override — a live config never disappears from its own picker, even
