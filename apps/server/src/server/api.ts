@@ -191,6 +191,22 @@ const reviewsQuery = t.Composite([
         t.Literal("skipped"),
       ]),
     ),
+    // Why the row ran. The listed values are the ones the webhook/runner and
+    // the effect pipelines actually write; an unknown value would 422 rather
+    // than silently return an empty list.
+    trigger: t.Optional(
+      t.Union([
+        t.Literal("opened"),
+        t.Literal("synchronize"),
+        t.Literal("reopened"),
+        t.Literal("ready_for_review"),
+        t.Literal("command"),
+        t.Literal("retry"),
+        t.Literal("refine"),
+        t.Literal("implement"),
+        t.Literal("improve"),
+      ]),
+    ),
     limit: t.Optional(t.Numeric({ minimum: 1, maximum: 1000 })),
   }),
 ]);
@@ -528,6 +544,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       return reviews.recent.all({
         ...statsFilter(query),
         $status: query.status ?? null,
+        $trigger: query.trigger ?? null,
         $limit: query.limit ?? 100,
       });
     },
@@ -555,6 +572,16 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       allModels: reviews.allModels.all().map((r) => r.model),
     };
     },
+    { query: statsQuery },
+  )
+
+  // One row per trigger for the dashboard's Agents surface. The refiner,
+  // implementer and improver are ordinary `reviews` rows, so this is a
+  // trigger-grouped read of the same table — no dedicated endpoint state.
+  // Takes the same range/repo/model filters as its /stats siblings.
+  .get(
+    "/agents",
+    ({ query }) => ({ agents: reviews.agents.all(statsFilter(query)) }),
     { query: statsQuery },
   )
 

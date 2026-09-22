@@ -20,6 +20,7 @@ import {
   ChartNoAxesColumn,
   MessageSquare,
   LayoutTemplate,
+  Bot,
 } from "lucide-react";
 import { useAuth, signOut } from "../lib/auth";
 import { useTitle } from "../lib/title";
@@ -67,10 +68,11 @@ function InstallButton() {
   );
 }
 
-const NAV = [
-  { to: "/", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
-  { to: "/repos", label: "Repositories", icon: <FolderGit2 size={16} /> },
+const NAV: { to: string; label: string; short?: string; icon: React.ReactNode }[] = [
+  { to: "/", label: "Dashboard", short: "Home", icon: <LayoutDashboard size={16} /> },
+  { to: "/repos", label: "Repositories", short: "Repos", icon: <FolderGit2 size={16} /> },
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest size={16} /> },
+  { to: "/agents", label: "Agents", icon: <Bot size={16} /> },
   { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn size={16} /> },
   { to: "/chat", label: "Chat", icon: <MessageSquare size={16} /> },
   { to: "/build", label: "Build", icon: <LayoutTemplate size={16} /> },
@@ -158,7 +160,7 @@ function RootLayout() {
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           {NAV.map((n) => (
-            <NavLink key={n.to} {...n} />
+            <NavLink key={n.to} to={n.to} label={n.label} icon={n.icon} />
           ))}
         </nav>
         <InstallButton />
@@ -178,9 +180,9 @@ function RootLayout() {
         </div>
       </main>
       {/* Mobile: bottom tab bar with safe-area padding for the home indicator. */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-7 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-10 grid grid-cols-8 border-t border-zinc-800/80 bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
         {NAV.map((n) => (
-          <TabLink key={n.to} {...n} />
+          <TabLink key={n.to} to={n.to} label={n.short ?? n.label} icon={n.icon} />
         ))}
       </nav>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
@@ -214,10 +216,10 @@ function TabLink({ to, label, icon }: { to: string; label: string; icon: React.R
     <Link
       to={to}
       activeOptions={{ exact: to === "/" }}
-      className="flex flex-col items-center justify-center gap-1 py-2.5 min-h-14 text-[0.65rem] font-medium text-zinc-500 transition-colors [&.active]:text-ember-300"
+      className="flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 min-h-14 text-[0.65rem] font-medium text-zinc-500 transition-colors [&.active]:text-ember-300"
     >
       {icon}
-      {label}
+      <span className="max-w-full truncate px-0.5">{label}</span>
     </Link>
   );
 }
@@ -317,6 +319,13 @@ const reviewDetailRoute = createRoute({
   component: lazyRouteComponent(() => import("./review-detail")),
   staticData: { title: (p) => `Review #${p.id}` },
 });
+// No validateSearch: this page is deliberately not filter-driven.
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents",
+  component: lazyRouteComponent(() => import("./agents")),
+  staticData: { title: () => "Agents" },
+});
 const statsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/stats",
@@ -354,6 +363,7 @@ export const routeTree = rootRoute.addChildren([
   prRoute,
   reviewsRoute,
   reviewDetailRoute,
+  agentsRoute,
   statsRoute,
   chatRoute,
   buildRoute,

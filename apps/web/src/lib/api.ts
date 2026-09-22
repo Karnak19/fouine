@@ -1,6 +1,7 @@
 import { treaty } from "@elysiajs/eden";
 import type { App } from "~/server/api";
 import type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -22,6 +23,7 @@ import type {
 // interfaces, so Eden already infers them structurally — re-exporting is
 // just a convenience import path for components.
 export type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -103,8 +105,22 @@ export interface StatsQuery {
 
 export type ReviewStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
+export type ReviewTrigger =
+  | "opened"
+  | "synchronize"
+  | "reopened"
+  | "command"
+  | "retry"
+  | "improve"
+  | "refine"
+  | "implement"
+  | "ready_for_review";
+
 export interface ReviewsQuery extends StatsQuery {
   status?: ReviewStatus;
+  // Why the run happened (opened, push, refine, implement, ...). Same values
+  // the server's /reviews schema accepts; absent means every trigger.
+  trigger?: ReviewTrigger;
   limit?: number;
 }
 
@@ -225,7 +241,9 @@ export const api = {
     // react-query queryFn (which would otherwise pass its context as filters).
     query: async (q: ReviewsQuery) =>
       unwrap<ReviewRow[]>(
-        await c.reviews.get({ query: { ...statsQuery(q), status: q.status, limit: q.limit } }),
+        await c.reviews.get({
+          query: { ...statsQuery(q), status: q.status, trigger: q.trigger, limit: q.limit },
+        }),
       ),
     get: async (id: number) => unwrap<ReviewRow>(await c.reviews({ id }).get()),
     findings: async (id: number) =>
@@ -244,6 +262,12 @@ export const api = {
     // latency samples these panels need and it never renders.
     charts: async (q: StatsQuery) =>
       unwrap<StatsCharts>(await c.stats.charts.get({ query: statsQuery(q) })),
+  },
+  agents: {
+    // One row per raw trigger; the Agents page rolls them up into the four
+    // agents. Same range/repo/model filters as the /stats siblings.
+    query: async (q: StatsQuery) =>
+      unwrap<{ agents: AgentStatsRow[] }>(await c.agents.get({ query: statsQuery(q) })),
   },
   models: {
     // Server-side filtered and capped — the full models.dev catalog is ~1MB.

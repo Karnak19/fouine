@@ -112,6 +112,25 @@ export interface TriggerStatsRow {
   count: number;
 }
 
+// One row per trigger for the dashboard's Agents surface. Refiner, implementer
+// and improver runs are ordinary `reviews` rows, so this is a trigger-grouped
+// view, not a table of its own. Unlike the other aggregates it keeps `skipped`
+// in `count` and breaks every status out — each agent's full run history is the
+// point. avg_duration is null until the trigger has a completed run.
+export interface AgentStatsRow {
+  trigger: string;
+  count: number;
+  completed: number;
+  failed: number;
+  running: number;
+  pending: number;
+  skipped: number;
+  cost: number;
+  tokens: number;
+  avg_duration: number | null;
+  last_run_at: number;
+}
+
 // Findings grouped by severity for the dashboard. Only inline findings carry a
 // severity, so summary/comment rows are excluded by the WHERE clause.
 export interface SeverityStatsRow {
