@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { Effect, Exit, Layer } from "effect";
-import { reviewPipeline, shouldPostFailureComment } from "~/effect/review";
+import { Cause, Effect, Exit, Layer } from "effect";
+import { causeChain, failureMessage, reviewPipeline, shouldPostFailureComment } from "~/effect/review";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
@@ -274,6 +274,46 @@ test("the review targets its worktree session with no per-review env leak (#23)"
     if (hadPr === undefined) delete process.env.FOUINE_PR_NUMBER;
     else process.env.FOUINE_PR_NUMBER = hadPr;
   }
+});
+
+// ── Failure message cause chain ──────────────────────────────────────────────
+// `String(cause)` kept only the top of the chain, so a transport failure read as
+// an opaque "ClientError: Transport" and the real TimeoutError/socket cause was
+// lost. It must survive as one clean line — this lands in a check summary and a
+// PR comment.
+
+test("failureMessage carries the nested cause chain with no stack frames", () => {
+  const timeout = new Error("The operation timed out.");
+  timeout.name = "TimeoutError";
+  const transport = new Error("Transport");
+  transport.name = "ClientError";
+  (transport as { cause?: unknown }).cause = timeout;
+  const cause = Cause.fail(new OpenCodeError({ op: "runReview", cause: transport }));
+  const message = failureMessage(cause, noAbort(), "Superseded by a newer commit");
+  expect(message).toBe("ClientError: Transport ← TimeoutError: The operation timed out.");
+  expect(message).not.toContain("\n");
+  expect(message).not.toContain(" at ");
+});
+
+test("causeChain strips stack frames and caps each segment", () => {
+  const noisy = new Error("boom\n    at foo (bar.ts:1:2)\n    at baz (qux.ts:3:4)");
+  noisy.name = "WeirdError";
+  expect(causeChain(noisy)).toBe("WeirdError: boom");
+  expect(causeChain("x".repeat(600))).toHaveLength(500);
+});
+
+test("failureMessage keeps the aborted and superseded labels", () => {
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const cause = Cause.fail(new OpenCodeError({ op: "runReview", cause: "boom" }));
+  expect(failureMessage(cause, ctrl.signal, "Superseded by a newer commit")).toBe(
+    "Stopped by user",
+  );
+  const ctrl2 = new AbortController();
+  ctrl2.abort("superseded");
+  expect(failureMessage(cause, ctrl2.signal, "Superseded by a newer commit")).toBe(
+    "Superseded by a newer commit",
+  );
 });
 
 // ── Final-failure PR comment ─────────────────────────────────────────────────

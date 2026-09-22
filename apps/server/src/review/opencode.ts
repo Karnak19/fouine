@@ -251,6 +251,54 @@ function summarizeMessages(msgs: Awaited<ReturnType<OpencodeClient["message"]["l
   return { cost, tokens, text: texts.join("\n") };
 }
 
+// The v2 client does no retries by contract ("callers own transport selection,
+// recording, tracing, retries"), so one dropped keep-alive socket loses a whole
+// review — the production incident where `session.wait` died with
+// `ClientError: Transport ← TimeoutError` and the retry then died in
+// `session.create` with a closed socket. We re-issue only the calls that are
+// safe to repeat, bounded, and never once teardown has run.
+const TRANSPORT_RETRY_ATTEMPTS = 3; // 1 initial + 2 retries
+const TRANSPORT_RETRY_BACKOFF_MS = 250; // 250ms, then 500ms
+
+// Duck-typed: the client sets `name`/`reason` as fields, and reaching the class
+// across the bundling boundary is not worth it.
+function isTransportError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    err.name === "ClientError" &&
+    (err as { reason?: unknown }).reason === "Transport"
+  );
+}
+
+async function withTransportRetry<T>(
+  call: string,
+  fn: () => Promise<T>,
+  isTornDown?: () => boolean,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; ; attempt++) {
+    // Before every attempt (including the first retry): a torn-down run must
+    // never re-issue a request. The watchdog can win its race while the call is
+    // in flight — it interrupts the Effect but does NOT cancel this promise.
+    if (isTornDown?.()) throw lastErr ?? new Error(`${call}: run torn down`);
+    try {
+      return await fn();
+    } catch (err) {
+      // Never retry UnexpectedStatus (a 4xx/5xx is a real answer) or anything
+      // that isn't a client transport failure.
+      if (!isTransportError(err) || attempt >= TRANSPORT_RETRY_ATTEMPTS) throw err;
+      lastErr = err;
+      if (isTornDown?.()) throw err;
+      log.warn("opencode transport error, retrying", {
+        call,
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await new Promise((r) => setTimeout(r, TRANSPORT_RETRY_BACKOFF_MS * attempt));
+    }
+  }
+}
+
 export async function runReview(
   client: OpencodeClient,
   opts: RunOptions,
@@ -258,13 +306,20 @@ export async function runReview(
 ): Promise<RunResult> {
   const model = parseModel(opts.model ?? resolveDefaultModel());
 
-  const session = await client.session.create({
-    title: "fouine review",
-    ...(opts.agent ? { agent: opts.agent } : {}),
-    model: { providerID: model.providerID, id: model.modelID },
-    location: { directory: opts.directory },
-    ...(opts.permissions ? { permissions: opts.permissions } : {}),
-  });
+  // create re-issues to get a fresh session. ponytail: an orphan session from a
+  // lost response is idle, never prompted, and harmless — not worth chasing.
+  const session = await withTransportRetry(
+    "session.create",
+    () =>
+      client.session.create({
+        title: "fouine review",
+        ...(opts.agent ? { agent: opts.agent } : {}),
+        model: { providerID: model.providerID, id: model.modelID },
+        location: { directory: opts.directory },
+        ...(opts.permissions ? { permissions: opts.permissions } : {}),
+      }),
+    opts.isTornDown,
+  );
 
   if (hooks.onSession) await hooks.onSession(session.id);
 
@@ -277,8 +332,18 @@ export async function runReview(
     // idle session, and after a mid-run interrupt wait() settles and the nudge
     // below would start a fresh, unsupervised run.
     if (opts.isTornDown?.()) return;
+    // prompt is deliberately NOT retried: a lost prompt response re-issued on
+    // the same session would start a second run — the same double-run class the
+    // guard above closed.
     await client.session.prompt({ sessionID: session.id, text });
-    await client.session.wait({ sessionID: session.id });
+    // wait is a plain long-blocking POST that returns when the session goes
+    // idle, so re-issuing it simply waits again — safe, and the fix for the
+    // timed-out-wait case.
+    await withTransportRetry(
+      "session.wait",
+      () => client.session.wait({ sessionID: session.id }),
+      opts.isTornDown,
+    );
   };
 
   await ask(opts.prompt);
@@ -298,7 +363,13 @@ export async function runReview(
 
   // ponytail: no pagination — one review's assistant messages sit well under a
   // page. If reviews ever grow past the default limit, follow the cursor here.
-  const msgs = (await client.message.list({ sessionID: session.id })).data;
+  const msgs = (
+    await withTransportRetry(
+      "message.list",
+      () => client.message.list({ sessionID: session.id }),
+      opts.isTornDown,
+    )
+  ).data;
   const { cost, tokens, text } = summarizeMessages(msgs);
 
   return { sessionId: session.id, text, cost, tokens };
