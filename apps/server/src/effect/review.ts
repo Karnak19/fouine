@@ -31,6 +31,35 @@ export const readRepoNotes = (worktree: string): Effect.Effect<string | undefine
 // ReviewError, a defect (an unexpected throw anywhere in the gen body), and an
 // interrupt. Anything we can't name still gets a message — a row must never be
 // left at running/pending because we didn't recognise the failure.
+// The raw value behind a typed failure is usually a chain: the opencode client
+// throws `ClientError("Transport")` wrapping the real `TimeoutError` or
+// socket-closed `TypeError`. `String(cause)` kept only the top segment, so every
+// production failure read as an opaque "ClientError: Transport" and the actual
+// cause was lost. Walk the chain (bounded depth + per-segment cap) and strip
+// stack frames — this string lands verbatim in a GitHub check summary and a PR
+// comment, so it must stay one readable line.
+const CAUSE_CHAIN_DEPTH = 4;
+const CAUSE_SEGMENT_MAX = 500;
+
+function causeSegment(value: unknown): string {
+  const text = value instanceof Error ? `${value.name}: ${value.message}` : String(value);
+  // Drop stack frames: "\n    at foo (bar.ts:1:2)".
+  return text
+    .replace(/\n\s+at\s[^\n]*/g, "")
+    .trim()
+    .slice(0, CAUSE_SEGMENT_MAX);
+}
+
+export function causeChain(value: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = value;
+  for (let i = 0; i < CAUSE_CHAIN_DEPTH && current != null; i++) {
+    parts.push(causeSegment(current));
+    current = (current as { cause?: unknown }).cause;
+  }
+  return parts.join(" ← ");
+}
+
 export function failureMessage(
   cause: Cause.Cause<ReviewError>,
   signal: AbortSignal,
@@ -39,8 +68,8 @@ export function failureMessage(
   if (signal.aborted) return signal.reason === "superseded" ? supersededLabel : "Stopped by user";
   if (Cause.isInterruptedOnly(cause)) return "Interrupted";
   const failure = Cause.failureOption(cause);
-  if (Option.isSome(failure)) return String(failure.value.cause);
-  return String(Cause.squash(cause));
+  if (Option.isSome(failure)) return causeChain(failure.value.cause);
+  return causeChain(Cause.squash(cause));
 }
 
 // Post a PR comment only when the failure is final: genuine (not a user stop

@@ -4,7 +4,7 @@ import {
   runReview,
   type OpencodeClient,
 } from "~/review/opencode";
-import type { PermissionRuleset } from "@opencode/client";
+import { ClientError, type PermissionRuleset } from "@opencode/client";
 
 // Minimal client stub: records every prompt sent to the session, and answers
 // message.list with one assistant message per ask.
@@ -107,21 +107,29 @@ test("does not nudge when the review was posted", async () => {
   expect(result.text).toBe("reply 1");
 });
 
-// Teardown cannot cancel the runReview promise, so ask() must refuse to prompt
-// once it has happened. Covers the create-window case: the release's interrupt
-// was a no-op on an idle session, and the initial prompt would otherwise fire
-// unsupervised.
+// Teardown cannot cancel the runReview promise, so it must refuse to issue any
+// request once it has happened. Covers the create-window case: the release's
+// interrupt was a no-op on an idle session, and the initial prompt would
+// otherwise fire unsupervised. The retry guard rejects before create even runs.
 test("sends no prompts at all when already torn down", async () => {
   const prompts: string[] = [];
-  const result = await runReview(makeClient(prompts), {
-    directory: "/tmp",
-    prompt: "review this",
-    model: "zen/kimi-k3",
-    hasPosted: () => false,
-    isTornDown: () => true,
-  });
+  let creates = 0;
+  const client = makeClient(prompts);
+  (client.session as unknown as { create: () => Promise<{ id: string }> }).create = async () => {
+    creates++;
+    return { id: "sess" };
+  };
+  await expect(
+    runReview(client, {
+      directory: "/tmp",
+      prompt: "review this",
+      model: "zen/kimi-k3",
+      hasPosted: () => false,
+      isTornDown: () => true,
+    }),
+  ).rejects.toThrow("run torn down");
   expect(prompts).toHaveLength(0);
-  expect(result.text).toBe("");
+  expect(creates).toBe(0);
 });
 
 // Mid-run case: after the first wait settles, hasPosted() is still false, so the
@@ -134,15 +142,17 @@ test("skips the nudge when teardown lands during the first wait", async () => {
   (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
     torn = true;
   };
-  const result = await runReview(client, {
-    directory: "/tmp",
-    prompt: "review this",
-    model: "zen/kimi-k3",
-    hasPosted: () => false,
-    isTornDown: () => torn,
-  });
+  await expect(
+    runReview(client, {
+      directory: "/tmp",
+      prompt: "review this",
+      model: "zen/kimi-k3",
+      hasPosted: () => false,
+      isTornDown: () => torn,
+    }),
+  ).rejects.toThrow("run torn down");
+  // Exactly the review's own prompt: the nudge must not fire after teardown.
   expect(prompts).toHaveLength(1);
-  expect(result.text).toBe("reply 1");
 });
 
 test("creates the session in the review's directory with the parsed model", async () => {
@@ -189,4 +199,123 @@ test("invokes the onSession hook with the created id before prompting", async ()
     { onSession: (id) => void seen.push(id) },
   );
   expect(seen).toEqual(["sess"]);
+});
+
+// ── Bounded transport retry ──────────────────────────────────────────────────
+// The v2 client retries nothing by contract, so fouine re-issues the safe calls
+// itself. These cover the two production failure sites and the boundaries.
+
+test("retries a transport failure on session.wait", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let waits = 0;
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    waits++;
+    if (waits === 1) throw new ClientError("Transport");
+  };
+  const result = await runReview(client, {
+    directory: "/tmp",
+    prompt: "go",
+    model: "zen/kimi-k3",
+  });
+  expect(waits).toBe(2);
+  expect(result.text).toBe("reply 1");
+});
+
+test("retries a transport failure on session.create", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let creates = 0;
+  (client.session as unknown as { create: () => Promise<{ id: string }> }).create = async () => {
+    creates++;
+    if (creates === 1) throw new ClientError("Transport");
+    return { id: "sess" };
+  };
+  const result = await runReview(client, {
+    directory: "/tmp",
+    prompt: "go",
+    model: "zen/kimi-k3",
+  });
+  expect(creates).toBe(2);
+  expect(result.sessionId).toBe("sess");
+});
+
+test("gives up after the transport retry budget", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let waits = 0;
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    waits++;
+    throw new ClientError("Transport");
+  };
+  await expect(
+    runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
+  ).rejects.toMatchObject({ name: "ClientError", reason: "Transport" });
+  expect(waits).toBe(3);
+});
+
+// Regression guard for the double-run class: re-issuing `prompt` after a lost
+// response would start a second run on the same session, so it must never retry.
+test("does not retry a transport failure on session.prompt", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let promptCalls = 0;
+  (client.session as unknown as { prompt: () => Promise<unknown> }).prompt = async () => {
+    promptCalls++;
+    throw new ClientError("Transport");
+  };
+  await expect(
+    runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
+  ).rejects.toMatchObject({ name: "ClientError", reason: "Transport" });
+  expect(promptCalls).toBe(1);
+});
+
+test("does not retry a non-transport client failure", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let waits = 0;
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    waits++;
+    throw new ClientError("UnexpectedStatus");
+  };
+  await expect(
+    runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
+  ).rejects.toMatchObject({ name: "ClientError", reason: "UnexpectedStatus" });
+  expect(waits).toBe(1);
+});
+
+test("does not retry a non-ClientError shaped object", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let waits = 0;
+  const shaped = { name: "ServiceUnavailableError", reason: "Transport", message: "nope" };
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    waits++;
+    throw shaped;
+  };
+  await expect(
+    runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
+  ).rejects.toBe(shaped);
+  expect(waits).toBe(1);
+});
+
+test("stops retrying once torn down between attempts", async () => {
+  const prompts: string[] = [];
+  const client = makeClient(prompts);
+  let torn = false;
+  let waits = 0;
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    waits++;
+    torn = true;
+    throw new ClientError("Transport");
+  };
+  await expect(
+    runReview(client, {
+      directory: "/tmp",
+      prompt: "go",
+      model: "zen/kimi-k3",
+      isTornDown: () => torn,
+    }),
+  ).rejects.toMatchObject({ name: "ClientError", reason: "Transport" });
+  expect(waits).toBe(1);
 });
