@@ -406,7 +406,7 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                 keyPush.then(() =>
                   runReview(
                     serve.client,
-                    { ...opts, permissions },
+                    { ...opts, permissions, isTornDown: () => released },
                     {
                       onSession: (id) => {
                         sessionId = id;

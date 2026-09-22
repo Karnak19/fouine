@@ -326,3 +326,134 @@ test("abort during session.create interrupts the late session and registers noth
     singleton.serve = previousServe;
   }
 });
+
+test("abort during session.create sends no prompt once the late session arrives", async () => {
+  const { serve } = fakeServe();
+  let resolveCreate: (v: { id: string }) => void = () => {};
+  const created = new Promise<{ id: string }>((resolve) => {
+    resolveCreate = resolve;
+  });
+  const prompts: string[] = [];
+  const interrupted: string[] = [];
+  const client = serve.client as unknown as {
+    session: {
+      create: () => Promise<{ id: string }>;
+      interrupt: (req: { sessionID: string }) => Promise<unknown>;
+      prompt: (req: { sessionID: string; text: string }) => Promise<unknown>;
+      wait: () => Promise<void>;
+    };
+    message: { list: () => Promise<{ data: []; cursor: object }> };
+  };
+  client.session.create = () => created;
+  client.session.interrupt = async (req) => {
+    interrupted.push(req.sessionID);
+    return { interrupted: true };
+  };
+  client.session.prompt = async (req) => {
+    prompts.push(req.text);
+    return {};
+  };
+  client.session.wait = async () => undefined;
+  client.message = { list: async () => ({ data: [], cursor: {} }) };
+
+  const singleton = openCodeManager as unknown as { serve?: OpencodeServe };
+  const previousServe = singleton.serve;
+  singleton.serve = serve;
+
+  const controller = new AbortController();
+  try {
+    const program = Effect.gen(function* () {
+      const oc = yield* OpenCodeService;
+      return yield* oc.runReview(
+        { directory: "/tmp/fouine-test", prompt: "hi", model: "runprov/runmodel" },
+        () => {},
+        controller.signal,
+      );
+    });
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+      () => undefined,
+    );
+
+    await tick();
+    controller.abort(new Error("superseded"));
+    await run;
+
+    // The late id arrives after teardown ran: the session is interrupted, but
+    // the run must NOT go on to send its prompt (the interrupt was a no-op on
+    // the still-idle session).
+    resolveCreate({ id: "ses_late" });
+    await tick();
+    await tick();
+
+    expect(prompts).toEqual([]);
+    expect(interrupted).toEqual(["ses_late"]);
+  } finally {
+    singleton.serve = previousServe;
+  }
+});
+
+test("abort mid-run does not start the nudge prompt", async () => {
+  const { serve } = fakeServe();
+  const prompts: string[] = [];
+  let releaseWait: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    releaseWait = resolve;
+  });
+  const client = serve.client as unknown as {
+    session: {
+      create: () => Promise<{ id: string }>;
+      interrupt: (req: { sessionID: string }) => Promise<unknown>;
+      prompt: (req: { sessionID: string; text: string }) => Promise<unknown>;
+      wait: () => Promise<void>;
+    };
+    message: { list: () => Promise<{ data: []; cursor: object }> };
+  };
+  client.session.create = async () => ({ id: "ses_1" });
+  client.session.prompt = async (req) => {
+    prompts.push(req.text);
+    return {};
+  };
+  // The first wait blocks until the abort's interrupt releases it, exactly like
+  // a real interrupt ends the in-flight run.
+  client.session.wait = () => waiting;
+  client.session.interrupt = async () => {
+    releaseWait();
+    return { interrupted: true };
+  };
+  client.message = { list: async () => ({ data: [], cursor: {} }) };
+
+  const singleton = openCodeManager as unknown as { serve?: OpencodeServe };
+  const previousServe = singleton.serve;
+  singleton.serve = serve;
+
+  const controller = new AbortController();
+  try {
+    const program = Effect.gen(function* () {
+      const oc = yield* OpenCodeService;
+      return yield* oc.runReview(
+        {
+          directory: "/tmp/fouine-test",
+          prompt: "hi",
+          model: "runprov/runmodel",
+          hasPosted: () => false,
+        },
+        () => {},
+        controller.signal,
+      );
+    });
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+      () => undefined,
+    );
+
+    await tick();
+    controller.abort(new Error("superseded"));
+    await run;
+    await tick();
+    await tick();
+
+    // Only the review's own prompt: the nudge must not fire after teardown.
+    expect(prompts).toEqual(["hi"]);
+  } finally {
+    singleton.serve = previousServe;
+  }
+});

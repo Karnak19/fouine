@@ -107,6 +107,44 @@ test("does not nudge when the review was posted", async () => {
   expect(result.text).toBe("reply 1");
 });
 
+// Teardown cannot cancel the runReview promise, so ask() must refuse to prompt
+// once it has happened. Covers the create-window case: the release's interrupt
+// was a no-op on an idle session, and the initial prompt would otherwise fire
+// unsupervised.
+test("sends no prompts at all when already torn down", async () => {
+  const prompts: string[] = [];
+  const result = await runReview(makeClient(prompts), {
+    directory: "/tmp",
+    prompt: "review this",
+    model: "zen/kimi-k3",
+    hasPosted: () => false,
+    isTornDown: () => true,
+  });
+  expect(prompts).toHaveLength(0);
+  expect(result.text).toBe("");
+});
+
+// Mid-run case: after the first wait settles, hasPosted() is still false, so the
+// nudge would start a brand-new model run with the watchdog dead. The guard must
+// suppress it — exactly one prompt, the review's own.
+test("skips the nudge when teardown lands during the first wait", async () => {
+  const prompts: string[] = [];
+  let torn = false;
+  const client = makeClient(prompts);
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    torn = true;
+  };
+  const result = await runReview(client, {
+    directory: "/tmp",
+    prompt: "review this",
+    model: "zen/kimi-k3",
+    hasPosted: () => false,
+    isTornDown: () => torn,
+  });
+  expect(prompts).toHaveLength(1);
+  expect(result.text).toBe("reply 1");
+});
+
 test("creates the session in the review's directory with the parsed model", async () => {
   const calls: unknown[] = [];
   const client = makeClient([]);
