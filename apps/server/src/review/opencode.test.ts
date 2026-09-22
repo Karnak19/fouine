@@ -4,7 +4,7 @@ import {
   runReview,
   type OpencodeClient,
 } from "~/review/opencode";
-import type { PermissionRuleset } from "@opencode/client";
+import { ClientError, type PermissionRuleset } from "@opencode/client";
 
 // Minimal client stub: records every prompt sent to the session, and answers
 // message.list with one assistant message per ask.
@@ -33,15 +33,6 @@ function makeClient(prompts: string[]) {
       }),
     },
   } as unknown as OpencodeClient;
-}
-
-// The v2 client throws `ClientError` with a `reason` field; duck-type it the way
-// the production guard does.
-function clientError(reason: string, message = reason): Error {
-  const err = new Error(message);
-  err.name = "ClientError";
-  (err as { reason?: string }).reason = reason;
-  return err;
 }
 
 // The spawned opencode child must inherit ONLY this allowlist. The old spawn
@@ -220,7 +211,7 @@ test("retries a transport failure on session.wait", async () => {
   let waits = 0;
   (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
     waits++;
-    if (waits === 1) throw clientError("Transport");
+    if (waits === 1) throw new ClientError("Transport");
   };
   const result = await runReview(client, {
     directory: "/tmp",
@@ -237,7 +228,7 @@ test("retries a transport failure on session.create", async () => {
   let creates = 0;
   (client.session as unknown as { create: () => Promise<{ id: string }> }).create = async () => {
     creates++;
-    if (creates === 1) throw clientError("Transport");
+    if (creates === 1) throw new ClientError("Transport");
     return { id: "sess" };
   };
   const result = await runReview(client, {
@@ -255,7 +246,7 @@ test("gives up after the transport retry budget", async () => {
   let waits = 0;
   (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
     waits++;
-    throw clientError("Transport");
+    throw new ClientError("Transport");
   };
   await expect(
     runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
@@ -271,7 +262,7 @@ test("does not retry a transport failure on session.prompt", async () => {
   let promptCalls = 0;
   (client.session as unknown as { prompt: () => Promise<unknown> }).prompt = async () => {
     promptCalls++;
-    throw clientError("Transport");
+    throw new ClientError("Transport");
   };
   await expect(
     runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
@@ -285,7 +276,7 @@ test("does not retry a non-transport client failure", async () => {
   let waits = 0;
   (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
     waits++;
-    throw clientError("UnexpectedStatus", "server said 500");
+    throw new ClientError("UnexpectedStatus");
   };
   await expect(
     runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" }),
@@ -316,7 +307,7 @@ test("stops retrying once torn down between attempts", async () => {
   (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
     waits++;
     torn = true;
-    throw clientError("Transport");
+    throw new ClientError("Transport");
   };
   await expect(
     runReview(client, {

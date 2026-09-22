@@ -1,4 +1,4 @@
-import { OpenCode } from "@opencode/client";
+import { ClientError, OpenCode } from "@opencode/client";
 import type { PermissionRuleset } from "@opencode/client";
 import { resolveDefaultModel } from "~/settings";
 import { COMMANDCODE_PROVIDER, toConfigKey } from "~/review/commandcode";
@@ -260,14 +260,11 @@ function summarizeMessages(msgs: Awaited<ReturnType<OpencodeClient["message"]["l
 const TRANSPORT_RETRY_ATTEMPTS = 3; // 1 initial + 2 retries
 const TRANSPORT_RETRY_BACKOFF_MS = 250; // 250ms, then 500ms
 
-// Duck-typed: the client sets `name`/`reason` as fields, and reaching the class
-// across the bundling boundary is not worth it.
+// The class the client's promise API throws when the HTTP exchange itself fails.
+// `reason` separates a transport failure from a real answer (UnexpectedStatus) or
+// a protocol problem (MalformedResponse / SseEventTooLarge).
 function isTransportError(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    err.name === "ClientError" &&
-    (err as { reason?: unknown }).reason === "Transport"
-  );
+  return err instanceof ClientError && err.reason === "Transport";
 }
 
 async function withTransportRetry<T>(
