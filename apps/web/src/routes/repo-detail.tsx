@@ -169,6 +169,7 @@ export default function RepoDetailPage() {
     autoReady: null as number | null,
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
 
   // Only to show which way "inherit" currently resolves. Same query key as the
   // settings page, so it's usually already cached.
@@ -279,6 +280,25 @@ export default function RepoDetailPage() {
     setAutoReady(baseline.autoReady);
   };
 
+  // Effective auto-merge resolves inherit against the global default, using
+  // the same reading the inherit option label shows. While settings are still
+  // loading, inherit could resolve either way — fail closed and confirm
+  // rather than risk a silent arm.
+  const autoMergeEffective = autoMerge ?? (settings?.auto_merge === "1" ? 1 : 0);
+  const autoMergeWas = baseline.autoMerge ?? (settings?.auto_merge === "1" ? 1 : 0);
+  const armingAutoMerge =
+    (autoMergeEffective === 1 || (autoMerge === null && settings === undefined)) &&
+    (autoMergeWas !== 1 || settings === undefined);
+  const mergeMethodActive = autoMergeEffective === 1;
+
+  // Arming auto-merge lets a bot merge code, so a save that flips it off to
+  // on asks for confirmation instead of saving silently. This also covers
+  // preset-driven arming via the Automation radios, which flows through Save.
+  const requestSave = () => {
+    if (dirty && armingAutoMerge) setMergeConfirmOpen(true);
+    else updateMut.mutate();
+  };
+
   useEffect(() => {
     if (!dirty) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -334,6 +354,7 @@ export default function RepoDetailPage() {
         implementModel,
         autoReady,
       });
+      toast.success("Configuration saved");
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
   });
@@ -402,7 +423,33 @@ export default function RepoDetailPage() {
               disabled={deleteMut.isPending}
               onClick={() => deleteMut.mutate()}
             >
-              Delete
+              {deleteMut.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Let fouine merge PRs on this repo?</DialogTitle>
+            <DialogDescription>
+              Auto-merge merges PRs fouine approves without human review. You can turn it off
+              anytime.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setMergeConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={updateMut.isPending}
+              onClick={() => {
+                setMergeConfirmOpen(false);
+                updateMut.mutate();
+              }}
+            >
+              {updateMut.isPending ? "Turning on…" : "Turn on auto-merge"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -417,10 +464,14 @@ export default function RepoDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => cancelNavBlock?.()}>
+            <Button variant="outline" onClick={() => cancelNavBlock?.()}>
               Keep editing
             </Button>
-            <Button variant="destructive" onClick={() => proceedNav?.()}>
+            <Button
+              variant="ghost"
+              className="text-red-300 hover:text-red-200"
+              onClick={() => proceedNav?.()}
+            >
               Discard
             </Button>
           </DialogFooter>
@@ -435,8 +486,8 @@ export default function RepoDetailPage() {
       </Link>
 
       <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold font-mono">{repo.full_name}</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-2xl font-bold font-mono min-w-0 break-all">{repo.full_name}</h1>
           <span
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 tabular-nums",
@@ -473,6 +524,7 @@ export default function RepoDetailPage() {
           <Stat label="Reviews" value={String(insight.count)} />
           <Stat
             label="Success"
+            title="Share of finished reviews that completed. Pending runs excluded."
             value={insight.successRate == null ? "—" : `${insight.successRate}%`}
           />
           <Stat label="Total cost" value={formatCost(insight.totalCost) ?? "—"} />
@@ -481,7 +533,7 @@ export default function RepoDetailPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-      <div className="order-1 lg:order-2 lg:sticky lg:top-6">
+      <div className="order-2 lg:order-2 lg:sticky lg:top-6">
       <Card>
         <CardHeader>
           <CardTitle>Configuration</CardTitle>
@@ -490,7 +542,7 @@ export default function RepoDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              updateMut.mutate();
+              requestSave();
             }}
             className="space-y-4"
           >
@@ -556,7 +608,7 @@ export default function RepoDetailPage() {
                     }
                   >
                     <option value="inherit">
-                      Use global default (inherit: currently {settings?.auto_merge === "1" ? "on" : "off"})
+                      Use global default (currently {settings?.auto_merge === "1" ? "on" : "off"})
                     </option>
                     <option value="1">On for this repo</option>
                     <option value="0">Off for this repo</option>
@@ -573,7 +625,7 @@ export default function RepoDetailPage() {
                     }
                   >
                     <option value="inherit">
-                      Use global default (inherit: currently{" "}
+                      Use global default (currently{" "}
                       {settings?.refine_enabled === "1" ? "on" : "off"})
                     </option>
                     <option value="1">On for this repo</option>
@@ -595,7 +647,7 @@ export default function RepoDetailPage() {
                     }
                   >
                     <option value="inherit">
-                      Use global default (inherit: currently{" "}
+                      Use global default (currently{" "}
                       {settings?.implement_enabled === "1" ? "on" : "off"})
                     </option>
                     <option value="1">On for this repo</option>
@@ -617,7 +669,7 @@ export default function RepoDetailPage() {
                     }
                   >
                     <option value="inherit">
-                      Use global default (inherit: currently{" "}
+                      Use global default (currently{" "}
                       {settings?.auto_ready === "1" ? "on" : "off"})
                     </option>
                     <option value="1">On for this repo</option>
@@ -671,7 +723,7 @@ export default function RepoDetailPage() {
                 }
               >
                 <option value="inherit">
-                  Use global default (
+                  Use global default (currently{" "}
                   {settings?.deny_test_commands === "1" ? "don't run them" : "run them"})
                 </option>
                 <option value="1">Don't run them on this repo</option>
@@ -682,7 +734,8 @@ export default function RepoDetailPage() {
               <Label htmlFor="merge_method">Merge method</Label>
               <select
                 id="merge_method"
-                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                disabled={!mergeMethodActive}
+                className="flex h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 disabled:opacity-50"
                 value={mergeMethod ?? "inherit"}
                 onChange={(e) =>
                   setMergeMethod(
@@ -693,12 +746,15 @@ export default function RepoDetailPage() {
                 }
               >
                 <option value="inherit">
-                  Use global default (inherit: currently {settings?.merge_method ?? "squash"})
+                  Use global default (currently {settings?.merge_method ?? "squash"})
                 </option>
                 <option value="squash">Squash and merge</option>
                 <option value="merge">Create a merge commit</option>
                 <option value="rebase">Rebase and merge</option>
               </select>
+              {!mergeMethodActive && (
+                <p className="text-xs text-zinc-500">Applies when auto-merge is on.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="refine_model">Refine model override</Label>
@@ -752,7 +808,7 @@ export default function RepoDetailPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={!dirty || updateMut.isPending}>
-                Save
+                {updateMut.isPending ? "Saving…" : "Save"}
               </Button>
               {dirty && (
                 <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
@@ -769,21 +825,29 @@ export default function RepoDetailPage() {
                 <Sparkles size={14} />
                 {improveMut.isSuccess ? "Improver queued" : "Run improver"}
               </Button>
-              <Button type="button" variant="destructive" onClick={() => setDeleteOpen(true)}>
-                <Trash2 size={14} />
-                Delete
-              </Button>
             </div>
             <p className="text-xs text-zinc-500">
               Run improver rereads recent reviews on this repo and opens a PR updating REVIEW.md to fix
               issues it keeps missing.
             </p>
+            <div className="border-t border-zinc-800 pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-red-300 hover:text-red-200"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 size={14} />
+                Delete repository
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
       </div>
 
-      <div className="order-2 lg:order-1 space-y-6">
+      <div className="order-1 lg:order-1 space-y-6">
       {improverRuns.length > 0 && (
         <Card>
           <CardHeader>
@@ -821,7 +885,7 @@ export default function RepoDetailPage() {
                       {timeAgo(r.created_at)}
                     </TableCell>
                     <TableCell className="text-zinc-500">
-                      <Link to="/reviews/$id" params={{ id: String(r.id) }}>
+                      <Link to="/reviews/$id" params={{ id: String(r.id) }} tabIndex={-1} aria-hidden="true">
                         <ChevronRight size={16} />
                       </Link>
                     </TableCell>
@@ -851,14 +915,17 @@ export default function RepoDetailPage() {
               </Button>
             </div>
           ) : prGroups.length === 0 ? (
-            <p className="text-sm text-zinc-500">No reviews yet.</p>
+            <p className="text-sm text-zinc-500">
+              No reviews yet. Open a PR or comment <span className="font-mono">/fouine</span> to
+              trigger one.
+            </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>PR</TableHead>
                   <TableHead className="text-right">Reviews</TableHead>
-                  <TableHead>Latest</TableHead>
+                  <TableHead title="Status of the latest run">Latest</TableHead>
                   <TableHead className="text-right">Last run</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
@@ -882,6 +949,7 @@ export default function RepoDetailPage() {
                             target="_blank"
                             rel="noreferrer"
                             className="text-zinc-500 hover:text-zinc-300"
+                            aria-label={`Open PR #${latest.pr_number} on GitHub`}
                           >
                             <ExternalLink size={12} />
                           </a>
@@ -903,6 +971,8 @@ export default function RepoDetailPage() {
                         <Link
                           to="/repos/$owner/$name/pr/$number"
                           params={{ owner, name, number: String(latest.pr_number) }}
+                          tabIndex={-1}
+                          aria-hidden="true"
                         >
                           <ChevronRight size={16} />
                         </Link>
