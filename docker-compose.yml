@@ -3,6 +3,11 @@ services:
     build: .
     image: fouine:latest
     restart: unless-stopped
+    # Don't start until the sidecar answers its healthcheck, so the first review
+    # isn't racing a server that isn't listening yet.
+    depends_on:
+      opencode:
+        condition: service_healthy
     # Same liveness check as compose.coolify.yml — see the comment there.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
@@ -13,10 +18,19 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     volumes:
+      # Mounted at the SAME absolute path in both containers: session.create's
+      # location.directory is a /data/... path the sidecar resolves itself.
       - ./data:/data
     environment:
       DATA_DIR: /data
       PORT: 3000
+      # Sidecar mode: set = fouine spawns no opencode child and talks to the
+      # service below instead. Unset this to fall back to child mode (fouine
+      # spawns its own `opencode serve`; needs the opencode CLI on PATH, which
+      # the root Dockerfile installs).
+      OPENCODE_BASE_URL: http://opencode:4096
+      # Shared with the sidecar. Basic auth username is always "opencode".
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
       GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH:-}
@@ -28,3 +42,47 @@ services:
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       # Command Code key — only needed for commandcode/* models.
       COMMANDCODE_API_KEY: ${COMMANDCODE_API_KEY:-}
+
+  # The OpenCode server, as its own container. Only fouine publishes a host
+  # port; this one is reachable on the compose network only.
+  opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile.opencode
+    image: fouine-opencode:latest
+    restart: unless-stopped
+    expose:
+      - "4096"
+    volumes:
+      # MUST be the same absolute path as fouine's (see above).
+      - ./data:/data
+    environment:
+      # Only what the server and the review's tools need. NO fouine secrets:
+      # the model can read its shell env, and these secrets would leak into every
+      # bash call. FOUINE_INTERNAL_URL is how the post_* tools reach fouine.
+      HOME: /root
+      OPENCODE_CONFIG_DIR: /data/opencode
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      FOUINE_INTERNAL_URL: http://fouine:3000
+      # Non-secret opencode-side knob read by the cap-bash-timeout plugin. Child
+      # mode forwards the same var via review/opencode.ts's PASSTHROUGH_ENV; the
+      # sidecar needs it here for parity. Empty = the plugin's built-in default.
+      OPENCODE_BASH_TIMEOUT_MAX_MS: ${OPENCODE_BASH_TIMEOUT_MAX_MS:-}
+    # The official image has ENTRYPOINT ["opencode"] and no CMD.
+    command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    healthcheck:
+      # /api/info requires Basic auth once OPENCODE_SERVER_PASSWORD is set
+      # (verified against 2.0.11), and the image has busybox wget + base64 but no
+      # curl, so the header is built by hand. `$$` lets the container's shell —
+      # not Compose — expand the password.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null
+          --header="Authorization: Basic $(printf 'opencode:%s' "$$OPENCODE_SERVER_PASSWORD" | base64)"
+          http://127.0.0.1:4096/api/info
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+ (OpenCode v1 → v2 migration: singleton server, loopback-proxy GitHub, plugin API)

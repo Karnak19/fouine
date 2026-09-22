@@ -1,37 +1,82 @@
 import { expect, test } from "bun:test";
-import type { OpencodeClient } from "@opencode-ai/sdk";
-import { refineToolEnv, runReview } from "~/review/opencode";
+import {
+  opencodeSpawnEnv,
+  runReview,
+  type OpencodeClient,
+} from "~/review/opencode";
+import type { PermissionRuleset } from "@opencode/client";
 
-// Minimal client stub: records every prompt sent to the session.
+// Minimal client stub: records every prompt sent to the session, and answers
+// message.list with one assistant message per ask.
 function makeClient(prompts: string[]) {
   return {
-    auth: { set: async () => ({ data: true }) },
+    integration: { connect: { key: async () => undefined } },
     session: {
-      create: async () => ({ data: { id: "sess" } }),
-      prompt: async (req: { body: { parts: { text: string }[] } }) => {
-        prompts.push(req.body.parts[0].text);
-        return { data: { parts: [{ type: "text", text: `reply ${prompts.length}` }] } };
+      create: async () => ({ id: "sess" }),
+      prompt: async (req: { sessionID: string; text: string }) => {
+        prompts.push(req.text);
+        return { id: `msg-${prompts.length}`, sessionID: req.sessionID, type: "user" };
       },
-      messages: async () => ({ data: [] }),
+      wait: async () => undefined,
+      get: async () => ({ id: "sess" }),
+    },
+    message: {
+      list: async () => ({
+        data: prompts.map((_, i) => ({
+          id: `a-${i}`,
+          type: "assistant",
+          cost: 0.01,
+          tokens: { input: 10, output: 5, reasoning: 2, cache: { read: 0, write: 0 } },
+          content: [{ type: "text", text: `reply ${i + 1}` }],
+        })),
+        cursor: {},
+      }),
     },
   } as unknown as OpencodeClient;
 }
 
-test("refineToolEnv sets FOUINE_READY_LABEL for the mark_issue_ready tool", () => {
-  const env = refineToolEnv({
-    githubToken: "tok",
-    owner: "acme",
-    repo: "widget",
-    issueNumber: 12,
-    reviewId: 1,
-    internalUrl: "http://x",
-    internalSecret: "s",
-    readyLabel: "fouine-ready",
-  });
-  expect(env.FOUINE_READY_LABEL).toBe("fouine-ready");
-  // Unlike improveToolEnv, refineToolEnv keeps FOUINE_PR_NUMBER (set to the
-  // issue number) — post_comment posts to /issues/{n}/comments.
-  expect(env.FOUINE_PR_NUMBER).toBe("12");
+// The spawned opencode child must inherit ONLY this allowlist. The old spawn
+// spread process.env, which handed fouine's GitHub token and app secrets to the
+// model's bash.
+test("the spawned server inherits only the minimal env allowlist", () => {
+  const saved = {
+    FOUINE_GITHUB_TOKEN: process.env.FOUINE_GITHUB_TOKEN,
+    GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
+    POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
+    OPENCODE_BASH_TIMEOUT_MAX_MS: process.env.OPENCODE_BASH_TIMEOUT_MAX_MS,
+  };
+  process.env.FOUINE_GITHUB_TOKEN = "leak-me";
+  process.env.GITHUB_APP_PRIVATE_KEY = "app-secret";
+  delete process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
+  try {
+    const env = opencodeSpawnEnv("pw", "/cfg/opencode", "http://127.0.0.1:3000");
+    expect(Object.keys(env).sort()).toEqual(
+      [
+        "FOUINE_INTERNAL_URL",
+        "HOME",
+        "OPENCODE_CONFIG_DIR",
+        "OPENCODE_SERVER_PASSWORD",
+        "PATH",
+      ].sort(),
+    );
+    expect(env.OPENCODE_CONFIG_DIR).toBe("/cfg/opencode");
+    expect(env.OPENCODE_SERVER_PASSWORD).toBe("pw");
+    expect(env.FOUINE_INTERNAL_URL).toBe("http://127.0.0.1:3000");
+
+    // The one non-secret operator knob is passed through when set …
+    process.env.OPENCODE_BASH_TIMEOUT_MAX_MS = "30000";
+    expect(opencodeSpawnEnv("pw", "/cfg", "http://x").OPENCODE_BASH_TIMEOUT_MAX_MS).toBe("30000");
+
+    // … but no credential ever rides along — including the optional ones.
+    expect(env).not.toContainKey("FOUINE_GITHUB_TOKEN");
+    expect(env).not.toContainKey("GITHUB_APP_PRIVATE_KEY");
+    expect(env).not.toContainKey("POSTHOG_API_KEY");
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test("nudges the session once when nothing was posted", async () => {
@@ -44,7 +89,10 @@ test("nudges the session once when nothing was posted", async () => {
   });
   expect(prompts).toHaveLength(2);
   expect(prompts[1]).toContain("without posting");
+  // Whole-session assistant text, so the nudge's answer is appended.
   expect(result.text).toBe("reply 1\nreply 2");
+  expect(result.cost).toBeCloseTo(0.02);
+  expect(result.tokens).toBe(34);
 });
 
 test("does not nudge when the review was posted", async () => {
@@ -57,4 +105,88 @@ test("does not nudge when the review was posted", async () => {
   });
   expect(prompts).toHaveLength(1);
   expect(result.text).toBe("reply 1");
+});
+
+// Teardown cannot cancel the runReview promise, so ask() must refuse to prompt
+// once it has happened. Covers the create-window case: the release's interrupt
+// was a no-op on an idle session, and the initial prompt would otherwise fire
+// unsupervised.
+test("sends no prompts at all when already torn down", async () => {
+  const prompts: string[] = [];
+  const result = await runReview(makeClient(prompts), {
+    directory: "/tmp",
+    prompt: "review this",
+    model: "zen/kimi-k3",
+    hasPosted: () => false,
+    isTornDown: () => true,
+  });
+  expect(prompts).toHaveLength(0);
+  expect(result.text).toBe("");
+});
+
+// Mid-run case: after the first wait settles, hasPosted() is still false, so the
+// nudge would start a brand-new model run with the watchdog dead. The guard must
+// suppress it — exactly one prompt, the review's own.
+test("skips the nudge when teardown lands during the first wait", async () => {
+  const prompts: string[] = [];
+  let torn = false;
+  const client = makeClient(prompts);
+  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+    torn = true;
+  };
+  const result = await runReview(client, {
+    directory: "/tmp",
+    prompt: "review this",
+    model: "zen/kimi-k3",
+    hasPosted: () => false,
+    isTornDown: () => torn,
+  });
+  expect(prompts).toHaveLength(1);
+  expect(result.text).toBe("reply 1");
+});
+
+test("creates the session in the review's directory with the parsed model", async () => {
+  const calls: unknown[] = [];
+  const client = makeClient([]);
+  (client.session as unknown as { create: (input: unknown) => Promise<unknown> }).create = async (
+    input: unknown,
+  ) => {
+    calls.push(input);
+    return { id: "sess" };
+  };
+  await runReview(client, { directory: "/worktree", prompt: "go", model: "zen/kimi-k3" });
+  expect(calls[0]).toMatchObject({
+    title: "fouine review",
+    location: { directory: "/worktree" },
+    model: { providerID: "zen", id: "kimi-k3" },
+  });
+});
+
+// Per-review policy rides the session now (not a per-spawn config document):
+// session.create must carry the permissions ruleset verbatim.
+test("carries the per-session permissions ruleset into session.create", async () => {
+  const calls: unknown[] = [];
+  const client = makeClient([]);
+  (client.session as unknown as { create: (input: unknown) => Promise<unknown> }).create = async (
+    input: unknown,
+  ) => {
+    calls.push(input);
+    return { id: "sess" };
+  };
+  const permissions: PermissionRuleset = [
+    { action: "shell", resource: "bun test *", effect: "deny" },
+  ];
+  await runReview(client, { directory: "/w", prompt: "go", model: "zen/kimi-k3", permissions });
+  expect(calls[0]).toMatchObject({ permissions });
+});
+
+test("invokes the onSession hook with the created id before prompting", async () => {
+  const seen: string[] = [];
+  const client = makeClient([]);
+  await runReview(
+    client,
+    { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" },
+    { onSession: (id) => void seen.push(id) },
+  );
+  expect(seen).toEqual(["sess"]);
 });

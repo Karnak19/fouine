@@ -147,7 +147,7 @@ export default function ReviewDetailPage() {
       }
       // Unknown message id: we missed frames. Refetch the snapshot, at most
       // once every 5s so a burst of orphan deltas can't become a fetch storm
-      // (each fetch spawns an opencode server — the very cost this removes).
+      // (the shared singleton client serves this — no server spawn per fetch).
       const now = Date.now();
       if (now - refetchGuard.current < 5000) return;
       refetchGuard.current = now;

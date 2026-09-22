@@ -37,7 +37,7 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> } = {}
     completed: 0,
     failed: [] as string[],
     agent: undefined as string | undefined,
-    env: undefined as Record<string, string> | undefined,
+    opts: undefined as Record<string, unknown> | undefined,
     prompt: undefined as string | undefined,
     inserted: undefined as { pr: number; trigger: string | null; title: string } | undefined,
     fetchedRef: undefined as string | undefined,
@@ -75,9 +75,9 @@ function makeLayer(over: { oc?: () => Effect.Effect<never, OpenCodeError> } = {}
   } as unknown as GitService);
 
   const oc = Layer.succeed(OpenCodeService, {
-    runReview: (o: { agent?: string; env?: Record<string, string>; prompt?: string }) => {
+    runReview: (o: { agent?: string; prompt?: string }) => {
       calls.agent = o.agent;
-      calls.env = o.env;
+      calls.opts = o as Record<string, unknown>;
       calls.prompt = o.prompt;
       return over.oc
         ? over.oc()
@@ -101,13 +101,16 @@ test("success path runs the refiner agent on the default branch and completes", 
   expect(calls.inserted).toEqual({ pr: 12, trigger: "refine", title: issue.title });
 });
 
-// The trap: improveToolEnv strips FOUINE_PR_NUMBER, and post_comment's endpoint
-// (/issues/{n}/comments) needs it — set to the issue number.
-test("the tool env carries the issue number as FOUINE_PR_NUMBER", async () => {
+// The refiner's write-back used to ride FOUINE_PR_NUMBER (= the issue number)
+// in a per-run env; that plumbing is gone and the issue-number binding moves
+// server-side. Nothing per-run reaches the model's bash now.
+test("passes no per-review tool env to the run", async () => {
   const { layer, calls } = makeLayer();
   await Effect.runPromise(refinePipeline(target, noAbort(), () => {}).pipe(Effect.provide(layer)));
-  expect(calls.env?.FOUINE_PR_NUMBER).toBe("12");
-  expect(calls.env?.FOUINE_GITHUB_TOKEN).toBe("tok");
+  expect(calls.opts).not.toContainKey("env");
+  expect(calls.agent).toBe("fouine-refiner");
+  // The row is still keyed by the issue number — see the success-path test.
+  expect(calls.inserted?.pr).toBe(12);
 });
 
 test("failure marks the run failed and propagates", async () => {

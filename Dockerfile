@@ -28,9 +28,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl bash \
     && rm -rf /var/lib/apt/lists/*
 
-# ponytail: keep in sync with @opencode-ai/sdk in package.json
-ARG OPENCODE_VERSION=1.18.30
-RUN curl -fsSL https://opencode.ai/install | VERSION="$OPENCODE_VERSION" bash \
+# ponytail: keep in sync with @opencode/client in package.json
+ARG OPENCODE_VERSION=2.0.11
+# The v2 installer (opencode.ai/v2/install) fetches @opencode/cli-* from npm;
+# the v1 script URL would put a 1.x binary here and the client would fail to
+# talk to it.
+RUN curl -fsSL https://opencode.ai/v2/install | VERSION="$OPENCODE_VERSION" bash \
     && ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode \
     && opencode --version
 

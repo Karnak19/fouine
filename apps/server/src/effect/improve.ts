@@ -4,12 +4,10 @@ import { cloneUrl, failureMessage, readRepoNotes, writeFailure } from "~/effect/
 import { resolveDenyTestCommands, resolveImproverModel } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
-import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { OpenCodeService } from "~/effect/opencode";
-import { improveToolEnv } from "~/review/opencode";
 import { GitHubError, type ReviewError } from "~/effect/errors";
 
 export interface ImproveTarget {
@@ -131,14 +129,6 @@ export function improvePipeline(
             // detail page is transcript-only — so it streams the same way.
             transcript: { reviewId: id, repo: target.repoFullName },
             denyTestCommands,
-            env: improveToolEnv({
-              githubToken: token,
-              owner,
-              repo: repoName,
-              reviewId: id,
-              internalUrl: internalBaseUrl,
-              internalSecret,
-            }),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),

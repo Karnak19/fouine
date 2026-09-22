@@ -165,11 +165,19 @@ Vite produced.
 
 ## Self-hosting
 
-Copy `.env.example` to `.env`, fill in the GitHub App credentials, then:
+Copy `.env.example` to `.env`, fill in the GitHub App credentials, set
+`OPENCODE_SERVER_PASSWORD` to a strong random string, then:
 
 ```bash
 docker compose up -d
 ```
+
+This starts fouine plus an OpenCode **sidecar** container. Because
+`OPENCODE_BASE_URL` is set, fouine talks to that server instead of spawning its
+own. To run in **child mode** instead, delete the `opencode` service and the
+`OPENCODE_BASE_URL` line from `docker-compose.yml` — the image already ships the
+OpenCode CLI. The [installation guide](https://karnak19.github.io/fouine/guide/installation)
+covers both modes.
 
 Register the GitHub App, point the webhook to your server, install on repos,
 configure your prompt on the dashboard. That's it.

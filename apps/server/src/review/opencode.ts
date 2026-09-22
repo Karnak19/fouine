@@ -1,13 +1,40 @@
-import { createOpencode, type OpencodeClient } from "@opencode-ai/sdk";
-import { resolveApiKey, resolveDefaultModel } from "~/settings";
+import { OpenCode } from "@opencode/client";
+import type { PermissionRuleset } from "@opencode/client";
+import { resolveDefaultModel } from "~/settings";
 import { COMMANDCODE_PROVIDER, toConfigKey } from "~/review/commandcode";
 import { log } from "~/server/log";
 import { createServer } from "node:net";
+import { randomBytes } from "node:crypto";
+import { config } from "~/config";
+import { internalBaseUrl } from "~/server/internal";
 
-// ponytail: grab an ephemeral port so concurrent reviews don't all try to bind
-// the opencode SDK's hardcoded default 4096 (which made `opencode serve` exit 1
-// on any overlapping run). Tiny TOCTOU window between close and bind; the rare
-// loser fails its own review and retry covers it.
+// opencode v2 client/server plumbing for the single long-lived server fouine now
+// runs: ONE `opencode serve` for the process lifetime hosts one session per
+// review. The manager that owns that child lives in effect/opencode.ts; this
+// module only holds the spawn helpers and the pure session/watchdog folds.
+//
+// v2 notes baked in here:
+//  - The server requires HTTP Basic auth with a password. We set it ourselves
+//    via OPENCODE_SERVER_PASSWORD so we don't have to parse it out of the
+//    child's stdout (the default is random and only printed there).
+//  - Per-review permissions ride `session.create({ permissions })`. The child
+//    no longer receives OPENCODE_CONFIG_CONTENT, and — crucially — never sees
+//    fouine's app secrets: `spawnOpencode` hands it a minimal env allowlist
+//    (PATH, HOME, OPENCODE_CONFIG_DIR, OPENCODE_SERVER_PASSWORD,
+//    FOUINE_INTERNAL_URL), not a spread of process.env. The old spread leaked
+//    fouine's GitHub token and app config into the model's bash.
+//  - Per-review GitHub/tool context now lives server-side (the loopback proxy
+//    lane) rather than in the child's env, so concurrent reviews no longer need
+//    per-spawn isolation (#23 is structurally impossible now).
+//  - session.create carries model/agent/location; session.prompt({sessionID,
+//    text}) only admits the message; session.wait blocks until the run goes idle.
+
+export type OpencodeClient = ReturnType<typeof OpenCode.make>;
+
+// ponytail: grab an ephemeral port so a second fouine process (or a stale child
+// that never exited) doesn't collide with the singleton. Tiny TOCTOU window
+// between close and bind; the rare loser fails to start and the manager's next
+// acquire retries.
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -39,83 +66,164 @@ export function parseModel(spec: string): { providerID: string; modelID: string 
   return { providerID, modelID };
 }
 
+export interface OpencodeServe {
+  client: OpencodeClient;
+  port: number;
+  kill: () => void;
+}
+
+// Basic auth is the only auth v2 servers accept: `opencode:<password>`.
+export function authHeaders(password: string): Record<string, string> {
+  return { authorization: `Basic ${btoa(`opencode:${password}`)}` };
+}
+
+async function waitForReady(port: number, password: string, proc: Bun.Subprocess, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      throw new Error(`opencode serve exited during startup (code ${proc.exitCode})`);
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/info`, { headers: authHeaders(password) });
+      if (res.ok) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error(`opencode serve did not become ready within ${timeoutMs}ms`);
+}
+
+// The ONLY parent environment the opencode child may inherit. Everything else
+// (GitHub token, internal secret, app config, …) is fouine's and must never
+// reach the model's bash. Pure so the allowlist is directly testable.
+//
+// PASSTHROUGH_ENV carries the few *non-secret* knobs the opencode-side config
+// and plugins read at runtime. It stays tiny on purpose: credentials are
+// excluded even when optional — POSTHOG_API_KEY (a key the model could
+// exfiltrate) is deliberately NOT here.
+const PASSTHROUGH_ENV = ["OPENCODE_BASH_TIMEOUT_MAX_MS"] as const;
+
+export function opencodeSpawnEnv(
+  password: string,
+  configDir: string,
+  internalUrl: string,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "",
+    HOME: process.env.HOME ?? "",
+    OPENCODE_CONFIG_DIR: configDir,
+    OPENCODE_SERVER_PASSWORD: password,
+    FOUINE_INTERNAL_URL: internalUrl,
+  };
+  for (const key of PASSTHROUGH_ENV) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+export interface SpawnOpencodeOptions {
+  port: number;
+  signal?: AbortSignal;
+  // The fouine-owned seeded config dir (agent + tools + skills). Defaults to the
+  // runtime dir boot seeded.
+  configDir?: string;
+  // Loopback base URL the model's tools call back on.
+  internalUrl?: string;
+}
+
+// Spawn one `opencode serve` + its client with the minimal env. The caller owns
+// the child: kill() on teardown. This is called once per process by the manager
+// (effect/opencode.ts), never per review.
+export async function spawnOpencode(opts: SpawnOpencodeOptions): Promise<OpencodeServe> {
+  const port = opts.port;
+  const password = randomBytes(24).toString("hex");
+  const env = opencodeSpawnEnv(
+    password,
+    opts.configDir ?? config.opencode.runtimeDir,
+    opts.internalUrl ?? internalBaseUrl,
+  );
+  const proc = Bun.spawn(["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"], {
+    env,
+    stdout: "ignore",
+    stderr: "ignore",
+    // A wedged child must not keep the fouine process alive on its behalf.
+    stdin: "ignore",
+  });
+  try {
+    await waitForReady(port, password, proc);
+  } catch (cause) {
+    try {
+      proc.kill();
+    } catch {
+      // already dead
+    }
+    throw cause;
+  }
+  const client = OpenCode.make({
+    baseUrl: `http://127.0.0.1:${port}`,
+    headers: authHeaders(password),
+  });
+  const onAbort = () => {
+    try {
+      proc.kill();
+    } catch {
+      // already dead
+    }
+  };
+  if (opts.signal?.aborted) onAbort();
+  else opts.signal?.addEventListener("abort", onAbort, { once: true });
+  return {
+    client,
+    port,
+    kill: () => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      onAbort();
+    },
+  };
+}
+
+// Dashboard helper: run `fn` against the singleton server's client. No longer
+// spawns per call — the manager owns the one child for the process lifetime.
+// The dynamic import keeps this module free of a static cycle with the manager.
+export async function withOpencode<T>(fn: (client: OpencodeClient) => Promise<T>): Promise<T> {
+  const { openCodeManager } = await import("~/effect/opencode");
+  const serve = await openCodeManager.acquire();
+  return fn(serve.client);
+}
+
 export interface RunOptions {
   directory: string;
   prompt: string;
   model?: string;
   agent?: string;
-  // Per-review context for the custom tools (post_review / post_comment /
-  // get_prior_reviews). Injected into the opencode subprocess's env at spawn
-  // rather than mutated onto the long-lived parent process.env, so two reviews
-  // of different PRs running at once can't clobber each other's GitHub context
-  // (see OpenCodeService and issue #23).
-  env?: Record<string, string>;
+  // Per-session permission ruleset, delivered to `session.create`. The manager
+  // derives this from `denyTestCommands` when a caller doesn't supply one.
+  permissions?: PermissionRuleset;
   // Returns true once the agent has actually posted (a findings row exists for
   // this review). Checked after the session ends: if the agent wrapped up
   // without calling post_review, the same session is continued with one nudge
   // message instead of silently completing with nothing on the PR.
   hasPosted?: () => boolean;
-  // Where to publish live transcript deltas. Optional: without it the event
-  // pump still feeds the watchdog and simply broadcasts nothing, which is what
-  // any caller that has no review row to attach the transcript to should do.
+  // Returns true once the manager's teardown has run (abort/supersede/watchdog
+  // kill). Teardown cannot cancel this promise, and session.interrupt only stops
+  // a run already in flight, so ask() consults this before every prompt.
+  isTornDown?: () => boolean;
+  // Where to publish live transcript deltas. Optional: without it the demux
+  // still feeds the watchdog and simply broadcasts nothing, which is what any
+  // caller that has no review row to attach the transcript to should do.
   transcript?: { reviewId: number; repo: string };
   // Deny the agent test/lint/build/typecheck commands for this run (global
-  // setting, overridable per repo). Enforced as a per-spawn opencode config
-  // layered over the config dir's — see reviewOpencodeConfig in skills/materialize.
+  // setting, overridable per repo). Translated into `permissions` by the
+  // manager via reviewOpencodeConfig in review/permissions.
   denyTestCommands?: boolean;
 }
 
-// GitHub + write-back context the custom tools read from FOUINE_* env vars.
-export interface ReviewToolContext {
-  githubToken: string;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  reviewId: number;
-  internalUrl: string;
-  internalSecret: string;
-}
-
-// The FOUINE_* env the custom tools read (opencode-config/tools/*). Kept next to
-// the opencode plumbing that ships it so the key names stay in one place.
-export function reviewToolEnv(ctx: ReviewToolContext): Record<string, string> {
-  return {
-    FOUINE_GITHUB_TOKEN: ctx.githubToken,
-    FOUINE_REPO_OWNER: ctx.owner,
-    FOUINE_REPO_NAME: ctx.repo,
-    FOUINE_PR_NUMBER: String(ctx.prNumber),
-    FOUINE_REVIEW_ID: String(ctx.reviewId),
-    FOUINE_INTERNAL_URL: ctx.internalUrl,
-    FOUINE_INTERNAL_SECRET: ctx.internalSecret,
-  };
-}
-
-// Env for the outer-loop improver: repo-scoped, deliberately no FOUINE_PR_NUMBER
-// so the PR-bound tools (post_review/post_comment) fail loudly if the agent
-// somehow reaches for them.
-export function improveToolEnv(ctx: Omit<ReviewToolContext, "prNumber">): Record<string, string> {
-  const { FOUINE_PR_NUMBER: _pr, ...env } = reviewToolEnv({ ...ctx, prNumber: 0 });
-  return env;
-}
-
-// Env for the refiner. Unlike the improver this KEEPS FOUINE_PR_NUMBER, set to
-// the ISSUE number: post_comment posts to /issues/{n}/comments, which is the
-// same endpoint for issues and PRs, so the refiner needs no tool of its own.
-// (Issue and PR numbers share one sequence per repo, so the number is
-// unambiguous.)
-export function refineToolEnv(
-  ctx: Omit<ReviewToolContext, "prNumber"> & { issueNumber: number; readyLabel?: string },
-): Record<string, string> {
-  const { issueNumber, readyLabel, ...rest } = ctx;
-  const env = reviewToolEnv({ ...rest, prNumber: issueNumber });
-  // Read by mark_issue_ready.ts — the label the refiner applies to hand the
-  // issue to the implementer. Resolved per-repo before the run starts (see
-  // refinePipeline), same NULL-means-inherit precedence as the implement label.
-  // Optional: effect/implement.ts also reuses this helper (for the
-  // FOUINE_PR_NUMBER trick) but its agent has no mark_issue_ready tool, so it
-  // has no reason to pass one.
-  if (readyLabel) env.FOUINE_READY_LABEL = readyLabel;
-  return env;
+export interface RunHooks {
+  // Fired once the session exists, before the first prompt — the manager
+  // registers its demux sink here.
+  onSession?: (id: string) => Promise<void> | void;
 }
 
 export interface RunResult {
@@ -125,107 +233,73 @@ export interface RunResult {
   tokens: number;
 }
 
-export async function withOpencode<T>(
-  fn: (client: OpencodeClient) => Promise<T>,
-  signal?: AbortSignal,
-): Promise<T> {
-  const { client, server } = await createOpencode({ port: await freePort(), signal });
-  try {
-    return await fn(client);
-  } finally {
-    server.close();
+// Assistant text/cost/tokens for the whole session. v2 messages are flat rows;
+// text lives in `content` parts, accounting per message.
+function summarizeMessages(msgs: Awaited<ReturnType<OpencodeClient["message"]["list"]>>["data"]) {
+  let cost = 0;
+  let tokens = 0;
+  const texts: string[] = [];
+  for (const m of msgs) {
+    if (m.type !== "assistant") continue;
+    cost += m.cost ?? 0;
+    const t = m.tokens;
+    if (t) tokens += t.input + t.output + t.reasoning;
+    for (const c of m.content) {
+      if (c.type === "text" && c.text) texts.push(c.text);
+    }
   }
-}
-
-function unwrap<T, E>(res: { data?: T; error?: E }, op: string): T {
-  if (!res.data) throw new Error(`opencode ${op} failed: ${JSON.stringify(res.error)}`);
-  return res.data;
-}
-
-async function setProviderApiKey(client: OpencodeClient, providerID: string): Promise<void> {
-  const key = resolveApiKey(providerID);
-  if (!key) return;
-  unwrap(
-    await client.auth.set({
-      path: { id: providerID },
-      body: { type: "api", key },
-    }),
-    `auth.set(${providerID})`,
-  );
+  return { cost, tokens, text: texts.join("\n") };
 }
 
 export async function runReview(
   client: OpencodeClient,
   opts: RunOptions,
-  onSession?: (id: string) => Promise<void> | void,
+  hooks: RunHooks = {},
 ): Promise<RunResult> {
   const model = parseModel(opts.model ?? resolveDefaultModel());
-  await setProviderApiKey(client, model.providerID);
 
-  const session = unwrap(
-    await client.session.create({
-      body: { title: "fouine review" },
-      query: { directory: opts.directory },
-    }),
-    "session.create",
-  );
+  const session = await client.session.create({
+    title: "fouine review",
+    ...(opts.agent ? { agent: opts.agent } : {}),
+    model: { providerID: model.providerID, id: model.modelID },
+    location: { directory: opts.directory },
+    ...(opts.permissions ? { permissions: opts.permissions } : {}),
+  });
 
-  if (onSession) await onSession(session.id);
+  if (hooks.onSession) await hooks.onSession(session.id);
 
-  const prompt = (text: string, op: string) =>
-    client.session
-      .prompt({
-        path: { id: session.id },
-        body: {
-          parts: [{ type: "text", text }],
-          model,
-          ...(opts.agent ? { agent: opts.agent } : {}),
-        },
-      })
-      .then((res) => unwrap(res, op));
+  // prompt() only admits the message; wait() blocks until the run goes idle.
+  // Both together are the v1 blocking session.prompt().
+  const ask = async (text: string) => {
+    // Teardown (abort/supersede/watchdog) does not cancel this promise, and
+    // session.interrupt only stops a run already in flight. Without this guard a
+    // torn-down run keeps prompting: the create-window interrupt is a no-op on an
+    // idle session, and after a mid-run interrupt wait() settles and the nudge
+    // below would start a fresh, unsupervised run.
+    if (opts.isTornDown?.()) return;
+    await client.session.prompt({ sessionID: session.id, text });
+    await client.session.wait({ sessionID: session.id });
+  };
 
-  const res = await prompt(opts.prompt, "session.prompt");
+  await ask(opts.prompt);
 
   // Some sessions end without the agent ever calling post_review — the PR gets
   // no review and no comments. Continue the same session (full context intact)
   // with one nudge. ponytail: one nudge, no retry loop — a model that ignores a
   // direct instruction twice won't do better on a third.
-  let parts = res.parts;
   if (opts.hasPosted && !opts.hasPosted()) {
-    const nudge = await prompt(
+    await ask(
       "You ended the session without posting the review to GitHub. Post it now with the " +
         "post_review tool (summary + your inline findings). If you found nothing to flag, " +
         "post a short summary-only review — pick `event` by the severity rule in your " +
         "instructions, don't default to COMMENT. If you already posted it, just say so.",
-      "session.prompt(nudge)",
     );
-    parts = [...parts, ...nudge.parts];
   }
 
-  const text = parts
-    .filter((p) => p.type === "text")
-    .map((p) => (p as { text: string }).text)
-    .join("\n");
-
-  // Sum cost/tokens across assistant messages so the runner can persist them —
-  // the SDK's Session object doesn't carry totals, they live per-message.
-  const msgs = unwrap(
-    await client.session.messages({ path: { id: session.id } }),
-    "session.messages",
-  );
-  let cost = 0;
-  let tokens = 0;
-  for (const m of msgs) {
-    const info = m.info as {
-      role?: string;
-      cost?: number;
-      tokens?: { input?: number; output?: number; reasoning?: number };
-    };
-    if (info.role !== "assistant") continue;
-    cost += info.cost ?? 0;
-    const t = info.tokens;
-    if (t) tokens += (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0);
-  }
+  // ponytail: no pagination — one review's assistant messages sit well under a
+  // page. If reviews ever grow past the default limit, follow the cursor here.
+  const msgs = (await client.message.list({ sessionID: session.id })).data;
+  const { cost, tokens, text } = summarizeMessages(msgs);
 
   return { sessionId: session.id, text, cost, tokens };
 }
@@ -235,9 +309,9 @@ export async function runReview(
 // A review that never returns is one of two things, and they need opposite
 // treatment: it is either *legitimately long* (big diff, hundreds of tool
 // calls) or *wedged* (opencode stops making progress mid tool call and the
-// blocking session.prompt() never resolves). A flat wall-clock ceiling cannot
-// tell them apart, so every value is wrong twice: too short for the first and
-// far too long for the second. #64 raised it 10 → 30 min and reviews still died
+// blocking wait never resolves). A flat wall-clock ceiling cannot tell them
+// apart, so every value is wrong twice: too short for the first and far too
+// long for the second. #64 raised it 10 → 30 min and reviews still died
 // having burned $0.002 of model spend across the whole 1800s window — i.e. the
 // model had stopped thinking almost immediately and we waited half an hour.
 //
@@ -246,13 +320,12 @@ export async function runReview(
 // only as an absolute backstop for the pathological case (something spewing
 // events forever without ever finishing).
 //
-// The heartbeat is opencode's SSE event stream (`client.event.subscribe()`).
-// VERIFIED against the pinned @opencode-ai/sdk 1.18.11 types and empirically
-// against the 1.18.18 binary: there is no per-tool-call event in this API
-// version (the `session.next.*` family is v2-only). Tool lifecycle rides on
-// `message.part.updated` carrying a ToolPart whose `state.status` walks
-// pending → running → completed | error, and `state.input` holds the actual
-// tool arguments — for bash, the command text. That is what we log.
+// The heartbeat is opencode's SSE event stream (`client.event.subscribe()`),
+// now fanned out to every live session by the manager's single pump. v2 events
+// are typed envelopes: `{ type, data: { sessionID, ... } }`. Tool lifecycle
+// rides `session.message.content.updated`, which re-publishes the WHOLE content
+// array of a message on every change — each tool part carrying `state.status`
+// walking streaming → running → completed | error.
 //
 // Any event counts as activity, deliberately: a model can reason for minutes
 // without touching a tool, and restricting the heartbeat to tool events would
@@ -275,12 +348,12 @@ export interface ActivityState {
   //
   // That distinction is the whole bug this flag was introduced for and then got
   // wrong: an open socket carrying somebody else's events looks identical to a
-  // silent model. opencode routes `/event` per project directory, so subscribing
-  // without the review's `directory` yields a live stream of the WRONG
-  // instance's events — none of which match. `lastActivity` then never advances
-  // and every review is killed at exactly idleTimeoutMs, mid-work, reported as
-  // "no tool calls seen". Arming on first match makes that failure degrade to
-  // the absolute ceiling (the old wall-clock behaviour) instead of killing.
+  // silent model. opencode routes `/event` per location, so subscribing to the
+  // wrong instance's stream yields events that never match. `lastActivity`
+  // then never advances and every review is killed at exactly idleTimeoutMs,
+  // mid-work, reported as "no tool calls seen". Arming on first match makes
+  // that failure degrade to the absolute ceiling (the old wall-clock
+  // behaviour) instead of killing.
   armed: boolean;
   inFlight: Map<string, InFlightTool>;
   lastTool?: string;
@@ -297,6 +370,9 @@ export function newActivityState(now: number): ActivityState {
 const MAX_INPUT = 500;
 
 function summarizeInput(input: unknown): string {
+  if (typeof input === "string") {
+    return input.length > MAX_INPUT ? `${input.slice(0, MAX_INPUT)}…` : input;
+  }
   const json = (() => {
     try {
       return JSON.stringify(input) ?? "";
@@ -307,25 +383,24 @@ function summarizeInput(input: unknown): string {
   return json.length > MAX_INPUT ? `${json.slice(0, MAX_INPUT)}…` : json;
 }
 
-// Events carry their session id in one of three places depending on the event,
-// so probe all of them rather than switching on ~30 event names (and the binary
-// emits events the pinned types don't even know about, e.g. `plugin.added`).
+// v2 events carry their session id at `data.sessionID`.
 export function eventSessionId(event: unknown): string | undefined {
-  const props = (event as { properties?: Record<string, unknown> } | null)?.properties;
-  if (!props) return undefined;
-  const direct = props.sessionID;
-  if (typeof direct === "string") return direct;
-  for (const key of ["part", "info"] as const) {
-    const nested = props[key] as { sessionID?: unknown } | undefined;
-    if (nested && typeof nested.sessionID === "string") return nested.sessionID;
-  }
-  return undefined;
+  const data = (event as { data?: { sessionID?: unknown } } | null)?.data;
+  return typeof data?.sessionID === "string" ? data.sessionID : undefined;
+}
+
+/** The subset of a v2 content part the watchdog fold needs. */
+interface ToolPartLike {
+  type?: string;
+  id?: string;
+  name?: string;
+  state?: { status?: string; input?: unknown };
 }
 
 /**
  * Fold one SSE event into the activity state. Events for other sessions (or
- * server-wide ones like `plugin.added`) are ignored so an unrelated concurrent
- * review can't keep a wedged one alive.
+ * server-wide ones) are ignored so an unrelated concurrent review can't keep a
+ * wedged one alive.
  */
 export function observeEvent(
   state: ActivityState,
@@ -339,41 +414,37 @@ export function observeEvent(
   state.armed = true;
   state.lastActivity = now;
 
-  const ev = event as { type?: string; properties?: { part?: Record<string, unknown> } };
-  if (ev.type !== "message.part.updated") return;
-  const part = ev.properties?.part as
-    | {
-        type?: string;
-        callID?: string;
-        tool?: string;
-        state?: { status?: string; input?: unknown };
-      }
-    | undefined;
-  if (part?.type !== "tool" || !part.callID || !part.tool) return;
+  const ev = event as { type?: string; data?: { content?: ToolPartLike[] } };
+  if (ev.type !== "session.message.content.updated") return;
+  for (const part of ev.data?.content ?? []) {
+    if (part.type !== "tool" || !part.id) continue;
 
-  const status = part.state?.status;
-  if (status === "running") {
-    // `running` is the first state carrying the resolved arguments (`pending`
-    // arrives with an empty input while the model is still streaming them), so
-    // that is where we snapshot the command. Guard on has() because opencode
-    // re-publishes `running` on every output chunk of a bash command.
-    if (state.inFlight.has(part.callID)) return;
-    const input = summarizeInput(part.state?.input);
-    state.inFlight.set(part.callID, { tool: part.tool, input, startedAt: now });
-    state.lastTool = part.tool;
-    log.info("tool call started", { session: sessionId, tool: part.tool, input });
-    return;
-  }
-  if (status === "completed" || status === "error") {
-    const call = state.inFlight.get(part.callID);
-    state.inFlight.delete(part.callID);
-    log.info("tool call finished", {
-      session: sessionId,
-      tool: part.tool,
-      status,
-      durationMs: call ? now - call.startedAt : undefined,
-      input: call?.input ?? summarizeInput(part.state?.input),
-    });
+    const status = part.state?.status;
+    if (status === "running") {
+      // `running` is the first state carrying the resolved arguments
+      // (`streaming` arrives with the raw input string while the model is
+      // still emitting them), so that is where we snapshot the command.
+      // Guard on has() because opencode re-publishes `running` on every
+      // output chunk of a bash command.
+      if (state.inFlight.has(part.id)) continue;
+      const input = summarizeInput(part.state?.input);
+      const tool = part.name ?? "unknown";
+      state.inFlight.set(part.id, { tool, input, startedAt: now });
+      state.lastTool = tool;
+      log.info("tool call started", { session: sessionId, tool, input });
+      continue;
+    }
+    if (status === "completed" || status === "error") {
+      const call = state.inFlight.get(part.id);
+      state.inFlight.delete(part.id);
+      log.info("tool call finished", {
+        session: sessionId,
+        tool: part.name ?? "unknown",
+        status,
+        durationMs: call ? now - call.startedAt : undefined,
+        input: call?.input ?? summarizeInput(part.state?.input),
+      });
+    }
   }
 }
 

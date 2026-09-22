@@ -4,13 +4,11 @@ import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
 import { resolveImplementModel, resolveImplementPrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
-import { internalSecret, internalBaseUrl } from "~/server/internal";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { installDeps } from "~/effect/install";
 import { OpenCodeService } from "~/effect/opencode";
-import { refineToolEnv } from "~/review/opencode";
 import { buildImplementPrompt } from "~/review/implement-prompt";
 import { fetchIssueInfo } from "~/github";
 import { GitHubError, type ReviewError } from "~/effect/errors";
@@ -122,17 +120,6 @@ export function implementPipeline(
             model,
             agent: "fouine-implementer",
             transcript: { reviewId: id, repo: target.repoFullName },
-            // No denyTestCommands: unlike a review, the implementer must be
-            // able to run the repo's own tests to verify its own change.
-            env: refineToolEnv({
-              githubToken: token,
-              owner,
-              repo: repoName,
-              issueNumber: target.issueNumber,
-              reviewId: id,
-              internalUrl: internalBaseUrl,
-              internalSecret,
-            }),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),

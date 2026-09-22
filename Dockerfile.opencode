@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+#
+# Sidecar image: the official opencode server, plus git.
+#
+# The official image (ghcr.io/anomalyco/opencode) is Alpine-based and ships only
+# ripgrep/libgcc/libstdc++ — no git. Every review does its work in the shared
+# /data worktree with git, so the sidecar must have it.
+#
+# Pin the tag to the @opencode/client version in package.json — same discipline as
+# the CLI pin in the root Dockerfile (mismatched client/server drifts the API).
+FROM ghcr.io/anomalyco/opencode:2.0.11
+RUN apk add --no-cache git
