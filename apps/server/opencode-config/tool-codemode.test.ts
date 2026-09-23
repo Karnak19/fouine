@@ -43,8 +43,7 @@ const capture = async (path: string): Promise<CapturedTool[]> => {
   };
   await mod.default.setup(ctx as never);
   // Every plugin under test registers exactly one namespace, `fouine`.
-  expect(namespaces.length).toBeGreaterThan(0);
-  for (const ns of namespaces) expect(ns.name).toBe("fouine");
+  expect(namespaces).toEqual([{ name: "fouine", description: expect.any(String) }]);
   return captured;
 };
 
