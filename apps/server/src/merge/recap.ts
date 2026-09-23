@@ -15,6 +15,10 @@ export interface RecapData {
   checksMode: "required checks" | "all checks";
   fixerCommits: string[]; // short SHAs; empty = no fixer credit line
   totalCost: number;
+  // The merger's own risk-assessment reasoning (merge/assess.ts) for why this
+  // PR was low-risk enough to merge unattended. Optional so existing callers
+  // (and the snapshot tests) don't have to carry it; omitted = no risk line.
+  riskReason?: string;
 }
 
 const METHOD_LABEL: Record<MergeMethod, string> = {
@@ -34,6 +38,9 @@ export function renderRecap(data: RecapData): string {
     lines.push(
       `Fixer: ${data.fixerCommits.length} commit${data.fixerCommits.length === 1 ? "" : "s"} by fouine /fix (${data.fixerCommits.join(", ")}).`,
     );
+  }
+  if (data.riskReason) {
+    lines.push(`Risk: low — ${data.riskReason}`);
   }
   lines.push(`Cost: $${data.totalCost.toFixed(4)} total on this PR.`);
   return lines.join("\n");

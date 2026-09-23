@@ -235,6 +235,8 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         mergeable: boolean | null;
         merged: boolean;
         author: string | null;
+        title: string;
+        body: string;
       },
       GitHubError
     > =>
@@ -248,9 +250,37 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
             mergeable: data.mergeable ?? null,
             merged: !!data.merged,
             author: data.user?.login ?? null,
+            title: data.title ?? "",
+            body: data.body ?? "",
           };
         },
         catch: (cause) => new GitHubError({ op: "pulls.get", cause }),
+      }),
+
+    // The unified diff for the PR's current head — used only by the merger's
+    // risk assessment (merge/assess.ts) right before merging, never persisted.
+    // A separate call rather than reusing getPull's response: the diff media
+    // type replaces `data` with a raw string, incompatible with the JSON shape
+    // getPull already returns.
+    getDiff: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      pr: number,
+    ): Effect.Effect<string, GitHubError> =>
+      Effect.tryPromise({
+        try: async () => {
+          const res = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: pr,
+            mediaType: { format: "diff" },
+          });
+          // With the diff media type, octokit hands back the raw diff text as
+          // `data` (typed as the JSON shape, but not one at runtime).
+          return res.data as unknown as string;
+        },
+        catch: (cause) => new GitHubError({ op: "pulls.get(diff)", cause }),
       }),
 
     // Check runs + commit statuses for the head SHA, combined — the merger
