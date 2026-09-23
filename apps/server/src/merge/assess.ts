@@ -60,7 +60,9 @@ coverage, and anything else clearly outside the critical list above.
 When unsure, always choose "critical" — holding for a human costs nothing but a click; merging \
 something risky unattended is the failure mode this gate exists to prevent.
 
-Give one short sentence explaining the verdict — it's shown directly to the human on the PR.`;
+Give one short sentence explaining the verdict — it's shown directly to the human on the PR.
+
+Respond with json only, in exactly this shape: {"level": "low" | "critical", "reason": "<that sentence>"}.`;
 
 function buildPrompt(input: AssessMergeRiskInput): string {
   return [
