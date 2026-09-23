@@ -43,20 +43,47 @@ export const ZAI_PROVIDER = "zai-coding-plan";
 // `commandcode/deepseek-v4-flash` — the plugin's config key, org prefix dropped.
 export { COMMANDCODE_PROVIDER };
 
+// Where a provider's key currently comes from — the dashboard-stored setting
+// row wins over the env/config fallback, same precedence as resolveApiKey.
+// "none" means the provider has no usable key at all.
+export type KeySource = "dashboard" | "env" | "none";
+
+// Single place that decides "is there a key", shared by has*Key() below and the
+// /settings response. "" is treated as unset everywhere here — settingValue and
+// the env/config fallback both go through `||`, never `??`, so an explicit
+// empty-string row never masquerades as "configured".
+function keySource(settingKey: string, envValue: string | undefined): KeySource {
+  if (settingValue(settingKey)) return "dashboard";
+  if (envValue) return "env";
+  return "none";
+}
+
+export function opencodeKeySource(): KeySource {
+  return keySource(SETTINGS.API_KEY, config.opencode.apiKey);
+}
+
+export function zaiKeySource(): KeySource {
+  return keySource(SETTINGS.ZAI_API_KEY, config.opencode.zaiApiKey);
+}
+
+export function commandcodeKeySource(): KeySource {
+  return keySource(SETTINGS.COMMANDCODE_API_KEY, config.opencode.commandcodeApiKey);
+}
+
 // The key opencode should authenticate the model's provider with. GLM Coding
 // Plan is billed by Z.ai and Command Code by commandcode.ai, not by the
 // OpenCode provider, so each carries its own key; every other provider uses
 // the single OpenCode key.
 export function hasOpencodeKey(): boolean {
-  return !!(settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey);
+  return opencodeKeySource() !== "none";
 }
 
 export function hasZaiKey(): boolean {
-  return !!(settingValue(SETTINGS.ZAI_API_KEY) ?? config.opencode.zaiApiKey);
+  return zaiKeySource() !== "none";
 }
 
 export function hasCommandcodeKey(): boolean {
-  return !!(settingValue(SETTINGS.COMMANDCODE_API_KEY) ?? config.opencode.commandcodeApiKey);
+  return commandcodeKeySource() !== "none";
 }
 
 export function resolveApiKey(providerID?: string): string | undefined {
@@ -71,7 +98,7 @@ export function resolveApiKey(providerID?: string): string | undefined {
       settingValue(SETTINGS.COMMANDCODE_API_KEY) || config.opencode.commandcodeApiKey || undefined
     );
   }
-  return settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey;
+  return settingValue(SETTINGS.API_KEY) || config.opencode.apiKey;
 }
 
 export function resolveDefaultModel(): string {

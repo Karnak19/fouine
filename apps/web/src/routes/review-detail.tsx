@@ -130,6 +130,12 @@ export default function ReviewDetailPage() {
   const { status, resync } = useLiveEvents(null, (e) => {
     if (e.type === "review:updated" && e.review.id === numId) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId] });
+      // A failed run's error/idle rows only exist once runReview's outcome
+      // check has run (see review/opencode.ts's assessTurnOutcome) — after the
+      // session already ended, so no further transcript delta announces them.
+      // Refetch the snapshot on every terminal transition so the error line
+      // shows up without a manual reload.
+      queryClient.invalidateQueries({ queryKey: ["reviews", numId, "session"] });
     }
     if (e.type === "review:findings" && e.reviewId === numId) {
       queryClient.invalidateQueries({ queryKey: ["reviews", numId, "findings"] });
@@ -635,6 +641,17 @@ function PartView({ p }: { p: Part }) {
           )}
           {p.state?.error && <pre className="px-3 pb-2 text-xs text-red-300">{p.state.error}</pre>}
         </details>
+      );
+    // A failed assistant turn (finish:"error") — provider auth, rate limit,
+    // etc. Rendered as a small red line instead of an empty "Assistant"
+    // bubble, which is what this looked like before (see task A/D notes in
+    // apps/server/src/review/opencode.ts's assessTurnOutcome).
+    case "error":
+      return (
+        <div className="flex items-start gap-1.5 text-xs text-red-300">
+          <CircleAlert size={12} className="mt-0.5 shrink-0" />
+          <span>{p.text}</span>
+        </div>
       );
     case "step-start":
     case "step-finish":
