@@ -240,9 +240,7 @@ export const api = {
     // react-query queryFn (which would otherwise pass its context as filters).
     query: async (q: ReviewsQuery) =>
       unwrap<ReviewRow[]>(
-        await c.reviews.get({
-          query: { ...statsQuery(q), status: q.status, limit: q.limit },
-        }),
+        await c.reviews.get({ query: { ...statsQuery(q), status: q.status, limit: q.limit } }),
       ),
     get: async (id: number) => unwrap<ReviewRow>(await c.reviews({ id }).get()),
     findings: async (id: number) =>
