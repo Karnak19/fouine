@@ -351,6 +351,35 @@ function isTransportError(err: unknown): boolean {
   return err instanceof ClientError && err.reason === "Transport";
 }
 
+// The v2 API's own domain errors (IntegrationNotFoundError, ProviderNotFoundError,
+// …) decode to a PLAIN OBJECT carrying `_tag`/`message` (and sometimes
+// `integrationID`/`providerID`/`status`) — NOT an Error instance, verified
+// against a real server: `cause instanceof Error` is false and
+// `cause.constructor.name` is `Object`. `String(cause)` on that is
+// "[object Object]", which is what turned every one of these into an opaque,
+// useless log line. This is the one place that reads `_tag`/`message`/etc off
+// an unknown opencode-thrown value, used everywhere we log one.
+export function describeOpencodeError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    if (typeof o._tag === "string") {
+      const extras = ["integrationID", "providerID", "status", "reason"]
+        .filter((k) => o[k] !== undefined)
+        .map((k) => `${k}=${String(o[k])}`)
+        .join(" ");
+      const message = typeof o.message === "string" ? o.message : undefined;
+      return [o._tag, extras, message].filter(Boolean).join(" ").trim();
+    }
+  }
+  if (err instanceof Error) {
+    // A plain `new Error("...")` (e.g. assessTurnOutcome's own throw) has
+    // name "Error" — that prefix is just noise on an already-descriptive
+    // message. A real named class (ClientError, …) keeps its name.
+    return err.name && err.name !== "Error" ? `${err.name}: ${err.message}` : err.message;
+  }
+  return String(err);
+}
+
 async function withTransportRetry<T>(
   call: string,
   fn: () => Promise<T>,

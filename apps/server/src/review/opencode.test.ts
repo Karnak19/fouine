@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   assessTurnOutcome,
+  describeOpencodeError,
   opencodeSpawnEnv,
   pumpChildOutput,
   runReview,
@@ -332,6 +333,34 @@ test("stops retrying once torn down between attempts", async () => {
     }),
   ).rejects.toMatchObject({ name: "ClientError", reason: "Transport" });
   expect(waits).toBe(1);
+});
+
+// ── Formatting the v2 API's own domain errors ───────────────────────────────
+// These decode to a PLAIN OBJECT ({_tag, message, ...}), not an Error instance
+// — verified against a real server. String(err) on that is "[object Object]",
+// which is exactly what turned every one of these into a useless log line.
+
+test("describeOpencodeError reads _tag/message/integrationID off a plain tagged object", () => {
+  expect(
+    describeOpencodeError({
+      _tag: "IntegrationNotFoundError",
+      integrationID: "zai-coding-plan",
+      message: "Integration not found: zai-coding-plan",
+    }),
+  ).toBe("IntegrationNotFoundError integrationID=zai-coding-plan Integration not found: zai-coding-plan");
+});
+
+test("describeOpencodeError formats a real Error with a name", () => {
+  expect(describeOpencodeError(new ClientError("Transport"))).toBe("ClientError: Transport");
+});
+
+test("describeOpencodeError drops the redundant name for a plain Error", () => {
+  expect(describeOpencodeError(new Error("boom"))).toBe("boom");
+});
+
+test("describeOpencodeError falls back to String() for anything else", () => {
+  expect(describeOpencodeError("just a string")).toBe("just a string");
+  expect(describeOpencodeError(42)).toBe("42");
 });
 
 // ── Silent run-failure detection (v2's session.wait resolves even when the

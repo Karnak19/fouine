@@ -5,6 +5,7 @@ import { resolveApiKey, resolveDefaultModel, ZAI_PROVIDER } from "~/settings";
 import { config } from "~/config";
 import {
   authHeaders,
+  describeOpencodeError,
   eventSessionId,
   freePort,
   newActivityState,
@@ -69,6 +70,15 @@ export interface ManagerDeps {
   now: () => number;
   serverLossGraceMs: number;
   serverLossPollMs: number;
+  // Backoff (ms) between retries of the real key push in ensureProviderKey,
+  // after the first attempt. Verified against a real opencode 2.0.11 server
+  // that the provider.get warm-up call is NOT enough by itself on a genuinely
+  // fresh server: the first connect.key call can still 404 with
+  // IntegrationNotFoundError even right after provider.get resolves, but a
+  // second attempt a beat later always succeeds — so this is a real,
+  // reproducible race in opencode's own catalog load, not a fluke. Empty
+  // array = no retries (tests only).
+  keyPushRetryMs: number[];
 }
 
 // Sidecar mode: OPENCODE_BASE_URL set → talk to that server and spawn nothing
@@ -110,6 +120,7 @@ const defaultDeps: ManagerDeps = {
   now: () => Date.now(),
   serverLossGraceMs: SERVER_LOSS_GRACE_MS,
   serverLossPollMs: SERVER_LOSS_POLL_MS,
+  keyPushRetryMs: [150, 300, 600],
 };
 
 export class OpenCodeServerManager {
@@ -175,7 +186,9 @@ export class OpenCodeServerManager {
         }
       } catch (cause) {
         if (!ctrl.signal.aborted) {
-          log.warn("opencode event stream lost, idle watchdog disabled", { cause: String(cause) });
+          log.warn("opencode event stream lost, idle watchdog disabled", {
+            cause: describeOpencodeError(cause),
+          });
         }
       } finally {
         for (const sink of this.sessions.values()) sink.state.armed = false;
@@ -262,12 +275,12 @@ export class OpenCodeServerManager {
     try {
       await this.ensureProviderKey(parseModel(resolveDefaultModel()).providerID);
     } catch (cause) {
-      log.warn("could not push default provider key", { cause: String(cause) });
+      log.warn("could not push default provider key", { cause: describeOpencodeError(cause) });
     }
     try {
       if (this.deps.resolveKey(ZAI_PROVIDER)) await this.ensureProviderKey(ZAI_PROVIDER);
     } catch (cause) {
-      log.warn("could not push zai provider key", { cause: String(cause) });
+      log.warn("could not push zai provider key", { cause: describeOpencodeError(cause) });
     }
   }
 
@@ -279,25 +292,40 @@ export class OpenCodeServerManager {
     // the live server, not wait for a fouine restart (v1 re-pushed the current
     // key on every run).
     if (!key || this.pushedKeys.get(providerID) === key) return;
+
     // opencode's provider catalog (models.dev) loads lazily on first use: a
     // fresh server's very first integration.connect.key call 404s with
-    // IntegrationNotFoundError even for a provider the catalog does carry —
-    // verified locally against opencode 2.0.11: `opencode serve` then an
-    // immediate connect.key call fails, but the identical call succeeds right
-    // after any provider.get/list call warms the catalog. provider.get forces
-    // that load for just this provider, cheaply and deterministically — no
-    // sleep/retry loop needed. Best-effort: if it throws (unknown provider,
-    // catalog still failing to load), still attempt the real push below so a
-    // genuine problem surfaces there instead of being masked here.
-    try {
-      await client.provider.get({ providerID });
-    } catch {
-      // handled by the connect.key call immediately below
+    // IntegrationNotFoundError even for a provider the catalog does carry.
+    // provider.get warms that load for just this provider, but — verified
+    // against a real opencode 2.0.11 server booted through this exact
+    // manager, not just a hand-rolled client — the warm-up call ALONE is not
+    // reliably enough: the first real push right after acquire() can still
+    // 404 even though provider.get itself resolved, while a second attempt a
+    // beat later always succeeds. So this retries the whole warm-up+push a
+    // few times with a short backoff, and only gives up (throwing, never
+    // swallowing) once every attempt has failed.
+    let lastErr: unknown;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await client.provider.get({ providerID }).catch(() => undefined);
+        // v1 stored these via client.auth.set; v2 folds provider credentials
+        // into integrations. The integration id is the provider id.
+        await client.integration.connect.key({ integrationID: providerID, key });
+        this.pushedKeys.set(providerID, key);
+        return;
+      } catch (cause) {
+        lastErr = cause;
+        const delay = this.deps.keyPushRetryMs[attempt];
+        if (delay === undefined) break;
+        log.debug("provider key push failed, retrying", {
+          providerID,
+          attempt,
+          cause: describeOpencodeError(cause),
+        });
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
-    // v1 stored these via client.auth.set; v2 folds provider credentials into
-    // integrations. The integration id is the provider id.
-    await client.integration.connect.key({ integrationID: providerID, key });
-    this.pushedKeys.set(providerID, key);
+    throw lastErr;
   }
 
   /** Reload the server's config from disk. Used by the config-settings lane. */
@@ -418,7 +446,9 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
           const keyPush = openCodeManager
             .ensureProviderKey(parseModel(opts.model ?? resolveDefaultModel()).providerID)
             .catch((cause) => {
-              log.warn("could not push provider key before review", { cause: String(cause) });
+              log.warn("could not push provider key before review", {
+                cause: describeOpencodeError(cause),
+              });
             });
 
           return Effect.tryPromise({

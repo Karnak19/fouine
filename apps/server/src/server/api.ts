@@ -21,7 +21,7 @@ import { writeOpencodeConfig } from "~/skills";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
-import { withOpencode, runReview, parseModel } from "~/review/opencode";
+import { withOpencode, runReview, parseModel, describeOpencodeError } from "~/review/opencode";
 import { openCodeManager } from "~/effect/opencode";
 import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
@@ -876,13 +876,21 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         // an unparseable default model just means "use the fallback"
       }
       try {
-        await openCodeManager.ensureProviderKey(cfg.providerID);
-        const res = await withOpencode((client) =>
-          runReview(client, { directory: config.dataDir, prompt: "Reply with exactly: OK", model }),
-        );
+        // withOpencode first: it's what actually spawns/acquires the singleton
+        // server on a cold start. Calling ensureProviderKey before that is a
+        // silent no-op (it bails when there's no server yet), which is
+        // exactly how the real push attempt used to get skipped here and the
+        // test would go on to run the prompt against whatever credential
+        // (real auth.json, none at all, …) opencode already had. Push and run
+        // in the same acquired-server callback, and let a push failure stop
+        // the test cold — never fall through to the prompt on an unproven key.
+        const res = await withOpencode(async (client) => {
+          await openCodeManager.ensureProviderKey(cfg.providerID);
+          return runReview(client, { directory: config.dataDir, prompt: "Reply with exactly: OK", model });
+        });
         return { ok: true, model, text: res.text.slice(0, 200) };
       } catch (err) {
-        return { ok: false, model, error: String((err as Error)?.message ?? err) };
+        return { ok: false, model, error: describeOpencodeError(err) };
       }
     },
     { params: t.Object({ provider: t.String() }) },
