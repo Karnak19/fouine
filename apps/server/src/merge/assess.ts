@@ -95,6 +95,9 @@ export async function assessMergeRisk(input: AssessMergeRiskInput): Promise<Merg
       name: "opencode-go",
       baseURL: OPENCODE_GO_BASE_URL,
       apiKey,
+      // opencode-go rejects requests without a session header (see
+      // ~/chat/index.ts); a one-shot call is a one-request conversation.
+      headers: { "x-opencode-session": crypto.randomUUID() },
     });
     const { object } = await generateObject({
       model: gateway(wireModelId(resolveChatModel())),

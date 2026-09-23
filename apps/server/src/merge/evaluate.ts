@@ -177,7 +177,18 @@ export function evaluatePipeline(
     // assessment failure: fail closed, hold for a human.
     const diff = yield* gh
       .getDiff(octokit, owner, repoName, prNumber)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.sync(() => {
+            log.warn("merge: could not fetch diff for risk assessment", {
+              repo: repoFullName,
+              pr: prNumber,
+              error: String(cause),
+            });
+            return undefined;
+          }),
+        ),
+      );
     const risk: MergeRiskAssessment =
       diff === undefined
         ? { level: "critical", reason: "could not fetch the diff for risk assessment" }
