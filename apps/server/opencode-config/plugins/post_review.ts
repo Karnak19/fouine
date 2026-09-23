@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 interface PostReviewInput {
   summary?: string;
@@ -18,7 +18,7 @@ export default {
   id: "fouine.post_review",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "post_review",
         description:
           "Post a formal PR review: a summary plus optional inline comments pinned to specific file " +

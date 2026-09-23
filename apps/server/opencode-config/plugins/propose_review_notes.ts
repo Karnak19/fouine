@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 // The improver's only write path. The agent hands over content; fouine does the
 // GitHub writes programmatically (branch + commit + PR), so the agent never
@@ -15,7 +15,7 @@ export default {
   id: "fouine.propose_review_notes",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "propose_review_notes",
         description:
           "Propose an updated REVIEW.md via a pull request. Call at most once, with the COMPLETE new " +
