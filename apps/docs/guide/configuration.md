@@ -128,8 +128,8 @@ flags (`enabled`, `auto_merge`, `refine_enabled`, `implement_enabled`,
 
 - **Off** — all five flags off. Nothing runs automatically; slash commands still work.
 - **Review** — `enabled` on, the rest off. Reviews PRs, never merges, never touches issues.
-- **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges PRs once approved and CI is green.
-- **Autonomous** — all five flags on. Reviews and merges PRs, refines new issues, marks them ready itself, and implements them, so nothing needs a human between opening the issue and approving the PR.
+- **Review + merge** — `enabled` and `auto_merge` on. Reviews and merges low-risk PRs once approved and CI is green; critical-risk PRs get a comment and wait for a human to click Merge (see the [merger guide](/guide/merger)).
+- **Autonomous** — all five flags on. Reviews and merges low-risk PRs, refines new issues, marks them ready itself, and implements them, so nothing needs a human between opening the issue and approving a low-risk PR.
 
 **Custom** shows up when a repo's flags don't match any of the above — set the
 individual switches under "Advanced" on the repo page.

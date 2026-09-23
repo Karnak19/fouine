@@ -1,8 +1,8 @@
 # Merger
 
-The merger clicks "merge" for you once fouine has approved a PR and CI is green — the last step of the review loop that otherwise sits waiting on a human.
+The merger clicks "merge" for you once fouine has approved a PR, CI is green, and its own risk check says the change is safe to ship unattended — the last step of the review loop that otherwise sits waiting on a human.
 
-It is off by default. Once a repo opts in, every non-draft PR on that repo merges itself — there's nothing to type, nothing to remember.
+It is off by default. Once a repo opts in, every non-draft PR on that repo merges itself once it's low-risk — there's nothing to type, nothing to remember.
 
 ## The five conditions
 
@@ -15,6 +15,16 @@ The merger checks all of the following, re-checked at the moment of merge, not j
 5. **The PR is `mergeable`** — GitHub's own computed field, polled briefly if it's still `null`.
 
 If any condition is false, the merger does nothing and waits for the next relevant event (a new review, a check finishing, a new commit status). It never retries on a timer.
+
+## The risk gate
+
+Once all five conditions above are green, the merger makes one more call before actually merging: a cheap LLM call (the same OpenAI-compatible model the dashboard's chat feature uses, not the review model) judges the PR's diff, title/description, fouine's approving review, and its findings count, and classifies the change as **low** or **critical** risk.
+
+Critical covers things like auth/permissions/session handling, secrets or credentials, database schema or data migrations, payments/billing, infra/deploy/CI config, security-sensitive input handling, public API or breaking-contract changes, large cross-cutting refactors, and deletion of significant code or data. Everything else — docs, tests, copy, small contained fixes, styling, well-covered internal refactors — is low risk. When the model is unsure, it always says critical.
+
+- **Low risk** merges exactly as before, and the recap comment gets one extra line with the model's reasoning.
+- **Critical risk holds**: the merger posts a comment explaining why, and disarms the PR — it does **not** merge, and it does **not** wait for a human approval to unlock itself. A human clicks GitHub's own Merge button when they're happy. A later push re-arms the PR and the whole pipeline, risk gate included, runs again from scratch.
+- If the diff can't be fetched, is too large to send (~200KB), the model call fails, or its output doesn't parse, the merger fails closed and treats it as critical — an assessment problem always means "hold", never "merge anyway".
 
 ## Opting in
 

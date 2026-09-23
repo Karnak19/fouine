@@ -21,7 +21,7 @@ import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
 // opencode-go/deepseek-v4-flash for reviews). The same caveat applies to the
 // Chat model the dashboard's /settings page stores (`chat_model`, resolved by
 // resolveChatModel: setting → OPENCODE_CHAT_MODEL → default).
-const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /**
  * The ONE place model specs are converted.
