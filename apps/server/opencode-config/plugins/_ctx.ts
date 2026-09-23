@@ -1,3 +1,5 @@
+import type { Plugin } from "@opencode/plugin";
+
 // Shared context for the fouine opencode tools. Not a tool itself: opencode v2
 // only registers files in this directory whose default export is a plugin
 // definition ({ id, setup }), and skips helper modules like this one. The
@@ -8,6 +10,37 @@
 // internal API. The opencode session id handed to every executor is the only
 // credential a tool carries; fouine resolves owner/repo/PR/kind from the review
 // row behind it and makes the GitHub call in-process.
+
+// Every tool below is registered twice, through `addTool`:
+//  - a direct copy (`options: { codemode: false }`) because our prompts and
+//    agent `tools:` frontmatter name these as direct tools, and weaker models
+//    guess wrong and burn the review if the tool is hidden.
+//  - a Code Mode copy under the `fouine` namespace (`options: { namespace:
+//    "fouine", pinned: true, permission: <bare name> }`), reachable as
+//    `tools.fouine.<name>(...)` from inside a scripted `execute` call, so an
+//    agent that composes several of these programmatically still can. The
+//    namespace gives this copy a distinct internal key (`fouine_<name>`), so
+//    it doesn't collide with the direct copy above; `permission` overrides
+//    what opencode checks that key against, because agent `.md` frontmatter
+//    denies these tools by their bare name (e.g. `mark_issue_ready: false`)
+//    and the deny check falls back to the internal key when `permission` is
+//    unset — without it, the Code Mode copy would silently ignore the deny.
+const FOUINE_NAMESPACE = "fouine";
+
+type ToolEditor = Parameters<Parameters<Plugin.Context["tool"]["transform"]>[0]>[0];
+type ToolInfo = Parameters<ToolEditor["add"]>[0];
+
+export function addTool(editor: ToolEditor, info: ToolInfo): void {
+  editor.namespace({
+    name: FOUINE_NAMESPACE,
+    description: "fouine review tools (post_review, get_prior_reviews, …)",
+  });
+  editor.add({ ...info, options: { codemode: false } });
+  editor.add({
+    ...info,
+    options: { namespace: FOUINE_NAMESPACE, pinned: true, permission: info.name },
+  });
+}
 
 // Base URL of fouine's loopback internal API (e.g. http://127.0.0.1:3000). The
 // only env var these tools read.
