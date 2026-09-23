@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { config } from "~/config";
 import type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -19,6 +20,7 @@ import type {
 // The row shapes the dashboard also sees live in @fouine/shared — re-exported
 // here so `~/db` stays the server's single import point for them.
 export type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -356,14 +358,19 @@ export const reviews = {
   // List view, not an aggregate: `skipped` rows DO appear here, deliberately.
   // The timeline is the history of what happened to a PR, and "we looked and
   // there was nothing new" is part of that history. $status filters to one
-  // status on demand, `skipped` included.
-  recent: db.prepare<ReviewRow, StatsFilter & { $status: string | null; $limit: number }>(
+  // status on demand, `skipped` included; $trigger does the same for the run's
+  // cause (opened/refine/implement/…), so the Agent views can scope to one.
+  recent: db.prepare<
+    ReviewRow,
+    StatsFilter & { $status: string | null; $trigger: string | null; $limit: number }
+  >(
     `SELECT * FROM reviews
      WHERE ($from IS NULL OR created_at >= $from)
      AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)
        AND ($status IS NULL OR status = $status)
+       AND ($trigger IS NULL OR trigger = $trigger)
      ORDER BY id DESC LIMIT $limit`,
   ),
   byRepo: db.prepare<ReviewRow, { $repo: string; $limit: number }>(
@@ -471,6 +478,34 @@ export const reviews = {
      FROM reviews
      WHERE status <> 'skipped'
        AND ($from IS NULL OR created_at >= $from)
+       AND ($to IS NULL OR created_at < $to)
+       AND ($repo IS NULL OR repo_full_name = $repo)
+       AND ($model IS NULL OR model = $model)
+     GROUP BY COALESCE(trigger, 'unknown')
+     ORDER BY count DESC`,
+  ),
+  // Per-trigger rollup for the dashboard's Agents surface: the refiner,
+  // implementer and improver run through this same table, so one GROUP BY
+  // trigger is the whole view. Unlike `triggers` above it keeps `skipped` in
+  // `count` and breaks every status out — each agent's full run history is the
+  // point, and a skip is part of it. avg_duration mirrors byProject/latency:
+  // epoch seconds over completed rows only, null when none completed, so it
+  // reads in the same units as every other latency number the dashboard shows.
+  agents: db.prepare<AgentStatsRow, StatsFilter>(
+    `SELECT COALESCE(trigger, 'unknown') AS trigger,
+            COUNT(*) AS count,
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+            COALESCE(SUM(cost), 0) AS cost,
+            COALESCE(SUM(tokens), 0) AS tokens,
+            AVG(CASE WHEN status = 'completed' AND completed_at IS NOT NULL
+                     THEN completed_at - created_at END) AS avg_duration,
+            MAX(created_at) AS last_run_at
+     FROM reviews
+     WHERE ($from IS NULL OR created_at >= $from)
        AND ($to IS NULL OR created_at < $to)
        AND ($repo IS NULL OR repo_full_name = $repo)
        AND ($model IS NULL OR model = $model)

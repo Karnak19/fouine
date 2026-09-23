@@ -75,6 +75,7 @@ test("review lifecycle: pending -> running -> completed", () => {
     $repo: null,
     $model: null,
     $status: null,
+    $trigger: null,
     $limit: 10,
   });
   const target = recent.find((r) => r.id === row.id);
@@ -333,7 +334,7 @@ test("stats filters narrow by repo, model and date", () => {
   expect(reviews.triggers.all(none).length).toBeGreaterThan(0);
   expect(reviews.topCost.all(none).length).toBeGreaterThan(0);
   expect(
-    reviews.recent.all({ ...none, $status: "completed", $limit: 5 }).every((r) => r.status === "completed"),
+    reviews.recent.all({ ...none, $status: "completed", $trigger: null, $limit: 5 }).every((r) => r.status === "completed"),
   ).toBe(true);
 
   // The model dropdown must not shrink when a filter is applied: it takes no
@@ -499,6 +500,7 @@ test("skipped rows are excluded from every aggregate", () => {
     ...NO_FILTER,
     $repo: full,
     $status: "skipped",
+    $trigger: null,
     $limit: 50,
   });
   expect(skippedOnly.length).toBe(4);
@@ -779,4 +781,145 @@ test("countRefinesForIssue counts only refine-trigger rows for that issue", () =
   insert(5, "implement"); // not a refine — must not count
   insert(6, "refine"); // different issue — must not count
   expect(reviews.countRefinesForIssue.get({ $repo: full, $pr: 5 })?.count).toBe(2);
+});
+
+// ── Agents surface: $trigger filter + per-trigger aggregate ──────────────────
+// `reviews.recent`'s new $trigger guard mirrors $status: null = no filter, so
+// the existing unfiltered list is unchanged.
+test("reviews.recent filters by trigger, and an omitted trigger changes nothing", () => {
+  const full = "acme/trigger-filter";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  const insert = (pr: number, trigger: string | null) =>
+    reviews.insert.get({
+      $repo: full,
+      $pr: pr,
+      $title: "t",
+      $session: null,
+      $status: "pending",
+      $trigger: trigger,
+      $attempt: 0,
+    })!;
+  const opened = insert(1, "opened");
+  const refine = insert(1, "refine");
+  const implement = insert(1, "implement");
+  const nullTrigger = insert(1, null);
+
+  const base = {
+    $from: null,
+    $to: null,
+    $repo: full,
+    $model: null,
+    $status: null,
+    $trigger: null,
+    $limit: 50,
+  };
+
+  // No filter — and the explicit null the handler passes — see every row,
+  // including the null-trigger one.
+  const all = [opened.id, refine.id, implement.id, nullTrigger.id].sort();
+  expect(reviews.recent.all(base).map((r) => r.id).sort()).toEqual(all);
+  expect(reviews.recent.all({ ...base, $trigger: null }).map((r) => r.id).sort()).toEqual(all);
+
+  // Only the matching trigger's rows survive.
+  expect(reviews.recent.all({ ...base, $trigger: "refine" }).map((r) => r.id)).toEqual([refine.id]);
+  expect(reviews.recent.all({ ...base, $trigger: "implement" }).map((r) => r.id)).toEqual([
+    implement.id,
+  ]);
+
+  // It composes with $status rather than replacing it.
+  reviews.complete.run({ $id: refine.id, $cost: 1, $tokens: 10, $model: "m", $patch: null });
+  expect(
+    reviews.recent.all({ ...base, $status: "completed", $trigger: "refine" }).map((r) => r.id),
+  ).toEqual([refine.id]);
+  expect(reviews.recent.all({ ...base, $status: "completed", $trigger: "implement" })).toEqual([]);
+});
+
+test("reviews.agents rolls up per trigger: status counts, cost/tokens sums, avg duration", () => {
+  const full = "acme/agents-agg";
+  repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+  // Controlled timestamps: avg_duration is the difference between two
+  // seconds-resolution epochs, and a created/completed-in-the-same-second row
+  // would make the assertion order-dependent.
+  const seedAgent = (
+    trigger: string,
+    status: string,
+    extra: { cost?: number; tokens?: number; created: number; completed?: number | null },
+  ) => {
+    const row = reviews.insert.get({
+      $repo: full,
+      $pr: 1,
+      $title: "t",
+      $session: null,
+      $status: "pending",
+      $trigger: trigger,
+      $attempt: 0,
+    })!;
+    db.prepare("UPDATE reviews SET status = ?1, cost = ?2, tokens = ?3 WHERE id = ?4").run(
+      status,
+      extra.cost ?? null,
+      extra.tokens ?? null,
+      row.id,
+    );
+    db.prepare("UPDATE reviews SET created_at = ?1, completed_at = ?2 WHERE id = ?3").run(
+      extra.created,
+      extra.completed ?? null,
+      row.id,
+    );
+    return row.id;
+  };
+
+  // refine: one completed 120s run ($1.5, 100 tok), one failed, one skipped.
+  seedAgent("refine", "completed", {
+    cost: 1.5,
+    tokens: 100,
+    created: NOW - 1000,
+    completed: NOW - 880,
+  });
+  seedAgent("refine", "failed", { created: NOW - 500 });
+  seedAgent("refine", "skipped", { created: NOW - 100 });
+  // implement: one completed 60s run ($0.5, 50 tok), one running, one pending.
+  seedAgent("implement", "completed", {
+    cost: 0.5,
+    tokens: 50,
+    created: NOW - 400,
+    completed: NOW - 340,
+  });
+  seedAgent("implement", "running", { created: NOW - 200 });
+  seedAgent("implement", "pending", { created: NOW - 50 });
+
+  const rows = reviews.agents.all({ $from: null, $to: null, $repo: full, $model: null });
+  expect(rows).toHaveLength(2);
+  // skipped is counted, not treated as an outcome: count = 3 for both.
+  expect(rows.find((r) => r.trigger === "refine")).toEqual({
+    trigger: "refine",
+    count: 3,
+    completed: 1,
+    failed: 1,
+    running: 0,
+    pending: 0,
+    skipped: 1,
+    cost: 1.5,
+    tokens: 100,
+    avg_duration: 120,
+    last_run_at: NOW - 100,
+  });
+  expect(rows.find((r) => r.trigger === "implement")).toEqual({
+    trigger: "implement",
+    count: 3,
+    completed: 1,
+    failed: 0,
+    running: 1,
+    pending: 1,
+    skipped: 0,
+    cost: 0.5,
+    tokens: 50,
+    avg_duration: 60,
+    last_run_at: NOW - 50,
+  });
+
+  // The standard StatsFilter still narrows the rollup: a repo with no rows
+  // yields no trigger rows, not a zeroed one.
+  expect(
+    reviews.agents.all({ $from: null, $to: null, $repo: "acme/agents-none", $model: null }),
+  ).toEqual([]);
 });

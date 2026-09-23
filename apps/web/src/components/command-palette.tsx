@@ -9,6 +9,7 @@ import {
   ChartNoAxesColumn,
   MessageSquare,
   LayoutTemplate,
+  Bot,
   Copy,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -25,6 +26,7 @@ const PAGES = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard /> },
   { to: "/repos", label: "Repositories", icon: <FolderGit2 /> },
   { to: "/reviews", label: "Reviews", icon: <GitPullRequest /> },
+  { to: "/agents", label: "Agents", icon: <Bot /> },
   { to: "/stats", label: "Stats", icon: <ChartNoAxesColumn /> },
   { to: "/chat", label: "Chat", icon: <MessageSquare /> },
   { to: "/build", label: "Build", icon: <LayoutTemplate /> },

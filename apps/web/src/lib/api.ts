@@ -1,6 +1,7 @@
 import { treaty } from "@elysiajs/eden";
 import type { App } from "~/server/api";
 import type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -22,6 +23,7 @@ import type {
 // interfaces, so Eden already infers them structurally — re-exporting is
 // just a convenience import path for components.
 export type {
+  AgentStatsRow,
   DailyStatsRow,
   FindingRow,
   FindingsDailyRow,
@@ -257,6 +259,12 @@ export const api = {
     // latency samples these panels need and it never renders.
     charts: async (q: StatsQuery) =>
       unwrap<StatsCharts>(await c.stats.charts.get({ query: statsQuery(q) })),
+  },
+  agents: {
+    // One row per raw trigger; the Agents page rolls them up into the four
+    // agents. Same range/repo/model filters as the /stats siblings.
+    query: async (q: StatsQuery) =>
+      unwrap<{ agents: AgentStatsRow[] }>(await c.agents.get({ query: statsQuery(q) })),
   },
   models: {
     // Server-side filtered and capped — the full models.dev catalog is ~1MB.
