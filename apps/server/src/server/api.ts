@@ -863,7 +863,11 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .get(
     "/settings/test/:provider",
     async ({ params, set }) => {
-      const cfg = TEST_PROVIDERS[params.provider as TestProviderKey];
+      // Object.hasOwn, same reason as statsFilter: /test/constructor must not
+      // resolve to an inherited Object member and slip past the 400.
+      const cfg = Object.hasOwn(TEST_PROVIDERS, params.provider)
+        ? TEST_PROVIDERS[params.provider as TestProviderKey]
+        : undefined;
       if (!cfg) {
         set.status = 400;
         return { ok: false, error: `unknown provider "${params.provider}"` };

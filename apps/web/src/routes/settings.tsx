@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
-import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { api, type KeySource, type Settings } from "@/lib/api";
@@ -364,7 +364,6 @@ export default function SettingsPage() {
                 envVar="OPENCODE_API_KEY"
                 testProvider="opencode"
                 helpText="Used for every provider except the two below."
-                queryClient={queryClient}
               />
               <ProviderKeyField
                 id="zai_api_key"
@@ -377,7 +376,6 @@ export default function SettingsPage() {
                 envVar="ZAI_API_KEY"
                 testProvider="zai"
                 helpText="Only used when a model spec starts with zai-coding-plan/."
-                queryClient={queryClient}
               />
               <ProviderKeyField
                 id="commandcode_api_key"
@@ -390,7 +388,6 @@ export default function SettingsPage() {
                 envVar="COMMANDCODE_API_KEY"
                 testProvider="commandcode"
                 helpText="Only used when a model spec starts with commandcode/."
-                queryClient={queryClient}
               />
             </div>
           </CardContent>
@@ -588,7 +585,6 @@ function ProviderKeyField({
   envVar,
   testProvider,
   helpText,
-  queryClient,
 }: {
   id: string;
   label: string;
@@ -600,8 +596,8 @@ function ProviderKeyField({
   envVar: string;
   testProvider: "opencode" | "zai" | "commandcode";
   helpText: string;
-  queryClient: QueryClient;
 }) {
+  const queryClient = useQueryClient();
   const testMut = useMutation({
     mutationFn: () => api.settings.test(testProvider),
     onError: (e: Error) => toast.error(`Couldn't test ${label}`, { description: e.message }),
@@ -623,7 +619,6 @@ function ProviderKeyField({
       lastSource.current = source;
       testMut.reset();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
   const hasKey = source === "dashboard" || source === "env";

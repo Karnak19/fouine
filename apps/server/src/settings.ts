@@ -98,7 +98,7 @@ export function resolveApiKey(providerID?: string): string | undefined {
       settingValue(SETTINGS.COMMANDCODE_API_KEY) || config.opencode.commandcodeApiKey || undefined
     );
   }
-  return settingValue(SETTINGS.API_KEY) ?? config.opencode.apiKey;
+  return settingValue(SETTINGS.API_KEY) || config.opencode.apiKey;
 }
 
 export function resolveDefaultModel(): string {
