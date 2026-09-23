@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { api, type Settings } from "@/lib/api";
+import { api, type KeySource, type Settings } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -231,11 +231,6 @@ export default function SettingsPage() {
     onError: (e: Error) => toast.error("Couldn't save settings", { description: e.message }),
   });
 
-  const testMut = useMutation({
-    mutationFn: api.settings.test,
-    onError: (e: Error) => toast.error("Couldn't test connection", { description: e.message }),
-  });
-
   return (
     <div className="mx-auto space-y-6 max-w-3xl">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -358,73 +353,42 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="api_key">API key</Label>
-                <Input
-                  id="api_key"
-                  type="password"
-                  placeholder="Set key to enable reviews"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
-                <p className="text-xs text-zinc-500">Leave blank to keep the current value.</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="zai_api_key">GLM Coding Plan API key</Label>
-                <Input
-                  id="zai_api_key"
-                  type="password"
-                  placeholder="Z.ai key — used for zai-coding-plan/* models"
-                  value={zaiApiKey}
-                  onChange={(e) => setZaiApiKey(e.target.value)}
-                />
-                <p className="text-xs text-zinc-500">
-                  Only used when a model spec starts with <code>zai-coding-plan/</code>. When
-                  unset, opencode uses whatever credential it already has for that provider. Leave
-                  blank to keep the current value.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="commandcode_api_key">Command Code API key</Label>
-                <Input
-                  id="commandcode_api_key"
-                  type="password"
-                  placeholder="commandcode.ai key — used for commandcode/* models"
-                  value={commandcodeApiKey}
-                  onChange={(e) => setCommandcodeApiKey(e.target.value)}
-                />
-                <p className="text-xs text-zinc-500">
-                  Only used when a model spec starts with <code>commandcode/</code>. Leave blank to
-                  keep the current value.
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 border-t border-zinc-800 pt-4">
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={testMut.isPending}
-                  onClick={() => {
-                    testMut.reset();
-                    testMut.mutate();
-                  }}
-                >
-                  {testMut.isPending ? "Testing…" : "Test connection"}
-                </Button>
-                <span className="text-xs text-zinc-500">
-                  Sends one tiny request to the review model.
-                </span>
-              </div>
-              {testMut.data && (
-                <p
-                  className={`mt-2 text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
-                >
-                  {testMut.data.ok
-                    ? `OK — model replied: ${testMut.data.text ?? ""}`
-                    : `Failed: ${testMut.data.error ?? "unknown error"}`}
-                </p>
-              )}
+              <ProviderKeyField
+                id="api_key"
+                label="API key"
+                placeholder="Set key to enable reviews"
+                value={apiKey}
+                onChange={setApiKey}
+                settingKey="opencode_api_key"
+                source={settings?.opencode_key_source}
+                envVar="OPENCODE_API_KEY"
+                testProvider="opencode"
+                helpText="Used for every provider except the two below."
+              />
+              <ProviderKeyField
+                id="zai_api_key"
+                label="GLM Coding Plan API key"
+                placeholder="Z.ai key — used for zai-coding-plan/* models"
+                value={zaiApiKey}
+                onChange={setZaiApiKey}
+                settingKey="zai_api_key"
+                source={settings?.zai_key_source}
+                envVar="ZAI_API_KEY"
+                testProvider="zai"
+                helpText="Only used when a model spec starts with zai-coding-plan/."
+              />
+              <ProviderKeyField
+                id="commandcode_api_key"
+                label="Command Code API key"
+                placeholder="commandcode.ai key — used for commandcode/* models"
+                value={commandcodeApiKey}
+                onChange={setCommandcodeApiKey}
+                settingKey="commandcode_api_key"
+                source={settings?.commandcode_key_source}
+                envVar="COMMANDCODE_API_KEY"
+                testProvider="commandcode"
+                helpText="Only used when a model spec starts with commandcode/."
+              />
             </div>
           </CardContent>
         </Card>
@@ -599,6 +563,126 @@ export default function SettingsPage() {
       </form>
 
       <SkillsCard />
+    </div>
+  );
+}
+
+// One provider's key field: the input, its source badge ("using dashboard
+// key" / "using env var X" / "not set"), a "Remove, use env" action while a
+// dashboard row shadows the env var, and that provider's own Test button.
+// Each field pushes its own key server-side (task B's ensureProviderKey) and
+// runs a real prompt through a model that provider actually serves, so
+// "Test" reports the real state instead of the old single button that only
+// ever exercised the default model's provider.
+function ProviderKeyField({
+  id,
+  label,
+  placeholder,
+  value,
+  onChange,
+  settingKey,
+  source,
+  envVar,
+  testProvider,
+  helpText,
+}: {
+  id: string;
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  settingKey: "opencode_api_key" | "zai_api_key" | "commandcode_api_key";
+  source: KeySource | undefined;
+  envVar: string;
+  testProvider: "opencode" | "zai" | "commandcode";
+  helpText: string;
+}) {
+  const queryClient = useQueryClient();
+  const testMut = useMutation({
+    mutationFn: () => api.settings.test(testProvider),
+    onError: (e: Error) => toast.error(`Couldn't test ${label}`, { description: e.message }),
+  });
+  const removeMut = useMutation({
+    mutationFn: () => api.settings.update({ [settingKey]: "" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Key removed — falling back to the env var");
+    },
+    onError: (e: Error) => toast.error("Couldn't remove key", { description: e.message }),
+  });
+
+  // A saved/removed key changes what the next test would exercise — drop the
+  // stale result rather than show a green "OK" for a key that's gone.
+  const lastSource = useRef(source);
+  useEffect(() => {
+    if (lastSource.current !== source) {
+      lastSource.current = source;
+      testMut.reset();
+    }
+  }, [source]);
+
+  const hasKey = source === "dashboard" || source === "env";
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="password"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p className="text-xs text-zinc-500">{helpText} Leave blank to keep the current value.</p>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {source === "dashboard" && (
+          <>
+            <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400">
+              Using dashboard key (overrides env)
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={removeMut.isPending}
+              onClick={() => removeMut.mutate()}
+            >
+              {removeMut.isPending ? "Removing…" : "Remove, use env"}
+            </Button>
+          </>
+        )}
+        {source === "env" && (
+          <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400">
+            Using env var {envVar}
+          </span>
+        )}
+        {source === "none" && (
+          <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-xs text-zinc-500">
+            Not set
+          </span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!hasKey || testMut.isPending}
+          onClick={() => {
+            testMut.reset();
+            testMut.mutate();
+          }}
+        >
+          {testMut.isPending ? "Testing…" : "Test connection"}
+        </Button>
+      </div>
+      {testMut.data && (
+        <p
+          className={`text-xs font-mono ${testMut.data.ok ? "text-emerald-400" : "text-red-400"}`}
+        >
+          {testMut.data.ok
+            ? `OK (${testMut.data.model ?? ""}) — replied: ${testMut.data.text ?? ""}`
+            : `Failed (${testMut.data.model ?? ""}): ${testMut.data.error ?? "unknown error"}`}
+        </p>
+      )}
     </div>
   );
 }

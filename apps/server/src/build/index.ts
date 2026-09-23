@@ -19,7 +19,7 @@ import {
   type PreviousDataset,
 } from "@fouine/shared/build-catalog";
 import { resolveApiKey, resolveChatModel } from "~/settings";
-import { wireModelId } from "~/chat";
+import { OPENCODE_GO_BASE_URL, wireModelId } from "~/chat";
 import { chatMockEnabled } from "~/chat/mock-model";
 import { log } from "~/server/log";
 import { createDatasetStep, rerunPreviousDataset } from "~/build/datasets";
@@ -58,8 +58,6 @@ export const DATA_STEPS = MAX_DATASETS + 3;
 
 /** The layout model writes one YAML document; it never needs a second turn. */
 export const LAYOUT_STEPS = 1;
-
-const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 
 /** The data parts this route adds on top of json-render's own spec patches. */
 export const DATASET_PART = "data-build-dataset";

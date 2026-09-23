@@ -7,6 +7,7 @@ export function Stat({
   accent,
   pulse,
   danger,
+  title,
 }: {
   label: string;
   value: string | null;
@@ -16,9 +17,10 @@ export function Stat({
   // Same red the failed badge uses — for a KPI that reads as a problem
   // (e.g. success rate dropping), not just a running/idle state.
   danger?: boolean;
+  title?: string;
 }) {
   return (
-    <div className="px-4 py-3.5">
+    <div className="px-4 py-3.5" title={title}>
       <div className="flex items-center gap-1.5 text-[0.7rem] font-medium uppercase tracking-wide text-zinc-500">
         {pulse && (
           <span className="h-1.5 w-1.5 rounded-full bg-ember-400 animate-[fouine-pulse_1.4s_ease-in-out_infinite]" />

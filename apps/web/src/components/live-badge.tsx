@@ -1,12 +1,12 @@
 import type { LiveStatus } from "@/lib/live";
 
 const META: Record<LiveStatus, { label: string; dot: string; text: string }> = {
-  connecting: { label: "connecting", dot: "bg-amber-400", text: "text-amber-300" },
-  live: { label: "live", dot: "bg-emerald-400", text: "text-emerald-300" },
+  connecting: { label: "connecting", dot: "bg-ember-400", text: "text-ember-300" },
+  live: { label: "live", dot: "bg-ember-400", text: "text-ember-300" },
   reconnecting: {
     label: "reconnecting…",
-    dot: "bg-amber-400 animate-pulse motion-reduce:animate-none",
-    text: "text-amber-300",
+    dot: "bg-ember-400 animate-pulse motion-reduce:animate-none",
+    text: "text-ember-300",
   },
   offline: { label: "offline", dot: "bg-zinc-500", text: "text-zinc-400" },
   error: { label: "connection error", dot: "bg-red-400", text: "text-red-300" },

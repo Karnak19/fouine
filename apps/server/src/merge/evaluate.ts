@@ -8,8 +8,15 @@ import { findings, mergeArms, repos, reviews } from "~/db";
 import { resolveAutoMerge, resolveMergeMethod } from "~/settings";
 import { GitHubService } from "~/effect/github";
 import { isBotLogin, shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
+import { assessMergeRisk, type AssessMergeRiskInput, type MergeRiskAssessment } from "~/merge/assess";
 import { renderRecap } from "~/merge/recap";
 import { log } from "~/server/log";
+
+// Every deterministic gate in shouldMerge has already passed by the time this
+// is called — a "critical" verdict never masks a real blocker, it only holds
+// an otherwise-mergeable PR for a human. Injectable so evaluate.test.ts never
+// makes a network call (tests are hermetic — see AGENTS.md).
+type AssessFn = (input: AssessMergeRiskInput) => Promise<MergeRiskAssessment>;
 
 // ponytail: in-memory promise chain per (repo, pr) — a single process is all
 // this app runs, so this is enough to serialise concurrent webhooks for the
@@ -39,6 +46,7 @@ function runEvaluation(repoFullName: string, prNumber: number): Promise<void> {
 export function evaluatePipeline(
   repoFullName: string,
   prNumber: number,
+  assess: AssessFn = assessMergeRisk,
 ): Effect.Effect<void, never, GitHubService> {
   return Effect.gen(function* () {
     const gh = yield* GitHubService;
@@ -150,6 +158,79 @@ export function evaluatePipeline(
       return;
     }
 
+    // The review that cleared the gate — decision.ok guarantees one exists.
+    // Computed here (not just at the recap step below) because the risk
+    // assessment also wants its body for context.
+    const approving = fouineRaw
+      .filter((r) => r.state !== "PENDING")
+      .sort((a, b) => (a.submitted_at ?? "").localeCompare(b.submitted_at ?? ""))
+      .at(-1)!;
+
+    const allFindings = yield* Effect.sync(() =>
+      findings.byRepoPR.all({ $repo: repoFullName, $pr: prNumber }),
+    );
+    const findingsCount = allFindings.filter((f) => f.kind === "inline").length;
+
+    // Every deterministic gate is green — the risk check runs last, so a
+    // "critical" verdict is always "everything is green, it's your call", never
+    // a blocker in disguise. A diff fetch failure is treated the same as an
+    // assessment failure: fail closed, hold for a human.
+    const diff = yield* gh
+      .getDiff(octokit, owner, repoName, prNumber)
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.sync(() => {
+            log.warn("merge: could not fetch diff for risk assessment", {
+              repo: repoFullName,
+              pr: prNumber,
+              error: String(cause),
+            });
+            return undefined;
+          }),
+        ),
+      );
+    const risk: MergeRiskAssessment =
+      diff === undefined
+        ? { level: "critical", reason: "could not fetch the diff for risk assessment" }
+        : yield* Effect.tryPromise(() =>
+            assess({
+              title: pull.title,
+              body: pull.body,
+              diff,
+              approvingReviewBody: approving.body,
+              findingsCount,
+            }),
+          ).pipe(
+            Effect.catchAll((err) =>
+              Effect.sync(() => {
+                log.warn("merge risk assessment threw, holding for human review", {
+                  repo: repoFullName,
+                  pr: prNumber,
+                  error: String(err),
+                });
+                return { level: "critical" as const, reason: "risk assessment failed" };
+              }),
+            ),
+          );
+
+    if (risk.level === "critical") {
+      yield* gh.createIssueComment(
+        octokit,
+        owner,
+        repoName,
+        prNumber,
+        `🦡 Ready to merge, but holding for you: ${risk.reason.trim().replace(/\.+$/, "")}. Merge it from GitHub when you're happy.`,
+      );
+      // SHA-scoped disarm is what makes this comment post only once: evaluate
+      // runs again on every later webhook event for this PR, but with the arm
+      // gone `mergeArms.get` above returns undefined next time. A new push
+      // re-arms naturally via the existing `synchronize` path.
+      yield* Effect.sync(() =>
+        mergeArms.disarmIfSha.run({ $repo: repoFullName, $pr: prNumber, $sha: arm.head_sha }),
+      );
+      return;
+    }
+
     const method = resolveMergeMethod(repo.merge_method);
     const mergeResult = yield* gh.mergePull(octokit, owner, repoName, prNumber, {
       method,
@@ -188,15 +269,6 @@ export function evaluatePipeline(
       return;
     }
 
-    // The review that cleared the gate — decision.ok guarantees one exists.
-    const approving = fouineRaw
-      .filter((r) => r.state !== "PENDING")
-      .sort((a, b) => (a.submitted_at ?? "").localeCompare(b.submitted_at ?? ""))
-      .at(-1)!;
-
-    const allFindings = yield* Effect.sync(() =>
-      findings.byRepoPR.all({ $repo: repoFullName, $pr: prNumber }),
-    );
     const allReviews = yield* Effect.sync(() =>
       reviews.byRepoPR.all({ $repo: repoFullName, $pr: prNumber, $limit: 500 }),
     );
@@ -209,7 +281,8 @@ export function evaluatePipeline(
       mergeSha,
       approvingReviewUrl: approving.html_url,
       approvingReviewSummary: approving.body.split("\n")[0] ?? "",
-      findingsCount: allFindings.filter((f) => f.kind === "inline").length,
+      riskReason: risk.reason,
+      findingsCount,
       pushesCount: allReviews.length,
       checksPassed: passingChecks.length,
       checksMode: requiredChecks ? "required checks" : "all checks",

@@ -17,6 +17,12 @@ import {
   resolveChatModel,
   resolveAutoReady,
   DEFAULT_IMPLEMENT_LABEL,
+  opencodeKeySource,
+  zaiKeySource,
+  commandcodeKeySource,
+  hasOpencodeKey,
+  hasZaiKey,
+  hasCommandcodeKey,
 } from "~/settings";
 import { config } from "~/config";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
@@ -76,6 +82,59 @@ test("a GLM model never borrows the OpenCode key", () => {
 test("the Z.ai key never leaks to a non-GLM provider", () => {
   settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: "zai-key" });
   expect(resolveApiKey("opencode-go")).toBeFalsy();
+});
+
+// config is `as const` in production code (nothing should mutate it at
+// runtime) but these tests need to exercise the env-fallback branch, so the
+// cast to a mutable view is local to this file only.
+const mutableOpencodeConfig = config.opencode as unknown as {
+  apiKey?: string;
+  zaiApiKey?: string;
+  commandcodeApiKey?: string;
+};
+
+// keySource is the single source of truth GET /settings reports and has*Key()
+// is now derived from it — an explicit empty-string row must read exactly the
+// same as no row at all, on both sides.
+test("opencodeKeySource: dashboard row wins over env, empty row falls back to env", () => {
+  const savedEnv = mutableOpencodeConfig.apiKey;
+  mutableOpencodeConfig.apiKey = "env-key";
+  try {
+    expect(opencodeKeySource()).toBe("env");
+    expect(hasOpencodeKey()).toBe(true);
+
+    settings.set.run({ $key: SETTINGS.API_KEY, $value: "dash-key" });
+    expect(opencodeKeySource()).toBe("dashboard");
+    expect(hasOpencodeKey()).toBe(true);
+
+    // An explicit "" row deletes the row (the PUT handler's setKey), so this
+    // is really "no dashboard row" — falls back to env, not "none".
+    settings.set.run({ $key: SETTINGS.API_KEY, $value: "" });
+    expect(opencodeKeySource()).toBe("env");
+  } finally {
+    mutableOpencodeConfig.apiKey = savedEnv;
+  }
+});
+
+test("zaiKeySource/commandcodeKeySource: none when neither a row nor an env value exists", () => {
+  const savedZai = mutableOpencodeConfig.zaiApiKey;
+  const savedCc = mutableOpencodeConfig.commandcodeApiKey;
+  mutableOpencodeConfig.zaiApiKey = undefined;
+  mutableOpencodeConfig.commandcodeApiKey = undefined;
+  try {
+    expect(zaiKeySource()).toBe("none");
+    expect(hasZaiKey()).toBe(false);
+    expect(commandcodeKeySource()).toBe("none");
+    expect(hasCommandcodeKey()).toBe(false);
+
+    settings.set.run({ $key: SETTINGS.ZAI_API_KEY, $value: "zai-key" });
+    settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+    expect(zaiKeySource()).toBe("dashboard");
+    expect(commandcodeKeySource()).toBe("dashboard");
+  } finally {
+    mutableOpencodeConfig.zaiApiKey = savedZai;
+    mutableOpencodeConfig.commandcodeApiKey = savedCc;
+  }
 });
 
 test("Command Code models use the Command Code key, other providers use the OpenCode key", () => {

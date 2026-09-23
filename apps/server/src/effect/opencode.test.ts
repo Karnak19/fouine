@@ -56,18 +56,42 @@ class FakeEvents {
   }
 }
 
-function fakeServe() {
+function fakeServe(
+  opts: {
+    providerGet?: (providerID: string) => Promise<unknown>;
+    // Called before each connect.key attempt records the push; throwing here
+    // simulates the real IntegrationNotFoundError race — the retry test
+    // below fails it N times then lets it through.
+    connectKeyError?: (attempt: number) => unknown;
+  } = {},
+) {
   const events = new FakeEvents();
   const pushed: Array<{ integrationID: string; key: string }> = [];
+  const providerGetCalls: string[] = [];
+  let connectKeyAttempts = 0;
   const client = {
     server: { info: async () => ({}) },
-    integration: { connect: { key: async (i: { integrationID: string; key: string }) => void pushed.push(i) } },
+    provider: {
+      get: async (req: { providerID: string }) => {
+        providerGetCalls.push(req.providerID);
+        return opts.providerGet ? opts.providerGet(req.providerID) : {};
+      },
+    },
+    integration: {
+      connect: {
+        key: async (i: { integrationID: string; key: string }) => {
+          const err = opts.connectKeyError?.(connectKeyAttempts++);
+          if (err !== undefined) throw err;
+          pushed.push(i);
+        },
+      },
+    },
     event: { subscribe: () => events.subscribe() },
     session: { interrupt: async () => ({ interrupted: true }) },
     location: { reload: async () => {} },
   };
   const serve = { client, port: 1234, kill: () => {} } as unknown as OpencodeServe;
-  return { serve, events, pushed };
+  return { serve, events, pushed, providerGetCalls };
 }
 
 function makeManager(
@@ -134,6 +158,78 @@ test("pushes the default provider key once at init and re-pushes a rotated key",
   await manager.ensureProviderKey(pushed[0].integrationID);
   expect(pushed).toHaveLength(2);
   expect(pushed[1].key).toBe("rotated-key");
+  manager.stop();
+});
+
+// A fresh opencode server 404s connect.key for a provider the catalog does
+// carry until something has warmed it (verified locally against a real
+// opencode 2.0.11 server — see the ponytail in ensureProviderKey). provider.get
+// must run before the key push, for exactly the provider being pushed.
+test("warms the provider catalog before pushing its key", async () => {
+  const { serve, pushed, providerGetCalls } = fakeServe();
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+  });
+  await manager.acquire();
+  expect(providerGetCalls).toEqual([ZAI_PROVIDER]);
+  expect(pushed).toEqual([{ integrationID: ZAI_PROVIDER, key: "zai-key" }]);
+  manager.stop();
+});
+
+// provider.get is best-effort warm-up only: a server that can't resolve it yet
+// (or ever) must not block the real key push, which is where a genuine
+// problem (bad provider id, dead catalog) has to surface instead.
+test("still pushes the key when the provider warm-up call fails", async () => {
+  const { serve, pushed } = fakeServe({
+    providerGet: async () => {
+      throw new Error("ProviderNotFoundError");
+    },
+  });
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+  });
+  await manager.acquire();
+  expect(pushed).toEqual([{ integrationID: ZAI_PROVIDER, key: "zai-key" }]);
+  manager.stop();
+});
+
+// Reproduces the real bug: on a genuinely fresh server, verified against a
+// real opencode 2.0.11 boot, the FIRST connect.key call can still 404 with
+// IntegrationNotFoundError even after provider.get resolved, but a second
+// attempt a beat later always succeeds. ensureProviderKey must retry rather
+// than give up (or, worse, silently report success) after one failed attempt.
+test("retries the key push after an IntegrationNotFoundError and succeeds", async () => {
+  const { serve, pushed } = fakeServe({
+    connectKeyError: (attempt) =>
+      attempt === 0
+        ? { _tag: "IntegrationNotFoundError", integrationID: ZAI_PROVIDER, message: "not found" }
+        : undefined,
+  });
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+    keyPushRetryMs: [1, 1, 1],
+  });
+  await manager.acquire();
+  expect(pushed).toEqual([{ integrationID: ZAI_PROVIDER, key: "zai-key" }]);
+  manager.stop();
+});
+
+// Never silently give up: exhausting the retry budget must throw the real
+// cause, not just log and pretend the key is pushed.
+test("throws the real cause once every retry is exhausted, and never marks the key pushed", async () => {
+  const cause = { _tag: "IntegrationNotFoundError", integrationID: ZAI_PROVIDER, message: "still gone" };
+  const { serve, pushed } = fakeServe({ connectKeyError: () => cause });
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+    keyPushRetryMs: [1, 1],
+  });
+  // pushInitKeys swallows+logs this one (never fatal to server startup).
+  await manager.acquire();
+  expect(pushed).toEqual([]);
+
+  // A direct caller (the settings test endpoint) must see the real failure.
+  await expect(manager.ensureProviderKey(ZAI_PROVIDER)).rejects.toBe(cause);
+  expect(pushed).toEqual([]);
   manager.stop();
 });
 
