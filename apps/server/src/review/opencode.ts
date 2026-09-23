@@ -133,6 +133,49 @@ export interface SpawnOpencodeOptions {
   internalUrl?: string;
 }
 
+// The server prints its own auth secret once at startup ("server password
+// <secret>") because fouine sets OPENCODE_SERVER_PASSWORD itself and never
+// reads it back from stdout — that line must never reach the logs now that
+// the child's output is forwarded.
+const SERVER_PASSWORD_LINE = /^server password\b/i;
+
+// Forward the opencode child's own stdout/stderr into fouine's structured
+// logs (source: "opencode") instead of discarding it — previously `"ignore"`,
+// which meant a wedged/crashing server left nothing in the container logs to
+// diagnose it with. Best-effort: a read error just ends the pump early, same
+// as the stream closing when the child exits.
+export async function pumpChildOutput(
+  stream: ReadableStream<Uint8Array> | null,
+  level: "debug" | "info",
+): Promise<void> {
+  if (!stream) return;
+  const log_ = level === "info" ? log.info : log.debug;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line && !SERVER_PASSWORD_LINE.test(line)) {
+          log_("opencode output", { source: "opencode", line });
+        }
+      }
+    }
+    const rest = buf.trim();
+    if (rest && !SERVER_PASSWORD_LINE.test(rest)) {
+      log_("opencode output", { source: "opencode", line: rest });
+    }
+  } catch {
+    // stream aborted by kill() — nothing left to log
+  }
+}
+
 // Spawn one `opencode serve` + its client with the minimal env. The caller owns
 // the child: kill() on teardown. This is called once per process by the manager
 // (effect/opencode.ts), never per review.
@@ -146,11 +189,13 @@ export async function spawnOpencode(opts: SpawnOpencodeOptions): Promise<Opencod
   );
   const proc = Bun.spawn(["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"], {
     env,
-    stdout: "ignore",
-    stderr: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
     // A wedged child must not keep the fouine process alive on its behalf.
     stdin: "ignore",
   });
+  void pumpChildOutput(proc.stdout, "debug");
+  void pumpChildOutput(proc.stderr, "info");
   try {
     await waitForReady(port, password, proc);
   } catch (cause) {
@@ -233,9 +278,48 @@ export interface RunResult {
   tokens: number;
 }
 
+export type SessionMessages = Awaited<ReturnType<OpencodeClient["message"]["list"]>>["data"];
+
+// v2's session.wait resolves normally even when the model run itself failed —
+// the failure lives on the message rows, not on wait()'s return value. Two
+// shapes, proven against a real local server:
+//  - the provider rejected the request: an `assistant` row with
+//    `finish:"error"` and `error:{type,message,status}`, followed by an
+//    `idle` row with `outcome:"failed"`.
+//  - no provider key at all: NO assistant row, just `idle` with
+//    `outcome:"failed"`.
+// Walk backward from the end (message.list is called with order:"asc", so the
+// newest rows are last) collecting only the current turn — stop at the most
+// recent `user` row, which is this ask()'s own prompt.
+export function assessTurnOutcome(msgs: SessionMessages): { error?: string; warning?: string } {
+  let idleOutcome: string | undefined;
+  let assistantError: string | undefined;
+  let finishWarning: string | undefined;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]!;
+    if (m.type === "user") break;
+    if (m.type === "idle" && idleOutcome === undefined) idleOutcome = m.outcome;
+    if (m.type === "assistant") {
+      if (m.error && !assistantError) {
+        assistantError = `${m.error.type} ${m.error.status ?? ""} ${m.error.message}`
+          .replace(/\s+/g, " ")
+          .trim();
+      } else if (!m.error && (m.finish === "length" || m.finish === "content-filter") && !finishWarning) {
+        finishWarning = `assistant turn ended with finish:${m.finish}`;
+      }
+    }
+  }
+  if (assistantError) return { error: `opencode run failed: ${assistantError}` };
+  if (idleOutcome === "failed") {
+    return { error: "run failed with no error detail — likely missing provider key" };
+  }
+  if (finishWarning) return { warning: finishWarning };
+  return {};
+}
+
 // Assistant text/cost/tokens for the whole session. v2 messages are flat rows;
 // text lives in `content` parts, accounting per message.
-function summarizeMessages(msgs: Awaited<ReturnType<OpencodeClient["message"]["list"]>>["data"]) {
+function summarizeMessages(msgs: SessionMessages) {
   let cost = 0;
   let tokens = 0;
   const texts: string[] = [];
@@ -343,12 +427,50 @@ export async function runReview(
     );
   };
 
+  // ponytail: no pagination — one review's assistant messages sit well under a
+  // page. If reviews ever grow past the default limit, follow the cursor here.
+  // order:"asc" so the newest rows are last — both assessTurnOutcome (walks
+  // back from the end) and the dashboard transcript depend on that order.
+  const listMessages = () =>
+    withTransportRetry(
+      "message.list",
+      () => client.message.list({ sessionID: session.id, order: "asc" }),
+      opts.isTornDown,
+    ).then((r) => r.data);
+
+  // Fold one turn's outcome: log+throw on a real failure (never fatal to
+  // swallow — a silent failed run is exactly the production incident this
+  // guards against), log.warn on a truncated/filtered finish that isn't fatal.
+  const assessAndThrow = (msgs: SessionMessages) => {
+    const outcome = assessTurnOutcome(msgs);
+    if (outcome.error) {
+      log.error("opencode run failed", {
+        session: session.id,
+        provider: model.providerID,
+        model: model.modelID,
+        error: outcome.error,
+      });
+      throw new Error(outcome.error);
+    }
+    if (outcome.warning) {
+      log.warn("opencode run finished with a warning", {
+        session: session.id,
+        provider: model.providerID,
+        model: model.modelID,
+        warning: outcome.warning,
+      });
+    }
+  };
+
   await ask(opts.prompt);
+  let msgs = await listMessages();
+  assessAndThrow(msgs);
 
   // Some sessions end without the agent ever calling post_review — the PR gets
   // no review and no comments. Continue the same session (full context intact)
   // with one nudge. ponytail: one nudge, no retry loop — a model that ignores a
-  // direct instruction twice won't do better on a third.
+  // direct instruction twice won't do better on a third. A failed run is never
+  // nudged: assessAndThrow above already stopped us before this point.
   if (opts.hasPosted && !opts.hasPosted()) {
     await ask(
       "You ended the session without posting the review to GitHub. Post it now with the " +
@@ -356,17 +478,10 @@ export async function runReview(
         "post a short summary-only review — pick `event` by the severity rule in your " +
         "instructions, don't default to COMMENT. If you already posted it, just say so.",
     );
+    msgs = await listMessages();
+    assessAndThrow(msgs);
   }
 
-  // ponytail: no pagination — one review's assistant messages sit well under a
-  // page. If reviews ever grow past the default limit, follow the cursor here.
-  const msgs = (
-    await withTransportRetry(
-      "message.list",
-      () => client.message.list({ sessionID: session.id }),
-      opts.isTornDown,
-    )
-  ).data;
   const { cost, tokens, text } = summarizeMessages(msgs);
 
   return { sessionId: session.id, text, cost, tokens };

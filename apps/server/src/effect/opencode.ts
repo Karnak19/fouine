@@ -279,6 +279,21 @@ export class OpenCodeServerManager {
     // the live server, not wait for a fouine restart (v1 re-pushed the current
     // key on every run).
     if (!key || this.pushedKeys.get(providerID) === key) return;
+    // opencode's provider catalog (models.dev) loads lazily on first use: a
+    // fresh server's very first integration.connect.key call 404s with
+    // IntegrationNotFoundError even for a provider the catalog does carry —
+    // verified locally against opencode 2.0.11: `opencode serve` then an
+    // immediate connect.key call fails, but the identical call succeeds right
+    // after any provider.get/list call warms the catalog. provider.get forces
+    // that load for just this provider, cheaply and deterministically — no
+    // sleep/retry loop needed. Best-effort: if it throws (unknown provider,
+    // catalog still failing to load), still attempt the real push below so a
+    // genuine problem surfaces there instead of being masked here.
+    try {
+      await client.provider.get({ providerID });
+    } catch {
+      // handled by the connect.key call immediately below
+    }
     // v1 stored these via client.auth.set; v2 folds provider credentials into
     // integrations. The integration id is the provider id.
     await client.integration.connect.key({ integrationID: providerID, key });
@@ -395,10 +410,16 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
 
           // v1 pushed the run's provider key before every session.create
           // (setProviderApiKey); restore that so a per-repo/per-pipeline model on
-          // a different provider authenticates. Never fatal.
+          // a different provider authenticates. Never fatal — a failed push here
+          // degrades auth instead of failing the review outright, so a bad key
+          // still surfaces as the run's own provider.auth error — but it must
+          // not vanish silently either (the production incident this whole fix
+          // set is about), so log it.
           const keyPush = openCodeManager
             .ensureProviderKey(parseModel(opts.model ?? resolveDefaultModel()).providerID)
-            .catch(() => undefined);
+            .catch((cause) => {
+              log.warn("could not push provider key before review", { cause: String(cause) });
+            });
 
           return Effect.tryPromise({
             try: () =>

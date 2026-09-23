@@ -56,18 +56,25 @@ class FakeEvents {
   }
 }
 
-function fakeServe() {
+function fakeServe(opts: { providerGet?: (providerID: string) => Promise<unknown> } = {}) {
   const events = new FakeEvents();
   const pushed: Array<{ integrationID: string; key: string }> = [];
+  const providerGetCalls: string[] = [];
   const client = {
     server: { info: async () => ({}) },
+    provider: {
+      get: async (req: { providerID: string }) => {
+        providerGetCalls.push(req.providerID);
+        return opts.providerGet ? opts.providerGet(req.providerID) : {};
+      },
+    },
     integration: { connect: { key: async (i: { integrationID: string; key: string }) => void pushed.push(i) } },
     event: { subscribe: () => events.subscribe() },
     session: { interrupt: async () => ({ interrupted: true }) },
     location: { reload: async () => {} },
   };
   const serve = { client, port: 1234, kill: () => {} } as unknown as OpencodeServe;
-  return { serve, events, pushed };
+  return { serve, events, pushed, providerGetCalls };
 }
 
 function makeManager(
@@ -134,6 +141,38 @@ test("pushes the default provider key once at init and re-pushes a rotated key",
   await manager.ensureProviderKey(pushed[0].integrationID);
   expect(pushed).toHaveLength(2);
   expect(pushed[1].key).toBe("rotated-key");
+  manager.stop();
+});
+
+// A fresh opencode server 404s connect.key for a provider the catalog does
+// carry until something has warmed it (verified locally against a real
+// opencode 2.0.11 server — see the ponytail in ensureProviderKey). provider.get
+// must run before the key push, for exactly the provider being pushed.
+test("warms the provider catalog before pushing its key", async () => {
+  const { serve, pushed, providerGetCalls } = fakeServe();
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+  });
+  await manager.acquire();
+  expect(providerGetCalls).toEqual([ZAI_PROVIDER]);
+  expect(pushed).toEqual([{ integrationID: ZAI_PROVIDER, key: "zai-key" }]);
+  manager.stop();
+});
+
+// provider.get is best-effort warm-up only: a server that can't resolve it yet
+// (or ever) must not block the real key push, which is where a genuine
+// problem (bad provider id, dead catalog) has to surface instead.
+test("still pushes the key when the provider warm-up call fails", async () => {
+  const { serve, pushed } = fakeServe({
+    providerGet: async () => {
+      throw new Error("ProviderNotFoundError");
+    },
+  });
+  const { manager } = makeManager(serve, {
+    resolveKey: (id) => (id === ZAI_PROVIDER ? "zai-key" : undefined),
+  });
+  await manager.acquire();
+  expect(pushed).toEqual([{ integrationID: ZAI_PROVIDER, key: "zai-key" }]);
   manager.stop();
 });
 

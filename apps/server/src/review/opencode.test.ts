@@ -1,10 +1,24 @@
 import { expect, test } from "bun:test";
 import {
+  assessTurnOutcome,
   opencodeSpawnEnv,
+  pumpChildOutput,
   runReview,
   type OpencodeClient,
 } from "~/review/opencode";
 import { ClientError, type PermissionRuleset } from "@opencode/client";
+
+// A ReadableStream that emits the given chunks then closes, like Bun.spawn's
+// proc.stdout/stderr once the child writes and exits.
+function streamOf(...chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+}
 
 // Minimal client stub: records every prompt sent to the session, and answers
 // message.list with one assistant message per ask.
@@ -318,4 +332,171 @@ test("stops retrying once torn down between attempts", async () => {
     }),
   ).rejects.toMatchObject({ name: "ClientError", reason: "Transport" });
   expect(waits).toBe(1);
+});
+
+// ── Silent run-failure detection (v2's session.wait resolves even when the
+// model run itself errored — the failure only shows up on the message rows) ──
+
+type Row = Parameters<typeof assessTurnOutcome>[0][number];
+
+test("assessTurnOutcome surfaces a provider auth error from the assistant row", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    {
+      id: "a1",
+      type: "assistant",
+      finish: "error",
+      error: { type: "provider.auth", message: "token expired or incorrect", status: 401 },
+    } as Row,
+    { id: "i1", type: "idle", outcome: "failed" } as Row,
+  ];
+  expect(assessTurnOutcome(msgs)).toEqual({
+    error: "opencode run failed: provider.auth 401 token expired or incorrect",
+  });
+});
+
+test("assessTurnOutcome falls back to a generic message when only idle:failed is seen", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    { id: "i1", type: "idle", outcome: "failed" } as Row,
+  ];
+  expect(assessTurnOutcome(msgs)).toEqual({
+    error: "run failed with no error detail — likely missing provider key",
+  });
+});
+
+test("assessTurnOutcome is a no-op on a normal successful turn", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    { id: "a1", type: "assistant", content: [{ type: "text", text: "hi" }] } as Row,
+    { id: "i1", type: "idle", outcome: "succeeded" } as Row,
+  ];
+  expect(assessTurnOutcome(msgs)).toEqual({});
+});
+
+test("assessTurnOutcome warns (not fails) on a truncated finish", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    { id: "a1", type: "assistant", finish: "length" } as Row,
+    { id: "i1", type: "idle", outcome: "succeeded" } as Row,
+  ];
+  expect(assessTurnOutcome(msgs)).toEqual({ warning: "assistant turn ended with finish:length" });
+});
+
+test("assessTurnOutcome only looks at the latest turn, not earlier ones", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    {
+      id: "a1",
+      type: "assistant",
+      finish: "error",
+      error: { type: "provider.auth", message: "old failure", status: 401 },
+    } as Row,
+    { id: "i1", type: "idle", outcome: "failed" } as Row,
+    { id: "u2", type: "user" } as Row,
+    { id: "a2", type: "assistant", content: [{ type: "text", text: "fixed now" }] } as Row,
+    { id: "i2", type: "idle", outcome: "succeeded" } as Row,
+  ];
+  expect(assessTurnOutcome(msgs)).toEqual({});
+});
+
+// runReview must throw a review-failing error instead of returning a
+// perfectly happy RunResult when the model's own turn failed, and must never
+// send the post_review nudge once it has.
+test("runReview throws on a failed turn and never sends the nudge", async () => {
+  const prompts: string[] = [];
+  const client = {
+    session: {
+      create: async () => ({ id: "sess" }),
+      prompt: async (req: { sessionID: string; text: string }) => {
+        prompts.push(req.text);
+        return {};
+      },
+      wait: async () => undefined,
+    },
+    message: {
+      list: async () => ({
+        data: [
+          { id: "u1", type: "user" },
+          {
+            id: "a1",
+            type: "assistant",
+            finish: "error",
+            error: { type: "provider.auth", message: "token expired or incorrect", status: 401 },
+          },
+          { id: "i1", type: "idle", outcome: "failed" },
+        ],
+        cursor: {},
+      }),
+    },
+  } as unknown as OpencodeClient;
+
+  await expect(
+    runReview(client, {
+      directory: "/tmp",
+      prompt: "review this",
+      model: "zen/kimi-k3",
+      hasPosted: () => false,
+    }),
+  ).rejects.toThrow("opencode run failed: provider.auth 401 token expired or incorrect");
+  // Only the review's own prompt — a failed run must never be nudged.
+  expect(prompts).toHaveLength(1);
+});
+
+// ── Forwarding the opencode child's own stdout/stderr into fouine's logs ────
+
+test("pumpChildOutput forwards lines with source:opencode and drops the password line", async () => {
+  const savedLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = "debug";
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (line: string) => void lines.push(line);
+  try {
+    await pumpChildOutput(
+      streamOf("server listening on http://127.0.0.1:4096\n", "server password abc123secret\n"),
+      "debug",
+    );
+  } finally {
+    console.log = original;
+    if (savedLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = savedLevel;
+  }
+  expect(lines).toHaveLength(1);
+  const parsed = JSON.parse(lines[0]!);
+  expect(parsed).toMatchObject({
+    level: "debug",
+    source: "opencode",
+    line: "server listening on http://127.0.0.1:4096",
+  });
+  expect(lines.join("\n")).not.toContain("abc123secret");
+});
+
+test("pumpChildOutput logs a final unterminated line and skips blank ones", async () => {
+  const savedLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = "debug";
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (line: string) => void lines.push(line);
+  try {
+    await pumpChildOutput(streamOf("\n", "no trailing newline"), "debug");
+  } finally {
+    console.log = original;
+    if (savedLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = savedLevel;
+  }
+  expect(lines).toHaveLength(1);
+  expect(JSON.parse(lines[0]!)).toMatchObject({ line: "no trailing newline" });
+});
+
+test("pumpChildOutput logs at info level (stderr) regardless of LOG_LEVEL", async () => {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (line: string) => void lines.push(line);
+  try {
+    await pumpChildOutput(streamOf("something went sideways\n"), "info");
+  } finally {
+    console.log = original;
+  }
+  expect(lines).toHaveLength(1);
+  expect(JSON.parse(lines[0]!)).toMatchObject({ level: "info", source: "opencode" });
 });

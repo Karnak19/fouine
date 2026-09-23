@@ -133,10 +133,23 @@ export interface ModelOption {
   configured: boolean;
 }
 
+// Provider key state as GET /settings reports it: never the secret value
+// itself (see settingsSnapshot in apps/server/src/server/api.ts) — just where
+// it currently comes from, so the dashboard can show "using dashboard key" /
+// "using env var" / "not set" and disable a provider's Test button.
+export type KeySource = "dashboard" | "env" | "none";
+
 export interface Settings {
+  // Write-only on PUT: a non-empty value sets/rotates the row, "" clears it
+  // back to the env fallback. Never populated from GET — see the
+  // opencode_key_source/zai_key_source/commandcode_key_source fields below.
   opencode_api_key?: string;
   zai_api_key?: string;
   commandcode_api_key?: string;
+  // Read-only, GET-only.
+  opencode_key_source?: KeySource;
+  zai_key_source?: KeySource;
+  commandcode_key_source?: KeySource;
   opencode_model?: string;
   default_prompt?: string;
   improver_model?: string;
@@ -255,8 +268,12 @@ export const api = {
   settings: {
     get: async () => unwrap<Settings>(await c.settings.get()),
     update: async (data: Settings) => unwrap<Settings>(await c.settings.put(data)),
-    test: async () =>
-      unwrap<{ ok: boolean; text?: string; error?: string }>(await c.settings.test.get()),
+    // provider: the test-button slot, not the raw opencode provider id — see
+    // TEST_PROVIDERS in apps/server/src/server/api.ts.
+    test: async (provider: "opencode" | "zai" | "commandcode") =>
+      unwrap<{ ok: boolean; model?: string; text?: string; error?: string }>(
+        await c.settings.test({ provider }).get(),
+      ),
   },
   skills: {
     list: async () => unwrap<SkillMetaRow[]>(await c.skills.get()),

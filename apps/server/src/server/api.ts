@@ -8,12 +8,21 @@ import {
   subscribeEvents,
   type ServerEvent,
 } from "~/server/events";
-import { SETTINGS, resolveDefaultModel } from "~/settings";
+import {
+  SETTINGS,
+  resolveDefaultModel,
+  ZAI_PROVIDER,
+  COMMANDCODE_PROVIDER,
+  opencodeKeySource,
+  zaiKeySource,
+  commandcodeKeySource,
+} from "~/settings";
 import { writeOpencodeConfig } from "~/skills";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
-import { withOpencode, runReview } from "~/review/opencode";
+import { withOpencode, runReview, parseModel } from "~/review/opencode";
+import { openCodeManager } from "~/effect/opencode";
 import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
 import { log } from "~/server/log";
@@ -49,6 +58,44 @@ const RANGE_SECONDS: Record<string, number | null> = {
 // Empty query strings are "no filter", not a filter on the empty string.
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
+// Settings rows the dashboard must never see back: the raw key values. The
+// table stores exactly what was PUT, so a plain dump of `settings.all.all()`
+// leaked the opencode/zai/commandcode API keys into the GET /settings
+// response (and the browser's react-query cache) even though the frontend
+// never reads them back into its inputs. Callers get the key's *source*
+// instead — enough to render "using dashboard key" / "using env var" / "not
+// set" and to disable a provider's Test button, never the secret itself.
+const SECRET_SETTINGS_KEYS = new Set<string>([
+  SETTINGS.API_KEY,
+  SETTINGS.ZAI_API_KEY,
+  SETTINGS.COMMANDCODE_API_KEY,
+]);
+
+function settingsSnapshot() {
+  const all = settings.all.all().filter((s) => !SECRET_SETTINGS_KEYS.has(s.key));
+  return {
+    ...Object.fromEntries(all.map((s) => [s.key, s.value])),
+    opencode_key_source: opencodeKeySource(),
+    zai_key_source: zaiKeySource(),
+    commandcode_key_source: commandcodeKeySource(),
+  };
+}
+
+// The three provider "slots" the dashboard's Test buttons cover. Each pushes
+// its own key (task B's ensureProviderKey) and runs one real prompt through a
+// model that provider actually serves — the default model when it already
+// belongs to that provider, else a small known-cheap one, so the test never
+// silently exercises the wrong provider.
+const TEST_PROVIDERS = {
+  opencode: { providerID: "opencode-go", fallbackModel: "opencode-go/deepseek-v4-flash" },
+  zai: { providerID: ZAI_PROVIDER, fallbackModel: `${ZAI_PROVIDER}/glm-5.3` },
+  commandcode: {
+    providerID: COMMANDCODE_PROVIDER,
+    fallbackModel: `${COMMANDCODE_PROVIDER}/deepseek-v4-flash`,
+  },
+} as const;
+type TestProviderKey = keyof typeof TEST_PROVIDERS;
+
 // Map a v2 opencode message onto the transcript shape the dashboard renders:
 // { info: {id, role, modelID}, parts: [{id, type, text?, tool?, state?}] }.
 // Part ids must match the live transcript fold's scheme
@@ -58,6 +105,11 @@ function toUiMessage(m: {
   id: string;
   type: string;
   model?: { id?: string; providerID?: string };
+  // Set on an assistant row whose run errored (finish:"error") — a provider
+  // auth failure, rate limit, etc. v2's session.wait resolves normally even
+  // then, so this is the only place the failure shows up (see
+  // review/opencode.ts's assessTurnOutcome for the server-side counterpart).
+  error?: { type?: string; message?: string; status?: number };
   content?: Array<{
     type?: string;
     text?: string;
@@ -91,6 +143,13 @@ function toUiMessage(m: {
     }
     return { id: `${m.id}:${idx}`, type: c.type, text: c.text };
   });
+  if (m.error) {
+    parts.push({
+      id: `${m.id}:error`,
+      type: "error",
+      text: [m.error.type, m.error.status, m.error.message].filter(Boolean).join(" "),
+    });
+  }
   return {
     info: { id: m.id, role: m.type, modelID: m.model?.id },
     parts,
@@ -614,8 +673,11 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       // process rather than spawning one per request.
       return await withOpencode(async (client) => {
         const info = await client.session.get({ sessionID: sessionId });
-        const msgs = (await client.message.list({ sessionID: sessionId })).data;
-        return { info, messages: msgs.map(toUiMessage) };
+        // order:"asc" so the transcript renders oldest-first (v2 defaults to
+        // newest-first); "idle" rows are a run-outcome marker, not a message,
+        // so they're dropped here rather than rendered as an empty turn.
+        const msgs = (await client.message.list({ sessionID: sessionId, order: "asc" })).data;
+        return { info, messages: msgs.filter((m) => m.type !== "idle").map(toUiMessage) };
       });
     } catch (err) {
       set.status = 503;
@@ -693,10 +755,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     },
   )
 
-  .get("/settings", () => {
-    const all = settings.all.all();
-    return Object.fromEntries(all.map((s) => [s.key, s.value]));
-  })
+  .get("/settings", () => settingsSnapshot())
 
   .put(
     "/settings",
@@ -736,8 +795,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       if (body.default_prompt) {
         settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
       }
-      const all = settings.all.all();
-      return Object.fromEntries(all.map((s) => [s.key, s.value]));
+      return settingsSnapshot();
     },
     {
       body: t.Object({
@@ -796,22 +854,39 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
     set.status = 204;
   })
 
-  // ponytail: sends one tiny real prompt through the configured model — only way
-  // to actually verify the key + model resolve. Costs ~1 request.
-  .get("/settings/test", async () => {
-    try {
-      const res = await withOpencode((client) =>
-        runReview(client, {
-          directory: config.dataDir,
-          prompt: "Reply with exactly: OK",
-          model: resolveDefaultModel(),
-        }),
-      );
-      return { ok: true, text: res.text.slice(0, 200) };
-    } catch (err) {
-      return { ok: false, error: String((err as Error)?.message ?? err) };
-    }
-  });
+  // ponytail: sends one tiny real prompt through the given provider — only way
+  // to actually verify the key + model resolve. Costs ~1 request. Pushes the
+  // provider's key first (task B's warmed-up ensureProviderKey) so a fresh
+  // server's first-ever test isn't a false negative from the catalog-load
+  // race; runReview's own failure detection (task A) turns a provider auth
+  // error or an empty run into a real `error` instead of a silent ok:true.
+  .get(
+    "/settings/test/:provider",
+    async ({ params, set }) => {
+      const cfg = TEST_PROVIDERS[params.provider as TestProviderKey];
+      if (!cfg) {
+        set.status = 400;
+        return { ok: false, error: `unknown provider "${params.provider}"` };
+      }
+      const defaultModel = resolveDefaultModel();
+      let model: string = cfg.fallbackModel;
+      try {
+        if (parseModel(defaultModel).providerID === cfg.providerID) model = defaultModel;
+      } catch {
+        // an unparseable default model just means "use the fallback"
+      }
+      try {
+        await openCodeManager.ensureProviderKey(cfg.providerID);
+        const res = await withOpencode((client) =>
+          runReview(client, { directory: config.dataDir, prompt: "Reply with exactly: OK", model }),
+        );
+        return { ok: true, model, text: res.text.slice(0, 200) };
+      } catch (err) {
+        return { ok: false, model, error: String((err as Error)?.message ?? err) };
+      }
+    },
+    { params: t.Object({ provider: t.String() }) },
+  );
 
 // Eden Treaty consumes this on the web side for end-to-end type safety
 // (apps/web/src/lib/api.ts). Every route above is chained off the same
