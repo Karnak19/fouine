@@ -105,22 +105,8 @@ export interface StatsQuery {
 
 export type ReviewStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
-export type ReviewTrigger =
-  | "opened"
-  | "synchronize"
-  | "reopened"
-  | "command"
-  | "retry"
-  | "improve"
-  | "refine"
-  | "implement"
-  | "ready_for_review";
-
 export interface ReviewsQuery extends StatsQuery {
   status?: ReviewStatus;
-  // Why the run happened (opened, push, refine, implement, ...). Same values
-  // the server's /reviews schema accepts; absent means every trigger.
-  trigger?: ReviewTrigger;
   limit?: number;
 }
 
@@ -242,7 +228,7 @@ export const api = {
     query: async (q: ReviewsQuery) =>
       unwrap<ReviewRow[]>(
         await c.reviews.get({
-          query: { ...statsQuery(q), status: q.status, trigger: q.trigger, limit: q.limit },
+          query: { ...statsQuery(q), status: q.status, limit: q.limit },
         }),
       ),
     get: async (id: number) => unwrap<ReviewRow>(await c.reviews({ id }).get()),
