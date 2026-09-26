@@ -1,18 +1,31 @@
 import { test, expect, afterEach } from "bun:test";
-import { buildOpencodeConfig } from "~/skills/materialize";
-import { COMMANDCODE_PLUGIN, COMMANDCODE_PLUGIN_VERSION, toConfigKey } from "~/review/commandcode";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { buildOpencodeConfig, writeOpencodeConfig } from "~/skills/materialize";
+import { toConfigKey, commandcodeModels, commandcodeModelCatalog } from "~/review/commandcode";
+import { config } from "~/config";
 import { settings } from "~/db";
 import { SETTINGS } from "~/settings";
 
 const original = process.env.POSTHOG_API_KEY;
+const catalogPath = () => join(config.opencode.runtimeDir, "plugins", "commandcode-models.json");
+
 afterEach(() => {
   if (original === undefined) delete process.env.POSTHOG_API_KEY;
   else process.env.POSTHOG_API_KEY = original;
   settings.del.run({ $key: SETTINGS.COMMANDCODE_API_KEY });
+  rmSync(catalogPath(), { force: true });
 });
 
 const withCommandcodeKey = () =>
   settings.set.run({ $key: SETTINGS.COMMANDCODE_API_KEY, $value: "cc-key" });
+
+// seedOpencodeConfig creates the runtime dir on boot; tests here call
+// writeOpencodeConfig directly (as PUT /api/settings does on a live server).
+const writeConfig = () => {
+  mkdirSync(config.opencode.runtimeDir, { recursive: true });
+  writeOpencodeConfig();
+};
 
 test("the PostHog plugin is declared only when an API key is set", () => {
   delete process.env.POSTHOG_API_KEY;
@@ -21,9 +34,10 @@ test("the PostHog plugin is declared only when an API key is set", () => {
   process.env.POSTHOG_API_KEY = "phc_test";
   expect(buildOpencodeConfig().plugin).toEqual(["@posthog/opencode"]);
 
-  // Both plugins live in the one array.
+  // Command Code is a locally-shipped plugin, not an npm package, so it is
+  // never in the `plugin` list even with a key set.
   withCommandcodeKey();
-  expect(buildOpencodeConfig().plugin).toEqual([COMMANDCODE_PLUGIN, "@posthog/opencode"]);
+  expect(buildOpencodeConfig().plugin).toEqual(["@posthog/opencode"]);
 });
 
 test("self-update is disabled (the Dockerfile pins the CLI to the SDK's version)", () => {
@@ -32,54 +46,48 @@ test("self-update is disabled (the Dockerfile pins the CLI to the SDK's version)
   expect(buildOpencodeConfig().autoupdate).toBe(false);
 });
 
-test("Command Code is absent from the config until its key is configured", () => {
-  // No key: no provider block and no plugin, so a fresh deployment never fetches
-  // the package from npm for a provider it cannot use.
-  const cfg = buildOpencodeConfig();
-  expect(cfg.provider).toBeUndefined();
-  expect(cfg.plugin).toBeUndefined();
-});
+test("opencode.json never declares Command Code, key or not", () => {
+  // The shipped plugin owns the provider, so the generated config must not
+  // mention it: no provider block, no npm plugin, nothing to keep in sync.
+  const withoutKey = buildOpencodeConfig();
+  expect(withoutKey.provider).toBeUndefined();
+  expect(withoutKey.plugin).toBeUndefined();
 
-test("with a key, Command Code is declared as an OpenAI-compatible provider whose models the plugin fills", () => {
   withCommandcodeKey();
-  const cfg = buildOpencodeConfig();
-  // models.dev doesn't know Command Code, so this block is opencode's only
-  // knowledge of it. The key travels through auth.set at spawn time instead.
-  const provider = (cfg.provider as Record<string, Record<string, unknown>>).commandcode!;
-  expect(provider.npm).toBe("@ai-sdk/openai-compatible");
-  expect(provider.name).toBe("Command Code");
-  expect(provider.options).toEqual({ baseURL: "https://api.commandcode.ai/provider/v1" });
-  // No `models` key: the plugin's config hook only fills the list when it is
-  // absent, and hand-writing one here is exactly the stale list this replaced.
-  expect(provider.models).toBeUndefined();
-  expect(JSON.stringify(provider)).not.toContain("apiKey");
-  expect(JSON.stringify(provider)).not.toContain("cc-key");
-  expect(cfg.plugin).toEqual([COMMANDCODE_PLUGIN]);
+  const withKey = buildOpencodeConfig();
+  expect(withKey.provider).toBeUndefined();
+  expect(withKey.plugin).toBeUndefined();
+  expect(JSON.stringify(withKey)).not.toContain("commandcode");
 });
 
-test("the plugin spec is a plain pinned npm spec, no subpath", () => {
-  // opencode 1.18.30 passes the string to an npm install as-is and resolves the
-  // package's ./server export itself; npm-package-arg reads `pkg@x/server` as a
-  // git spec and `@scope/pkg/server` as a directory, so either form breaks it.
-  expect(COMMANDCODE_PLUGIN).toBe(`@brainervirus/opencode-commandcode@${COMMANDCODE_PLUGIN_VERSION}`);
-  expect(COMMANDCODE_PLUGIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-  expect(COMMANDCODE_PLUGIN.split("/").length).toBe(2);
-});
-
-test("the real plugin hook fills our provider block with the same keys the picker offers", async () => {
+test("with a key, the plugin's catalog file is materialised and matches the picker", () => {
   withCommandcodeKey();
-  const cfg = buildOpencodeConfig();
-  const { default: plugin } = await import("@brainervirus/opencode-commandcode/server");
-  const hooks = (await plugin()) as { config: (c: Record<string, unknown>) => Promise<void> };
-  await hooks.config(cfg);
-  const provider = (cfg.provider as Record<string, Record<string, unknown>>).commandcode!;
-  const models = provider.models as Record<string, { id: string }>;
-  const keys = Object.keys(models);
+  writeConfig();
+
+  expect(existsSync(catalogPath())).toBe(true);
+  const raw = readFileSync(catalogPath(), "utf8");
+  // The key never reaches disk; only the model catalog does.
+  expect(raw).not.toContain("cc-key");
+  expect(raw).not.toContain("apiKey");
+
+  const written = JSON.parse(raw) as Record<string, { id: string }>;
+  const keys = Object.keys(written);
   expect(keys.length).toBeGreaterThan(10);
-  // The hook keeps what we declared and adds the catalog.
-  expect(provider.npm).toBe("@ai-sdk/openai-compatible");
-  // Our mirror of the plugin's toConfigKey agrees with the plugin on every entry.
-  for (const [key, m] of Object.entries(models)) expect(toConfigKey(m.id)).toBe(key);
-  const { commandcodeModels } = await import("~/review/commandcode");
-  expect(commandcodeModels().map((m) => m.id).sort()).toEqual(keys.sort());
+  // Every key is the flattened form of the full upstream id it carries.
+  for (const [key, m] of Object.entries(written)) expect(toConfigKey(m.id)).toBe(key);
+  // The file is exactly what the picker advertises and what the plugin reads.
+  expect(commandcodeModels().map((m) => m.id).sort()).toEqual([...keys].sort());
+  expect(raw).toBe(JSON.stringify(commandcodeModelCatalog()));
+});
+
+test("without a key, the plugin's catalog file is absent", () => {
+  // A stray file from a previous run must be cleared, or the plugin would
+  // register the gateway with no credential to authenticate it.
+  withCommandcodeKey();
+  writeConfig();
+  expect(existsSync(catalogPath())).toBe(true);
+
+  settings.del.run({ $key: SETTINGS.COMMANDCODE_API_KEY });
+  writeConfig();
+  expect(existsSync(catalogPath())).toBe(false);
 });
