@@ -10,9 +10,9 @@
 // so a test can pass a recording fake. They stay loose enough that opencode's
 // concrete builder editor is assignable.
 export const COMMANDCODE_ID = "commandcode";
-// Mirrors COMMANDCODE_BASE_URL in src/review/commandcode.ts — the shipped
-// opencode-config dir has no runtime imports back into the app, so it is
-// duplicated rather than imported.
+// The Command Code gateway endpoint (https://api.commandcode.ai/provider/v1).
+// The shipped opencode-config dir has no runtime imports back into the app, so
+// it is duplicated here rather than imported.
 const COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1";
 const KEY_LABEL = "Command Code API Key";
 const ENV_NAMES = ["COMMANDCODE_API_KEY"] as const;

@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 // opencode accepts come from one file.
 export const COMMANDCODE_PROVIDER = "commandcode";
 export const COMMANDCODE_PROVIDER_NAME = "Command Code";
-export const COMMANDCODE_BASE_URL = "https://api.commandcode.ai/provider/v1";
 
 // The package is a BUILD-TIME dependency only: fouine never installs it as an
 // opencode plugin. Its only exported subpath is `/server`, the V1 plugin entry,
@@ -28,19 +27,18 @@ function readJson<T>(file: string): T {
 
 // ponytail: the catalog is whatever the installed package bundles, so bumping
 // the dependency in apps/server/package.json IS the catalog refresh (upstream CI
-// re-syncs models.json from `GET ${COMMANDCODE_BASE_URL}/models` every 6h and
-// publishes a patch release). The picker and the plugin catalog both read that
+// re-syncs models.json from `GET https://api.commandcode.ai/provider/v1/models`
+// every 6h and publishes a patch release). The picker and the plugin catalog both read that
 // one file, so what the dashboard offers and what opencode accepts can never
 // drift apart. Upgrade path: fetch that endpoint live with the resolved key at
 // catalog-load time and fall back to the bundled file.
 
-// The subset of the plugin's ModelEntry that fouine cares about (all of
-// models.json is a superset of this).
+// The subset of models.json that fouine cares about — exactly what the shipped
+// v2 plugin reads (opencode-config/plugins/_commandcode.ts CatalogModel); every
+// other field models.json carries is dead weight here.
 interface CatalogEntry {
   id: string;
   name: string;
-  tier?: string;
-  reasoning: boolean;
   reasoningEfforts?: string[];
   tool_call: boolean;
   cost: {
@@ -50,7 +48,6 @@ interface CatalogEntry {
     cache_write?: number;
   };
   limit: { context: number; output: number };
-  attachment?: boolean;
   modalities?: { input: string[]; output: string[] };
 }
 
@@ -101,18 +98,13 @@ export function commandcodeModelCatalog(): Record<string, unknown> {
     const model: Record<string, unknown> = {
       id: entry.id,
       name: entry.name,
-      reasoning: entry.reasoning,
       tool_call: entry.tool_call,
-      attachment: entry.attachment ?? false,
       modalities: entry.modalities ?? { input: ["text"], output: ["text"] },
       cost,
       limit: entry.limit,
     };
     if (entry.reasoningEfforts?.length) {
       model.reasoningEfforts = entry.reasoningEfforts;
-      model.variants = Object.fromEntries(
-        entry.reasoningEfforts.map((e) => [e, { reasoningEffort: e }]),
-      );
     }
     models[toConfigKey(entry.id)] = model;
   }
