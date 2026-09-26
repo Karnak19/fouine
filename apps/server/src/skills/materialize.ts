@@ -5,12 +5,7 @@ import { skills as skillsDb, type SkillRow } from "~/db";
 import { log } from "~/server/log";
 import type { SkillFile } from "~/skills/install";
 import { hasCommandcodeKey } from "~/settings";
-import {
-  COMMANDCODE_BASE_URL,
-  COMMANDCODE_PLUGIN,
-  COMMANDCODE_PROVIDER,
-  COMMANDCODE_PROVIDER_NAME,
-} from "~/review/commandcode";
+import { commandcodeModelCatalog } from "~/review/commandcode";
 
 // The opencode.json fouine writes into the runtime config dir. Pure so the
 // interesting part — which keys appear — is testable without touching the
@@ -40,32 +35,17 @@ export function buildOpencodeConfig(skillsDir?: string): Record<string, unknown>
     // dir>/skills/` — the documented discovery paths are project `.opencode/`
     // dirs, and an explicit path removes the question entirely.
     ...(skillsDir ? { skills: [skillsDir] } : {}),
-    // Command Code is not in models.dev, so opencode only knows it through this
-    // declaration: an OpenAI-compatible gateway whose model list the
-    // @brainervirus/opencode-commandcode plugin fills in from its bundled
-    // catalog (its `config` hook only does so when the block has no `models`
-    // key — so none is written here). Both the plugin and the provider block
-    // are gated on a Command Code key being configured: listing the plugin
-    // unconditionally would make every fresh deployment fetch it from npm on
-    // its first review for nothing, and the block is useless without the key.
-    // The gate is cheap to honour because PUT /api/settings re-writes this file
-    // (writeOpencodeConfig) whenever the key field is saved, so the next spawn
-    // sees the change — same install-once caching as PostHog below. The key
-    // itself is NOT written here: setProviderApiKey (review/opencode.ts) sets
-    // it through auth.set per spawn, so the on-disk config never carries a
-    // secret; `env` only mirrors the plugin's own declaration.
-    ...(hasCommandcodeKey()
-      ? {
-          provider: {
-            [COMMANDCODE_PROVIDER]: {
-              npm: "@ai-sdk/openai-compatible",
-              name: COMMANDCODE_PROVIDER_NAME,
-              env: ["COMMANDCODE_API_KEY"],
-              options: { baseURL: COMMANDCODE_BASE_URL },
-            },
-          },
-        }
-      : {}),
+    // Command Code is NOT declared here. It is not in models.dev, and the
+    // community package that used to inject it is V1-only (dead under opencode
+    // v2), so the shipped plugin plugins/commandcode.ts owns the provider and
+    // its model catalog instead — see writeCommandcodeCatalog below for how the
+    // catalog reaches it. Keeping opencode.json free of the provider means the
+    // plugin is the single source of truth and this file no longer has to be
+    // rewritten (nor the server reloaded) just to list models.
+    //
+    // The key is likewise never written to disk: fouine pushes it to the running
+    // server as a stored credential (effect/opencode.ts ensureProviderKey →
+    // integration.connect.key) once the key field is saved.
     // PostHog AI observability ($ai_generation per LLM roundtrip, $ai_span per
     // tool call with real latency, $ai_trace per prompt). Declared only when an
     // API key is present; the install is cached per package spec under
@@ -84,20 +64,39 @@ export function buildOpencodeConfig(skillsDir?: string): Record<string, unknown>
 // an absent key and an empty array the same, and the old tests pin "absent".
 function pluginList(): { plugin?: string[] } {
   const plugins: string[] = [];
-  if (hasCommandcodeKey()) plugins.push(COMMANDCODE_PLUGIN);
   if (process.env.POSTHOG_API_KEY) plugins.push("@posthog/opencode");
   return plugins.length ? { plugin: plugins } : {};
 }
 
-// (Re)write the runtime dir's opencode.json from current settings. Called by
-// seedOpencodeConfig on boot and by PUT /api/settings when the Command Code key
-// changes, since buildOpencodeConfig's output depends on it. A running review
-// is unaffected: opencode reads the file once at spawn.
+// fouine materialises the Command Code catalog as a JSON sibling of the plugin
+// (plugins/commandcode.ts reads it at activation). Presence is the plugin's
+// gate: opencode only learns about the gateway when a key is configured, and a
+// fresh deployment never advertises a provider it cannot authenticate. When the
+// key is cleared the file is removed, unregistering the provider on the next
+// respawn/reload. The key itself is never in this file — it travels as a stored
+// credential pushed to the running server (ensureProviderKey). Not hot-reloaded:
+// same semantics as opencode.json.
+export function writeCommandcodeCatalog(): void {
+  const path = join(config.opencode.runtimeDir, "plugins", "commandcode-models.json");
+  if (!hasCommandcodeKey()) {
+    rmSync(path, { force: true });
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(commandcodeModelCatalog()));
+}
+
+// (Re)write the runtime dir's opencode.json from current settings and sync the
+// Command Code catalog. Called by PUT /api/settings when the Command Code key
+// changes (seedOpencodeConfig writes its own opencode.json with the skills path
+// and calls writeCommandcodeCatalog directly). A running review is unaffected:
+// opencode reads the config dir once at spawn, and reloads on request.
 export function writeOpencodeConfig(): void {
   writeFileSync(
     join(config.opencode.runtimeDir, "opencode.json"),
     JSON.stringify(buildOpencodeConfig(), null, 2),
   );
+  writeCommandcodeCatalog();
 }
 
 // fouine points opencode at a config dir it fully owns on the data volume,
@@ -133,7 +132,12 @@ export function seedOpencodeConfig(): void {
       entry === "node_modules" ||
       entry === "package.json" ||
       entry === "package-lock.json" ||
-      entry === "bun.lock"
+      entry === "bun.lock" ||
+      // Test files are fouine's, not the runtime's: opencode loads everything
+      // in this dir, and a copied *.test.ts under data/ also lands in bun's
+      // test glob, where runtime state next to it (e.g. a materialised
+      // Command Code catalog) can flip filesystem-sensitive assertions.
+      entry.endsWith(".test.ts")
     )
       continue;
     cpSync(resolve(shippedConfigDir, entry), join(runtimeDir, entry), { recursive: true });
@@ -145,6 +149,10 @@ export function seedOpencodeConfig(): void {
     JSON.stringify(buildOpencodeConfig(skillsDir), null, 2),
   );
   mkdirSync(skillsDir, { recursive: true });
+  // The runtime dir was just recreated, so the Command Code catalog has to be
+  // re-materialised (or, with no key, be absent). plugins/ exists: it was copied
+  // above.
+  writeCommandcodeCatalog();
   process.env.OPENCODE_CONFIG_DIR = runtimeDir;
   log.info("seeded opencode config", { runtimeDir, shippedConfigDir, copied: shipped.length });
 }
