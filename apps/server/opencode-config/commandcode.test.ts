@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import cmdPlugin from "./plugins/commandcode.ts";
 import {
   buildProvider,
-  registerProvider,
   registerIntegrationMethods,
   setupCommandcode,
   type CommandcodeCatalog,
@@ -85,11 +84,8 @@ test("the provider and every model decode against opencode's own Provider.Info /
   for (const key of Object.keys(ModelSchema.default("p", "m"))) expect(models[0]).toHaveProperty(key);
 });
 
-test("registers the provider with editor.add as enabled, openai-compatible, against the gateway", () => {
-  const added: Array<{ info: ProviderInfo; models: readonly ModelInfo[] }> = [];
-  registerProvider(recordingProviderEditor(added), catalog);
-  expect(added).toHaveLength(1);
-  expect(added[0]?.info).toEqual({
+test("builds the provider as enabled, openai-compatible, against the gateway", () => {
+  expect(buildProvider(catalog).info).toEqual({
     id: "commandcode",
     integrationID: "commandcode",
     name: "Command Code",
@@ -134,11 +130,8 @@ test("omitted optional fields fall back to text-only, no reasoning, zero cache c
   });
 });
 
-test("an empty catalog registers the provider but no models, and never throws", () => {
-  const added: Array<{ info: ProviderInfo; models: readonly ModelInfo[] }> = [];
-  expect(() => registerProvider(recordingProviderEditor(added), {})).not.toThrow();
-  expect(added).toHaveLength(1);
-  expect(added[0]?.models).toEqual([]);
+test("an empty catalog builds the provider but no models, and never throws", () => {
+  expect(buildProvider({}).models).toEqual([]);
 });
 
 test("registers the key and env methods the credential push resolves against", () => {

@@ -144,10 +144,6 @@ export function buildProvider(catalog: CommandcodeCatalog): {
   return { info, models };
 }
 
-export function registerProvider(editor: ProviderEditorLike, catalog: CommandcodeCatalog): void {
-  editor.add(buildProvider(catalog));
-}
-
 // Register the key + env methods so `integration.connect.key` (fouine's
 // credential push) resolves the integration, and so an operator with
 // COMMANDCODE_API_KEY in opencode's environment is picked up too.
@@ -202,7 +198,7 @@ export async function setupCommandcode(
   const source = { catalog: readCatalog(), json: "" };
   source.json = JSON.stringify(source.catalog ?? null);
   await ctx.provider.transform((editor) => {
-    if (source.catalog) registerProvider(editor, source.catalog);
+    if (source.catalog) editor.add(buildProvider(source.catalog));
   });
   await ctx.integration.transform((editor) => {
     if (source.catalog) registerIntegrationMethods(editor);
