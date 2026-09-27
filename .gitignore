@@ -6,3 +6,4 @@ dist
 
 # impeccable QA captures (screenshots never ship in the repo)
 .impeccable/review/
+.env
