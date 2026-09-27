@@ -7,6 +7,7 @@ import {
   authHeaders,
   describeOpencodeError,
   eventSessionId,
+  executionFailure,
   freePort,
   newActivityState,
   observeEvent,
@@ -38,6 +39,14 @@ const WATCHDOG_TICK_MS = 5_000;
 // fail the reviews that were riding it. Long enough to ride out a restart, short
 // enough that a dead server doesn't strand rows until their timeout.
 const SERVER_LOSS_GRACE_MS = 15_000;
+
+// `session.execution.failed` reasons are kept per session so a run that died
+// before reaching the model can name why (see executionError). Bounded: the
+// map only has to outlive the gap between the event and runReview reading it.
+const EXECUTION_ERRORS_MAX = 200;
+// session.wait returns on idle, and the failure event rides the SSE stream, so
+// it can land a beat after wait() does. How long executionError waits for it.
+const EXECUTION_ERROR_WAIT_MS = 1_500;
 const SERVER_LOSS_POLL_MS = 1_000;
 
 // ─── singleton manager ───────────────────────────────────────────────────────
@@ -120,7 +129,11 @@ const defaultDeps: ManagerDeps = {
   now: () => Date.now(),
   serverLossGraceMs: SERVER_LOSS_GRACE_MS,
   serverLossPollMs: SERVER_LOSS_POLL_MS,
-  keyPushRetryMs: [150, 300, 600],
+  // ~4.6s in all. The integration only exists once the location's config-dir
+  // plugins have loaded (Command Code's is one), and on a fresh server that
+  // took three retries locally — ~1s, i.e. the whole old budget — so a slower
+  // production box could exhaust it and run the review without its key.
+  keyPushRetryMs: [150, 300, 600, 1200, 2400],
 };
 
 export class OpenCodeServerManager {
@@ -129,6 +142,7 @@ export class OpenCodeServerManager {
   private pumpCtrl?: AbortController;
   private readonly sessions = new Map<string, ActivitySink>();
   private readonly pushedKeys = new Map<string, string>();
+  private readonly executionErrors = new Map<string, string>();
   private stopping = false;
   private readonly deps: ManagerDeps;
 
@@ -178,6 +192,10 @@ export class OpenCodeServerManager {
         for await (const event of sub) {
           const id = eventSessionId(event);
           if (!id) continue; // server-wide event
+          // Recorded for every session, registered or not: the dashboard's
+          // provider Test runs a session the manager never registers.
+          const failure = executionFailure(event);
+          if (failure) this.recordExecutionError(failure.sessionID, failure.error);
           const sink = this.sessions.get(id);
           if (!sink) continue; // unknown session — dropped
           const now = this.deps.now();
@@ -253,6 +271,37 @@ export class OpenCodeServerManager {
       } catch {
         // a sink that can't be failed must not stop the others
       }
+    }
+  }
+
+  private recordExecutionError(sessionId: string, error: string): void {
+    this.executionErrors.delete(sessionId);
+    this.executionErrors.set(sessionId, error);
+    if (this.executionErrors.size > EXECUTION_ERRORS_MAX) {
+      const oldest = this.executionErrors.keys().next().value;
+      if (oldest !== undefined) this.executionErrors.delete(oldest);
+    }
+  }
+
+  /**
+   * The reason opencode published for this session's failed run
+   * (`session.execution.failed`), waiting briefly for the event to arrive.
+   * Undefined when none shows up — the caller keeps its generic message.
+   */
+  async executionError(
+    sessionId: string,
+    waitMs = EXECUTION_ERROR_WAIT_MS,
+  ): Promise<string | undefined> {
+    // Wall clock, not deps.now(): tests freeze that one.
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const error = this.executionErrors.get(sessionId);
+      if (error !== undefined) {
+        this.executionErrors.delete(sessionId);
+        return error;
+      }
+      if (Date.now() >= deadline) return undefined;
+      await new Promise((r) => setTimeout(r, 50));
     }
   }
 
@@ -346,6 +395,7 @@ export class OpenCodeServerManager {
     this.serve = undefined;
     this.sessions.clear();
     this.pushedKeys.clear();
+    this.executionErrors.clear();
   }
 }
 
@@ -473,6 +523,7 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                         openCodeManager.register(id, sink);
                         onSession(id);
                       },
+                      executionError: (id) => openCodeManager.executionError(id),
                     },
                   ),
                 ),
