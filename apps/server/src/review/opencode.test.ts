@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
   assessTurnOutcome,
   describeOpencodeError,
+  executionFailure,
+  NO_REASON_ERROR,
   opencodeSpawnEnv,
   pumpChildOutput,
   runReview,
@@ -389,9 +391,43 @@ test("assessTurnOutcome falls back to a generic message when only idle:failed is
     { id: "u1", type: "user" } as Row,
     { id: "i1", type: "idle", outcome: "failed" } as Row,
   ];
-  expect(assessTurnOutcome(msgs)).toEqual({
-    error: "run failed with no error detail — likely missing provider key",
+  // No longer blames a missing key: a missing key comes back as an assistant
+  // row with provider.auth 401 (verified against a real server), never as this.
+  expect(assessTurnOutcome(msgs)).toEqual({ error: NO_REASON_ERROR });
+});
+
+test("assessTurnOutcome names the execution failure when the pump recorded one", () => {
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    { id: "i1", type: "idle", outcome: "failed" } as Row,
+  ];
+  expect(
+    assessTurnOutcome(msgs, "provider.no-route Model unavailable: commandcode/deepseek-v4-flash"),
+  ).toEqual({
+    error: "opencode run failed: provider.no-route Model unavailable: commandcode/deepseek-v4-flash",
   });
+});
+
+test("executionFailure reads session.execution.failed and ignores everything else", () => {
+  // Shape captured from a real opencode 2.0.11 event stream.
+  expect(
+    executionFailure({
+      type: "session.execution.failed",
+      data: {
+        sessionID: "ses_1",
+        error: { type: "provider.no-route", message: "Model unavailable: commandcode/x" },
+      },
+    }),
+  ).toEqual({ sessionID: "ses_1", error: "provider.no-route Model unavailable: commandcode/x" });
+  expect(
+    executionFailure({
+      type: "session.execution.failed",
+      data: { sessionID: "ses_2", error: { type: "provider.auth", status: 401, message: "bad key" } },
+    }),
+  ).toEqual({ sessionID: "ses_2", error: "provider.auth 401 bad key" });
+  expect(executionFailure({ type: "session.idle", data: { sessionID: "ses_1" } })).toBeUndefined();
+  expect(executionFailure({ type: "session.execution.failed", data: {} })).toBeUndefined();
+  expect(executionFailure(null)).toBeUndefined();
 });
 
 test("assessTurnOutcome is a no-op on a normal successful turn", () => {
@@ -470,6 +506,45 @@ test("runReview throws on a failed turn and never sends the nudge", async () => 
   ).rejects.toThrow("opencode run failed: provider.auth 401 token expired or incorrect");
   // Only the review's own prompt — a failed run must never be nudged.
   expect(prompts).toHaveLength(1);
+});
+
+test("runReview reports the execution failure the pump recorded when no assistant row exists", async () => {
+  // The production shape: the model is not registered at the run's location,
+  // so message.list only has user + idle:failed and the reason exists solely on
+  // the session.execution.failed event.
+  const asked: string[] = [];
+  const client = {
+    session: {
+      create: async () => ({ id: "sess" }),
+      prompt: async () => ({}),
+      wait: async () => undefined,
+    },
+    message: {
+      list: async () => ({
+        data: [
+          { id: "u1", type: "user" },
+          { id: "i1", type: "idle", outcome: "failed" },
+        ],
+        cursor: {},
+      }),
+    },
+  } as unknown as OpencodeClient;
+
+  await expect(
+    runReview(
+      client,
+      { directory: "/tmp", prompt: "review this", model: "commandcode/deepseek-v4-flash" },
+      {
+        executionError: async (id) => {
+          asked.push(id);
+          return "provider.no-route Model unavailable: commandcode/deepseek-v4-flash";
+        },
+      },
+    ),
+  ).rejects.toThrow(
+    "opencode run failed: provider.no-route Model unavailable: commandcode/deepseek-v4-flash",
+  );
+  expect(asked).toEqual(["sess"]);
 });
 
 // ── Forwarding the opencode child's own stdout/stderr into fouine's logs ────

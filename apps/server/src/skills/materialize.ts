@@ -72,10 +72,10 @@ function pluginList(): { plugin?: string[] } {
 // (plugins/commandcode.ts reads it at activation). Presence is the plugin's
 // gate: opencode only learns about the gateway when a key is configured, and a
 // fresh deployment never advertises a provider it cannot authenticate. When the
-// key is cleared the file is removed, unregistering the provider on the next
-// respawn/reload. The key itself is never in this file — it travels as a stored
-// credential pushed to the running server (ensureProviderKey). Not hot-reloaded:
-// same semantics as opencode.json.
+// key is cleared the file is removed, unregistering the provider. The key itself is never in this file — it travels as a stored
+// credential pushed to the running server (ensureProviderKey). The plugin
+// watches this file and reloads opencode's provider registry when it changes,
+// so saving or clearing the key takes effect on a running server too.
 export function writeCommandcodeCatalog(): void {
   const path = join(config.opencode.runtimeDir, "plugins", "commandcode-models.json");
   if (!hasCommandcodeKey()) {

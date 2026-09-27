@@ -918,7 +918,11 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         // the test cold — never fall through to the prompt on an unproven key.
         const res = await withOpencode(async (client) => {
           await openCodeManager.ensureProviderKey(cfg.providerID);
-          return runReview(client, { directory: config.dataDir, prompt: "Reply with exactly: OK", model });
+          return runReview(
+            client,
+            { directory: config.dataDir, prompt: "Reply with exactly: OK", model },
+            { executionError: (id) => openCodeManager.executionError(id) },
+          );
         });
         return { ok: true, model, text: res.text.slice(0, 200) };
       } catch (err) {

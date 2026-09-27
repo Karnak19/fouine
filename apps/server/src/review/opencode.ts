@@ -269,6 +269,10 @@ export interface RunHooks {
   // Fired once the session exists, before the first prompt — the manager
   // registers its demux sink here.
   onSession?: (id: string) => Promise<void> | void;
+  // Looks up the `session.execution.failed` reason the event pump recorded for
+  // this session (see executionFailure). Consulted only when a turn failed with
+  // no assistant error, so the report names the real cause.
+  executionError?: (id: string) => Promise<string | undefined>;
 }
 
 export interface RunResult {
@@ -286,12 +290,26 @@ export type SessionMessages = Awaited<ReturnType<OpencodeClient["message"]["list
 //  - the provider rejected the request: an `assistant` row with
 //    `finish:"error"` and `error:{type,message,status}`, followed by an
 //    `idle` row with `outcome:"failed"`.
-//  - no provider key at all: NO assistant row, just `idle` with
-//    `outcome:"failed"`.
+//  - the run died before any request (model not registered at the run's
+//    location — opencode's `provider.no-route` "Model unavailable" — or any
+//    other pre-request failure): NO assistant row, just `idle` with
+//    `outcome:"failed"`. The reason is not on the message rows at all; opencode
+//    only publishes it as a `session.execution.failed` event (see
+//    executionFailure below), which the caller passes in as `executionError`.
+//    (A missing key is NOT this shape: the request goes out and comes back as
+//    an assistant row carrying `provider.auth` 401.)
 // Walk backward from the end (message.list is called with order:"asc", so the
 // newest rows are last) collecting only the current turn — stop at the most
 // recent `user` row, which is this ask()'s own prompt.
-export function assessTurnOutcome(msgs: SessionMessages): { error?: string; warning?: string } {
+// The fallback when neither an assistant row nor the event pump carries a
+// reason. Exported so runReview can tell "ask the pump" apart from a real one.
+export const NO_REASON_ERROR =
+  "opencode run failed before reaching the model and reported no reason (see the opencode server log)";
+
+export function assessTurnOutcome(
+  msgs: SessionMessages,
+  executionError?: string,
+): { error?: string; warning?: string } {
   let idleOutcome: string | undefined;
   let assistantError: string | undefined;
   let finishWarning: string | undefined;
@@ -311,10 +329,33 @@ export function assessTurnOutcome(msgs: SessionMessages): { error?: string; warn
   }
   if (assistantError) return { error: `opencode run failed: ${assistantError}` };
   if (idleOutcome === "failed") {
-    return { error: "run failed with no error detail — likely missing provider key" };
+    if (executionError) return { error: `opencode run failed: ${executionError}` };
+    return { error: NO_REASON_ERROR };
   }
   if (finishWarning) return { warning: finishWarning };
   return {};
+}
+
+// The reason a run died before reaching the model lives only on opencode's
+// `session.execution.failed` event (`data.error: {type, message, status?}`) —
+// verified against a real 2.0.11 server: an unregistered model yields
+// `{type:"provider.no-route", message:"Model unavailable: commandcode/x"}`
+// while message.list shows nothing but `idle outcome:"failed"`. The manager's
+// event pump records these per session (effect/opencode.ts) so runReview can
+// name the real cause instead of guessing.
+export function executionFailure(event: unknown): { sessionID: string; error: string } | undefined {
+  const ev = event as {
+    type?: unknown;
+    data?: { sessionID?: unknown; error?: { type?: unknown; message?: unknown; status?: unknown } };
+  } | null;
+  if (ev?.type !== "session.execution.failed") return undefined;
+  const sessionID = ev.data?.sessionID;
+  if (typeof sessionID !== "string") return undefined;
+  const e = ev.data?.error;
+  const parts = [e?.type, e?.status, e?.message].filter(
+    (p): p is string | number => typeof p === "string" || typeof p === "number",
+  );
+  return { sessionID, error: parts.length ? parts.join(" ") : "session.execution.failed" };
 }
 
 // Assistant text/cost/tokens for the whole session. v2 messages are flat rows;
@@ -470,8 +511,14 @@ export async function runReview(
   // Fold one turn's outcome: log+throw on a real failure (never fatal to
   // swallow — a silent failed run is exactly the production incident this
   // guards against), log.warn on a truncated/filtered finish that isn't fatal.
-  const assessAndThrow = (msgs: SessionMessages) => {
-    const outcome = assessTurnOutcome(msgs);
+  const assessAndThrow = async (msgs: SessionMessages) => {
+    let outcome = assessTurnOutcome(msgs);
+    // No assistant row to read the failure from: ask the event pump for the
+    // reason opencode published instead of settling for a generic message.
+    if (outcome.error === NO_REASON_ERROR && hooks.executionError) {
+      const reason = await hooks.executionError(session.id).catch(() => undefined);
+      if (reason) outcome = assessTurnOutcome(msgs, reason);
+    }
     if (outcome.error) {
       log.error("opencode run failed", {
         session: session.id,
@@ -493,7 +540,7 @@ export async function runReview(
 
   await ask(opts.prompt);
   let msgs = await listMessages();
-  assessAndThrow(msgs);
+  await assessAndThrow(msgs);
 
   // Some sessions end without the agent ever calling post_review — the PR gets
   // no review and no comments. Continue the same session (full context intact)
@@ -508,7 +555,7 @@ export async function runReview(
         "instructions, don't default to COMMENT. If you already posted it, just say so.",
     );
     msgs = await listMessages();
-    assessAndThrow(msgs);
+    await assessAndThrow(msgs);
   }
 
   const { cost, tokens, text } = summarizeMessages(msgs);
