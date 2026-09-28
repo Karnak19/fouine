@@ -150,7 +150,7 @@ export function opencodeSpawnEnv(
   if (process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY) {
     for (const key of LANGFUSE_ENV_KEYS) {
       const value = process.env[key];
-      if (value !== undefined) env[key] = value;
+      if (value) env[key] = value;
     }
   }
   return env;
