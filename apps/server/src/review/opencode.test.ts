@@ -61,10 +61,20 @@ test("the spawned server inherits only the minimal env allowlist", () => {
     GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
     POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
     OPENCODE_BASH_TIMEOUT_MAX_MS: process.env.OPENCODE_BASH_TIMEOUT_MAX_MS,
+    LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY,
+    LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
+    LANGFUSE_BASEURL: process.env.LANGFUSE_BASEURL,
+    LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT,
+    LANGFUSE_USER_ID: process.env.LANGFUSE_USER_ID,
   };
   process.env.FOUINE_GITHUB_TOKEN = "leak-me";
   process.env.GITHUB_APP_PRIVATE_KEY = "app-secret";
   delete process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
+  delete process.env.LANGFUSE_PUBLIC_KEY;
+  delete process.env.LANGFUSE_SECRET_KEY;
+  delete process.env.LANGFUSE_BASEURL;
+  delete process.env.LANGFUSE_ENVIRONMENT;
+  delete process.env.LANGFUSE_USER_ID;
   try {
     const env = opencodeSpawnEnv("pw", "/cfg/opencode", "http://127.0.0.1:3000");
     expect(Object.keys(env).sort()).toEqual(
@@ -83,11 +93,31 @@ test("the spawned server inherits only the minimal env allowlist", () => {
     // The one non-secret operator knob is passed through when set …
     process.env.OPENCODE_BASH_TIMEOUT_MAX_MS = "30000";
     expect(opencodeSpawnEnv("pw", "/cfg", "http://x").OPENCODE_BASH_TIMEOUT_MAX_MS).toBe("30000");
+    delete process.env.OPENCODE_BASH_TIMEOUT_MAX_MS;
 
     // … but no credential ever rides along — including the optional ones.
     expect(env).not.toContainKey("FOUINE_GITHUB_TOKEN");
     expect(env).not.toContainKey("GITHUB_APP_PRIVATE_KEY");
     expect(env).not.toContainKey("POSTHOG_API_KEY");
+    expect(env).not.toContainKey("LANGFUSE_PUBLIC_KEY");
+    expect(env).not.toContainKey("LANGFUSE_SECRET_KEY");
+
+    // Langfuse: unset stays byte-for-byte absent, a lone public key (no
+    // secret) is still withheld, and only the complete pair (plus the
+    // optional extras) rides through — deliberately, per the module comment.
+    process.env.LANGFUSE_PUBLIC_KEY = "pk-lf-1";
+    expect(opencodeSpawnEnv("pw", "/cfg", "http://x")).not.toContainKey("LANGFUSE_PUBLIC_KEY");
+
+    process.env.LANGFUSE_SECRET_KEY = "sk-lf-1";
+    process.env.LANGFUSE_BASEURL = "https://langfuse.example.com";
+    process.env.LANGFUSE_ENVIRONMENT = "production";
+    process.env.LANGFUSE_USER_ID = "fouine";
+    const withLangfuse = opencodeSpawnEnv("pw", "/cfg", "http://x");
+    expect(withLangfuse.LANGFUSE_PUBLIC_KEY).toBe("pk-lf-1");
+    expect(withLangfuse.LANGFUSE_SECRET_KEY).toBe("sk-lf-1");
+    expect(withLangfuse.LANGFUSE_BASEURL).toBe("https://langfuse.example.com");
+    expect(withLangfuse.LANGFUSE_ENVIRONMENT).toBe("production");
+    expect(withLangfuse.LANGFUSE_USER_ID).toBe("fouine");
   } finally {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];

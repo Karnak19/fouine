@@ -128,6 +128,33 @@ Two things worth knowing before you trust a dashboard built on this:
   review. That cache lives in the container's filesystem, so it is re-fetched
   after an image update unless you persist it.
 
+### AI observability (Langfuse, optional)
+
+Off by default. Set **both** `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
+and fouine adds the official
+[`@langfuse/opencode-observability-plugin`](https://langfuse.com/integrations/developer-tools/opencode)
+to the opencode config it generates, so every review is traced in Langfuse.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `LANGFUSE_PUBLIC_KEY` | — | Required together with the secret key below. **Either alone (or neither) = feature entirely absent**: the plugin is not declared, not downloaded, and makes no network calls. |
+| `LANGFUSE_SECRET_KEY` | — | See above. |
+| `LANGFUSE_BASEURL` | `https://cloud.langfuse.com` (EU cloud) | Set the URL matching your keys' region: `https://us.cloud.langfuse.com` for US, or your self-hosted URL. |
+| `LANGFUSE_ENVIRONMENT` | — | Tags traces with an environment name (e.g. `production`). |
+| `LANGFUSE_USER_ID` | — | Attributes traces to a user/instance id. |
+
+Two things worth knowing before you enable this:
+
+- **Privacy.** Full prompts, diffs, file reads and tool output are sent to
+  Langfuse. Self-host it, or accept that a third party sees your code.
+- **The secret key becomes readable by the model.** It rides into the
+  opencode child's env so the plugin can authenticate — same exposure as any
+  other opencode plugin credential, and the model can read its own process
+  env. Use a dedicated, trace-only Langfuse project/key that can't reach
+  anything else. (Upgrade path: export traces from fouine's own process with
+  the Langfuse SDK instead, so the key never enters opencode at all — not yet
+  implemented.)
+
 ### Runaway shell commands
 
 opencode lets the model choose its own `bash` timeout and, on expiry, invites it

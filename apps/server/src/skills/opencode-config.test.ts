@@ -8,11 +8,17 @@ import { settings } from "~/db";
 import { SETTINGS } from "~/settings";
 
 const original = process.env.POSTHOG_API_KEY;
+const originalLangfusePublic = process.env.LANGFUSE_PUBLIC_KEY;
+const originalLangfuseSecret = process.env.LANGFUSE_SECRET_KEY;
 const catalogPath = () => join(config.opencode.runtimeDir, "plugins", "commandcode-models.json");
 
 afterEach(() => {
   if (original === undefined) delete process.env.POSTHOG_API_KEY;
   else process.env.POSTHOG_API_KEY = original;
+  if (originalLangfusePublic === undefined) delete process.env.LANGFUSE_PUBLIC_KEY;
+  else process.env.LANGFUSE_PUBLIC_KEY = originalLangfusePublic;
+  if (originalLangfuseSecret === undefined) delete process.env.LANGFUSE_SECRET_KEY;
+  else process.env.LANGFUSE_SECRET_KEY = originalLangfuseSecret;
   settings.del.run({ $key: SETTINGS.COMMANDCODE_API_KEY });
   rmSync(catalogPath(), { force: true });
 });
@@ -38,6 +44,31 @@ test("the PostHog plugin is declared only when an API key is set", () => {
   // never in the `plugin` list even with a key set.
   withCommandcodeKey();
   expect(buildOpencodeConfig().plugin).toEqual(["@posthog/opencode"]);
+});
+
+test("the Langfuse plugin is declared only when BOTH keys are set", () => {
+  delete process.env.LANGFUSE_PUBLIC_KEY;
+  delete process.env.LANGFUSE_SECRET_KEY;
+  delete process.env.POSTHOG_API_KEY;
+  expect(buildOpencodeConfig().plugin).toBeUndefined();
+
+  // A lone public key isn't enough to authenticate — stay absent.
+  process.env.LANGFUSE_PUBLIC_KEY = "pk-lf-1";
+  expect(buildOpencodeConfig().plugin).toBeUndefined();
+
+  process.env.LANGFUSE_SECRET_KEY = "sk-lf-1";
+  expect(buildOpencodeConfig().plugin).toEqual([
+    "@langfuse/opencode-observability-plugin@latest",
+  ]);
+
+  // Stacks with PostHog in the same array (Command Code is a shipped local
+  // plugin, never listed here).
+  process.env.POSTHOG_API_KEY = "phc_test";
+  withCommandcodeKey();
+  expect(buildOpencodeConfig().plugin).toEqual([
+    "@posthog/opencode",
+    "@langfuse/opencode-observability-plugin@latest",
+  ]);
 });
 
 test("self-update is disabled (the Dockerfile pins the CLI to the SDK's version)", () => {

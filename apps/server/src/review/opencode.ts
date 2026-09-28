@@ -22,7 +22,10 @@ import { internalBaseUrl } from "~/server/internal";
 //    fouine's app secrets: `spawnOpencode` hands it a minimal env allowlist
 //    (PATH, HOME, OPENCODE_CONFIG_DIR, OPENCODE_SERVER_PASSWORD,
 //    FOUINE_INTERNAL_URL), not a spread of process.env. The old spread leaked
-//    fouine's GitHub token and app config into the model's bash.
+//    fouine's GitHub token and app config into the model's bash. The one
+//    deliberate exception is Langfuse tracing (opt-in, see below): its secret
+//    key rides along on purpose, an accepted tradeoff — use a dedicated,
+//    trace-only Langfuse project/key, never one that can touch anything else.
 //  - Per-review GitHub/tool context now lives server-side (the loopback proxy
 //    lane) rather than in the child's env, so concurrent reviews no longer need
 //    per-spawn isolation (#23 is structurally impossible now).
@@ -104,6 +107,27 @@ async function waitForReady(port: number, password: string, proc: Bun.Subprocess
 // exfiltrate) is deliberately NOT here.
 const PASSTHROUGH_ENV = ["OPENCODE_BASH_TIMEOUT_MAX_MS"] as const;
 
+// Langfuse tracing (opt-in AI observability). When BOTH keys are set, the
+// spawned child gets these so the official @langfuse/opencode-observability-
+// plugin — declared in opencode.json only under the same gate, see
+// buildOpencodeConfig in skills/materialize.ts — can authenticate and tag its
+// traces. Unlike PASSTHROUGH_ENV above these ARE credentials: LANGFUSE_SECRET_KEY
+// becomes readable by the model's own bash the moment it's set, the same way
+// every opencode plugin env var is. That's a deliberate tradeoff, not an
+// oversight — point this at a dedicated, trace-only Langfuse project/key that
+// can't reach anything else, never a key shared with another use.
+// ponytail: the real fix is exporting traces from fouine's own process with
+// the Langfuse SDK, so the key never enters opencode at all. Upgrade path once
+// a review-side trace exporter exists; until then, this is the only way to get
+// review-session tracing.
+const LANGFUSE_ENV_KEYS = [
+  "LANGFUSE_PUBLIC_KEY",
+  "LANGFUSE_SECRET_KEY",
+  "LANGFUSE_BASEURL",
+  "LANGFUSE_ENVIRONMENT",
+  "LANGFUSE_USER_ID",
+] as const;
+
 export function opencodeSpawnEnv(
   password: string,
   configDir: string,
@@ -119,6 +143,15 @@ export function opencodeSpawnEnv(
   for (const key of PASSTHROUGH_ENV) {
     const value = process.env[key];
     if (value !== undefined) env[key] = value;
+  }
+  // Same all-or-nothing gate as buildOpencodeConfig: a lone public or secret
+  // key can't authenticate, so don't leak a half-configured credential for
+  // nothing.
+  if (process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY) {
+    for (const key of LANGFUSE_ENV_KEYS) {
+      const value = process.env[key];
+      if (value) env[key] = value;
+    }
   }
   return env;
 }
