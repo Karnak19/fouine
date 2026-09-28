@@ -76,6 +76,11 @@ export function buildOpencodeConfig(skillsDir?: string): Record<string, unknown>
     // this entry is inert (opencode logs a load warning). Kept so operators
     // who set POSTHOG_API_KEY get observability back the moment upstream
     // catches up, with no fouine change.
+    //
+    // Langfuse tracing: the official @langfuse/opencode-observability-plugin,
+    // declared only when both LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are
+    // set (opt-in; see review/opencode.ts for how those keys reach the child's
+    // env). No fouine-side pinning — installed "as-is" per Langfuse's own docs.
     ...pluginList(),
   };
 }
@@ -86,6 +91,12 @@ function pluginList(): { plugin?: string[] } {
   const plugins: string[] = [];
   if (hasCommandcodeKey()) plugins.push(COMMANDCODE_PLUGIN);
   if (process.env.POSTHOG_API_KEY) plugins.push("@posthog/opencode");
+  // Both keys required — a public key with no secret (or vice versa) can't
+  // authenticate, so declaring the plugin would just make every review fetch
+  // it from npm and then fail to trace anything.
+  if (process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY) {
+    plugins.push("@langfuse/opencode-observability-plugin@latest");
+  }
   return plugins.length ? { plugin: plugins } : {};
 }
 

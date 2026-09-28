@@ -34,6 +34,11 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `POSTHOG_API_KEY` | no | — | Enables PostHog AI observability. Unset = feature absent (no plugin, no download, no network) |
 | `POSTHOG_HOST` | no | `https://us.i.posthog.com` | PostHog ingestion host; EU or self-hosted URL |
 | `POSTHOG_PRIVACY_MODE` | no | `false` | `true` drops prompts/completions/tool IO, keeps tokens, cost, latency, model |
+| `LANGFUSE_PUBLIC_KEY` | no | — | Enables Langfuse tracing when set together with `LANGFUSE_SECRET_KEY`. Either alone = feature absent |
+| `LANGFUSE_SECRET_KEY` | no | — | See above. **Privacy:** full prompts, diffs, file reads and tool output are sent to Langfuse — self-host it or accept that. Also becomes readable by the model's own bash, so use a dedicated, trace-only Langfuse project/key |
+| `LANGFUSE_BASEURL` | no | Langfuse Cloud (US) | Self-hosted or region-specific (e.g. EU) ingestion URL |
+| `LANGFUSE_ENVIRONMENT` | no | — | Tags traces with an environment name |
+| `LANGFUSE_USER_ID` | no | — | Attributes traces to a user/instance id |
 | `OPENCODE_CONFIG_DIR` | no | — | Path to OpenCode config (tools directory) |
 | `OPENCODE_BASH_TIMEOUT_MAX_MS` | no | `120000` (2 min) | Ceiling on the `bash` timeout the model may request. Prevents the retry-with-a-larger-timeout escalation that wedges reviews |
 

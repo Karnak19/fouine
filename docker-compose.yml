@@ -42,6 +42,14 @@ services:
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       # Command Code key — only needed for commandcode/* models.
       COMMANDCODE_API_KEY: ${COMMANDCODE_API_KEY:-}
+      # Langfuse tracing (opt-in) — only affects opencode.json generation here;
+      # in sidecar mode the plugin actually RUNS in the opencode service below,
+      # so it needs the same vars (see its environment block).
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-}
+      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-}
+      LANGFUSE_USER_ID: ${LANGFUSE_USER_ID:-}
 
   # The OpenCode server, as its own container. Only fouine publishes a host
   # port; this one is reachable on the compose network only.
@@ -68,6 +76,20 @@ services:
       # mode forwards the same var via review/opencode.ts's PASSTHROUGH_ENV; the
       # sidecar needs it here for parity. Empty = the plugin's built-in default.
       OPENCODE_BASH_TIMEOUT_MAX_MS: ${OPENCODE_BASH_TIMEOUT_MAX_MS:-}
+      # Langfuse tracing (opt-in): unlike OPENCODE_BASH_TIMEOUT_MAX_MS above,
+      # LANGFUSE_SECRET_KEY IS a credential — the opencode server (and anything
+      # it shells out to) can read it. Same tradeoff as child mode's
+      # PASSTHROUGH_ENV in review/opencode.ts: use a dedicated, trace-only
+      # Langfuse project/key. Both keys empty = the plugin fouine declares in
+      # opencode.json (see skills/materialize.ts) is absent too, so this is a
+      # true no-op when unset. The sidecar needs outbound access to npm (to
+      # fetch the plugin) and to LANGFUSE_BASEURL (or the Langfuse cloud
+      # default) to actually ship traces.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-}
+      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-}
+      LANGFUSE_USER_ID: ${LANGFUSE_USER_ID:-}
     # The official image has ENTRYPOINT ["opencode"] and no CMD.
     command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
     healthcheck:

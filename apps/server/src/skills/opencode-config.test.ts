@@ -5,9 +5,15 @@ import { settings } from "~/db";
 import { SETTINGS } from "~/settings";
 
 const original = process.env.POSTHOG_API_KEY;
+const originalLangfusePublic = process.env.LANGFUSE_PUBLIC_KEY;
+const originalLangfuseSecret = process.env.LANGFUSE_SECRET_KEY;
 afterEach(() => {
   if (original === undefined) delete process.env.POSTHOG_API_KEY;
   else process.env.POSTHOG_API_KEY = original;
+  if (originalLangfusePublic === undefined) delete process.env.LANGFUSE_PUBLIC_KEY;
+  else process.env.LANGFUSE_PUBLIC_KEY = originalLangfusePublic;
+  if (originalLangfuseSecret === undefined) delete process.env.LANGFUSE_SECRET_KEY;
+  else process.env.LANGFUSE_SECRET_KEY = originalLangfuseSecret;
   settings.del.run({ $key: SETTINGS.COMMANDCODE_API_KEY });
 });
 
@@ -24,6 +30,31 @@ test("the PostHog plugin is declared only when an API key is set", () => {
   // Both plugins live in the one array.
   withCommandcodeKey();
   expect(buildOpencodeConfig().plugin).toEqual([COMMANDCODE_PLUGIN, "@posthog/opencode"]);
+});
+
+test("the Langfuse plugin is declared only when BOTH keys are set", () => {
+  delete process.env.LANGFUSE_PUBLIC_KEY;
+  delete process.env.LANGFUSE_SECRET_KEY;
+  delete process.env.POSTHOG_API_KEY;
+  expect(buildOpencodeConfig().plugin).toBeUndefined();
+
+  // A lone public key isn't enough to authenticate — stay absent.
+  process.env.LANGFUSE_PUBLIC_KEY = "pk-lf-1";
+  expect(buildOpencodeConfig().plugin).toBeUndefined();
+
+  process.env.LANGFUSE_SECRET_KEY = "sk-lf-1";
+  expect(buildOpencodeConfig().plugin).toEqual([
+    "@langfuse/opencode-observability-plugin@latest",
+  ]);
+
+  // Stacks with the other opt-in plugins in the same array.
+  process.env.POSTHOG_API_KEY = "phc_test";
+  withCommandcodeKey();
+  expect(buildOpencodeConfig().plugin).toEqual([
+    COMMANDCODE_PLUGIN,
+    "@posthog/opencode",
+    "@langfuse/opencode-observability-plugin@latest",
+  ]);
 });
 
 test("self-update is disabled (the Dockerfile pins the CLI to the SDK's version)", () => {
