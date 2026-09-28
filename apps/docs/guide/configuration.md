@@ -36,7 +36,7 @@ fouine reads configuration from environment variables. Some settings (API key, m
 | `POSTHOG_PRIVACY_MODE` | no | `false` | `true` drops prompts/completions/tool IO, keeps tokens, cost, latency, model |
 | `LANGFUSE_PUBLIC_KEY` | no | — | Enables Langfuse tracing when set together with `LANGFUSE_SECRET_KEY`. Either alone = feature absent |
 | `LANGFUSE_SECRET_KEY` | no | — | See above. **Privacy:** full prompts, diffs, file reads and tool output are sent to Langfuse — self-host it or accept that. Also becomes readable by the model's own bash, so use a dedicated, trace-only Langfuse project/key |
-| `LANGFUSE_BASEURL` | no | Langfuse Cloud (US) | Self-hosted or region-specific (e.g. EU) ingestion URL |
+| `LANGFUSE_BASEURL` | no | `https://cloud.langfuse.com` (EU cloud) | Must match your keys' region: `https://us.cloud.langfuse.com` for US, or your self-hosted URL |
 | `LANGFUSE_ENVIRONMENT` | no | — | Tags traces with an environment name |
 | `LANGFUSE_USER_ID` | no | — | Attributes traces to a user/instance id |
 | `OPENCODE_CONFIG_DIR` | no | — | Path to OpenCode config (tools directory) |

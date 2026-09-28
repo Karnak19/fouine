@@ -87,7 +87,8 @@ services:
       # default) to actually ship traces.
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-}
+      # Never "": the plugin keeps an empty base URL and fails to load.
+      LANGFUSE_BASEURL: ${LANGFUSE_BASEURL:-https://cloud.langfuse.com}
       LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-}
       LANGFUSE_USER_ID: ${LANGFUSE_USER_ID:-}
     # The official image has ENTRYPOINT ["opencode"] and no CMD.

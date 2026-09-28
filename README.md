@@ -139,7 +139,7 @@ to the opencode config it generates, so every review is traced in Langfuse.
 | --- | --- | --- |
 | `LANGFUSE_PUBLIC_KEY` | — | Required together with the secret key below. **Either alone (or neither) = feature entirely absent**: the plugin is not declared, not downloaded, and makes no network calls. |
 | `LANGFUSE_SECRET_KEY` | — | See above. |
-| `LANGFUSE_BASEURL` | Langfuse Cloud (US) | Use the EU host or your own self-hosted URL. |
+| `LANGFUSE_BASEURL` | `https://cloud.langfuse.com` (EU cloud) | Set the URL matching your keys' region: `https://us.cloud.langfuse.com` for US, or your self-hosted URL. |
 | `LANGFUSE_ENVIRONMENT` | — | Tags traces with an environment name (e.g. `production`). |
 | `LANGFUSE_USER_ID` | — | Attributes traces to a user/instance id. |
 
