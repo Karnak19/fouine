@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 interface GetPriorReviewsInput {
   pr?: number | null;
@@ -9,7 +9,7 @@ export default {
   id: "fouine.get_prior_reviews",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "get_prior_reviews",
         description:
           "Fetch a pull request's prior reviews and comments, including the author's replies. " +

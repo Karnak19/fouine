@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 interface MarkIssueReadyInput {
   reason?: string;
@@ -9,7 +9,7 @@ export default {
   id: "fouine.mark_issue_ready",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "mark_issue_ready",
         description:
           "Label this issue with the repo's implement-ready label, queuing it for the implementer. " +

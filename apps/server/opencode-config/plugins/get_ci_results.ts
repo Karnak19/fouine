@@ -1,11 +1,11 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 export default {
   id: "fouine.get_ci_results",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "get_ci_results",
         description:
           "Read this PR's CI results for its head commit: which check runs passed, failed or are still " +

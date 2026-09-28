@@ -553,3 +553,43 @@ test("abort mid-run does not start the nudge prompt", async () => {
     singleton.serve = previousServe;
   }
 });
+
+// The reason a run died before reaching the model exists only on opencode's
+// `session.execution.failed` event, so the pump keeps it for every session —
+// including ones it never registered (the dashboard's provider Test).
+test("executionError returns the session.execution.failed reason the pump saw", async () => {
+  const { serve, events } = fakeServe();
+  const { manager } = makeManager(serve);
+  await manager.acquire();
+  events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "unregistered",
+      error: { type: "provider.no-route", message: "Model unavailable: commandcode/x" },
+    },
+  });
+  await tick();
+  expect(await manager.executionError("unregistered", 0)).toBe(
+    "provider.no-route Model unavailable: commandcode/x",
+  );
+  // Consumed once read, and an unknown session just times out to undefined.
+  expect(await manager.executionError("unregistered", 0)).toBeUndefined();
+  manager.stop();
+});
+
+test("executionError waits for a failure event that lands just after wait() returned", async () => {
+  const { serve, events } = fakeServe();
+  const { manager } = makeManager(serve);
+  await manager.acquire();
+  const pending = manager.executionError("late", 1_000);
+  setTimeout(
+    () =>
+      events.push({
+        type: "session.execution.failed",
+        data: { sessionID: "late", error: { type: "provider.no-route", message: "nope" } },
+      }),
+    20,
+  );
+  expect(await pending).toBe("provider.no-route nope");
+  manager.stop();
+});

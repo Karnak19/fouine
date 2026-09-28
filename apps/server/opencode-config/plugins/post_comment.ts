@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin";
-import { call } from "./_ctx";
+import { addTool, call } from "./_ctx";
 
 interface PostCommentInput {
   body?: string;
@@ -9,7 +9,7 @@ export default {
   id: "fouine.post_comment",
   async setup(ctx) {
     await ctx.tool.transform((editor) => {
-      editor.add({
+      addTool(editor, {
         name: "post_comment",
         description:
           "Post a plain comment on the pull request (markdown). Use for the overall review summary " +
