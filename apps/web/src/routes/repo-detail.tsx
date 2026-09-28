@@ -35,6 +35,9 @@ import { LiveBadge } from "@/components/live-badge";
 import { cn } from "@/lib/utils";
 import { Stat } from "@/components/stat";
 
+// Improver runs pile up hourly, so the card shows only the latest few by default.
+const IMPROVER_RUNS_PREVIEW = 5;
+
 export default function RepoDetailPage() {
   const { owner, name } = useParams({ from: "/repos/$owner/$name" });
   const queryClient = useQueryClient();
@@ -92,6 +95,8 @@ export default function RepoDetailPage() {
     () => reviews.filter((r) => r.trigger === "improve"),
     [reviews],
   );
+  const [showAllImprover, setShowAllImprover] = useState(false);
+  const visibleImproverRuns = showAllImprover ? improverRuns : improverRuns.slice(0, IMPROVER_RUNS_PREVIEW);
 
   // Group PR reviews by PR — reviews come newest-first, so each group's head is
   // the latest run; groups sort by that latest run, newest PR activity first.
@@ -864,7 +869,7 @@ export default function RepoDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {improverRuns.map((r) => (
+                {visibleImproverRuns.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
                       <Link
@@ -893,6 +898,16 @@ export default function RepoDetailPage() {
                 ))}
               </TableBody>
             </Table>
+            {improverRuns.length > IMPROVER_RUNS_PREVIEW && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2 w-full text-zinc-400"
+                onClick={() => setShowAllImprover((v) => !v)}
+              >
+                {showAllImprover ? "Show less" : `Show all ${improverRuns.length} runs`}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
