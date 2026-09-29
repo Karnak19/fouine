@@ -38,6 +38,10 @@ export function buildImprovePrompt(
     `distill the durable learnings, and propose an updated REVIEW.md via propose_review_notes —`,
     `or reply "no learnings" if there is nothing worth remembering.`,
     ``,
+    `A fouine APPROVE whose body mentions \`/fouine skip nits\` means the PR author read the`,
+    `listed non-blocking findings and dismissed them as not worth fixing. Treat that as a signal`,
+    `to stop flagging that kind of thing, especially when the same kind keeps getting skipped.`,
+    ``,
     pendingProposal
       ? `## Current REVIEW.md (from the still-open proposal PR, not yet merged — build on it, do not drop what it already added)`
       : `## Current REVIEW.md`,

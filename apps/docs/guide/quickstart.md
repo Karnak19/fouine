@@ -57,6 +57,8 @@ Comment `/fouine` on any PR to trigger an on-demand review:
 
 To cancel a review that's still running on that PR, comment `/fouine stop`. fouine reacts 👍 if it stopped something, 😕 if nothing was running.
 
+fouine only approves a PR when its review found nothing at all, so a single nit leaves it at `COMMENT`. If you're the PR author and you don't want to fix the nits or questions it raised, comment `/fouine skip nits`. When fouine's latest review of the current head commit has no `blocking` finding, fouine posts an `APPROVE` pinned to that commit, listing the findings you skipped, and reacts 👍. Otherwise it reacts 😕 and replies with the reason: you're not the PR author, a review is still running, fouine hasn't reviewed the current head, the review has blocking findings, or fouine can't verify the severities of that review. If fouine already approved the current head, it just reacts 😕. Skipped nits are recorded, and the self-improvement loop reads them as "stop flagging this kind of thing".
+
 The old `/review` and `/review stop` still work, but are deprecated — prefer `/fouine`.
 
 That's it. Check the [Configuration](/guide/configuration) page to customize the review prompt, model, and more.

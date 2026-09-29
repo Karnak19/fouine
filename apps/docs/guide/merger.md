@@ -9,6 +9,7 @@ It is off by default. Once a repo opts in, every non-draft PR on that repo merge
 The merger checks all of the following, re-checked at the moment of merge, not just when a PR is armed:
 
 1. **fouine's latest review on the armed head SHA is `APPROVED`.** Read straight from GitHub, not from fouine's own database — never `PENDING`, never a stale comment/changes-requested state, and never a review left on a commit that was later superseded by a push.
+   An approval posted through `/fouine skip nits` counts: it's fouine's own review, pinned to the commit it reviewed. It never counts as a human approval, so a PR opened by a bot (fouine's implementer, say) still needs a human to approve it.
 2. **No human review is `CHANGES_REQUESTED`.** A human's later `APPROVED` clears their own earlier `CHANGES_REQUESTED`; fouine's approval never overrides one that's still standing.
 3. **Every check run and commit status on the head SHA has completed**, and none concluded `failure`, `cancelled`, `timed_out` or `action_required`. `neutral` and `skipped` count as passing. If GitHub reports required status checks for the branch, only those count; otherwise every check on the commit does.
 4. **The PR's head SHA still equals the SHA that was armed.** A new push re-arms it against the new commit (see below); this is the belt-and-braces re-check right before merging.

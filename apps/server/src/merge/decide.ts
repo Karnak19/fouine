@@ -70,8 +70,12 @@ function latestVerdict(reviews: MergeReview[]): MergeReview | undefined {
 // Latest fouine review, PENDING ignored (fouine's own drafts/#97), by
 // submitted_at. Exported for tests; evaluate.ts re-derives the same review
 // with its GitHub-only fields (html_url, body) for the recap comment rather
-// than narrowing through this signature.
-export function latestFouineReview(reviews: MergeReview[]): MergeReview | undefined {
+// than narrowing through this signature. Generic so `/fouine skip nits`
+// (review/skip-nits.ts) picks "latest" by the exact same rule and keeps the
+// review's id.
+export function latestFouineReview<T extends Pick<MergeReview, "state" | "submitted_at">>(
+  reviews: T[],
+): T | undefined {
   return reviews
     .filter((r) => r.state !== "PENDING")
     .sort((a, b) => (a.submitted_at ?? "").localeCompare(b.submitted_at ?? ""))

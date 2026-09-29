@@ -221,6 +221,29 @@ db.exec(`
   );
 `);
 
+// nit_dismissals: one row per `/fouine skip nits` that fouine accepted — the
+// PR author waved off the non-blocking findings of fouine's latest review on
+// `head_sha`, and fouine posted an APPROVE pinned to that commit. The record the
+// improver's "nits nobody wanted" signal rests on; the approval body on GitHub
+// is the other half. `review_id` is the reviews row that posted the skipped
+// review (SET NULL so pruning reviews never trips the foreign key).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS nit_dismissals (
+    id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_full_name            TEXT NOT NULL,
+    pr_number                 INTEGER NOT NULL,
+    review_id                 INTEGER REFERENCES reviews(id) ON DELETE SET NULL,
+    github_review_id          INTEGER NOT NULL,
+    approval_github_review_id INTEGER NOT NULL,
+    head_sha                  TEXT NOT NULL,
+    dismissed_by              TEXT NOT NULL,
+    created_at                INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_nit_dismissals_repo_pr
+    ON nit_dismissals(repo_full_name, pr_number);
+`);
+
 export interface SettingRow {
   key: string;
   value: string;
@@ -678,6 +701,13 @@ export const findings = {
   byRepoPR: db.prepare<FindingRow, { $repo: string; $pr: number }>(
     "SELECT * FROM findings WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id",
   ),
+  // Every row one GitHub review produced (its summary + inline findings) —
+  // what `/fouine skip nits` reads to prove that review had nothing blocking.
+  byGithubReview: db.prepare<FindingRow, { $repo: string; $github_review_id: number }>(
+    `SELECT * FROM findings
+     WHERE repo_full_name = $repo AND github_review_id = $github_review_id
+     ORDER BY id`,
+  ),
   // Severity mix across all inline findings, for the dashboard.
   // All three guards read from the joined review, not from the finding's own
   // row: findings are written after the review runs, so a finding recorded just
@@ -786,6 +816,41 @@ export const mergeArms = {
   // without the closed webhook firing, e.g. the app was uninstalled mid-flight).
   sweepStale: db.prepare<null, { $before: number }>(
     "DELETE FROM merge_arms WHERE armed_at < $before",
+  ),
+};
+
+export interface NitDismissalRow {
+  id: number;
+  repo_full_name: string;
+  pr_number: number;
+  review_id: number | null;
+  github_review_id: number;
+  approval_github_review_id: number;
+  head_sha: string;
+  dismissed_by: string;
+  created_at: number;
+}
+
+export const nitDismissals = {
+  insert: db.prepare<
+    null,
+    {
+      $repo: string;
+      $pr: number;
+      $review: number | null;
+      $github_review_id: number;
+      $approval_github_review_id: number;
+      $sha: string;
+      $by: string;
+    }
+  >(
+    `INSERT INTO nit_dismissals
+       (repo_full_name, pr_number, review_id, github_review_id, approval_github_review_id,
+        head_sha, dismissed_by)
+     VALUES ($repo, $pr, $review, $github_review_id, $approval_github_review_id, $sha, $by)`,
+  ),
+  byRepoPR: db.prepare<NitDismissalRow, { $repo: string; $pr: number }>(
+    "SELECT * FROM nit_dismissals WHERE repo_full_name = $repo AND pr_number = $pr ORDER BY id",
   ),
 };
 

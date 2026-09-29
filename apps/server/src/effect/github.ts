@@ -193,6 +193,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       pr: number,
     ): Effect.Effect<
       Array<{
+        id: number;
         user: string | null;
         state: string;
         submitted_at: string | null;
@@ -211,6 +212,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
             per_page: 100,
           });
           return data.map((r) => ({
+            id: r.id,
             user: r.user?.login ?? null,
             state: r.state,
             submitted_at: r.submitted_at ?? null,
@@ -220,6 +222,33 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           }));
         },
         catch: (cause) => new GitHubError({ op: "pulls.listReviews", cause }),
+      }),
+
+    // `/fouine skip nits`: an APPROVE pinned to `commitId`, the commit fouine
+    // actually reviewed. The pin is the point — without it GitHub approves
+    // whatever the head is when the call lands, and a push racing the command
+    // would get approved (and, with auto-merge on, merged) unreviewed.
+    approvePull: (
+      octokit: Octokit,
+      owner: string,
+      repo: string,
+      pr: number,
+      commitId: string,
+      body: string,
+    ): Effect.Effect<number, GitHubError> =>
+      Effect.tryPromise({
+        try: async () =>
+          (
+            await octokit.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number: pr,
+              commit_id: commitId,
+              event: "APPROVE",
+              body,
+            })
+          ).data.id,
+        catch: (cause) => new GitHubError({ op: "pulls.createReview(approve)", cause }),
       }),
 
     getPull: (
