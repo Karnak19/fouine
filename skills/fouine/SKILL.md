@@ -1,6 +1,6 @@
 ---
 name: fouine
-description: Work with fouine, the self-hosted AI code reviewer (a GitHub App), on repositories it reviews. Use whenever a PR has reviews or comments from a fouine bot account (a footer starting "🦡 Addressing this with an agent?", a verdict line like "Blocking: 1 · Nits: 2 · Questions: 0", a check run named "fouine"), when the user asks what fouine said, wants fouine's findings fixed or answered, wants to type a `/fouine` command (re-review, stop, skip nits, refine, implement), or wants to change how fouine reviews a repo (REVIEW.md, repo skills). Pairs with a generic PR skill such as github-pr for the rest of the PR loop.
+description: Work with fouine, the self-hosted AI code reviewer (a GitHub App), on repositories it reviews. Use whenever a PR has reviews or comments from a fouine bot account (a footer starting "🦡 Addressing this with an agent?", a verdict line counting Blocking, Nits and Questions, a check run named "fouine"), when the user asks what fouine said, wants fouine's findings fixed or answered, wants to type a `/fouine` command (re-review, stop, skip nits, refine, implement), or wants to change how fouine reviews a repo (REVIEW.md, repo skills). Pairs with a generic PR skill such as github-pr for the rest of the PR loop.
 ---
 
 # Working with fouine
