@@ -4,6 +4,7 @@ import {
   verifyAndDispatch,
   VerificationError,
   isStopCommand,
+  isSkipNitsCommand,
   matchTrigger,
   refineFollowUpDecision,
 } from "~/server/webhook";
@@ -87,6 +88,20 @@ test("isStopCommand slices by the matched trigger, not a fixed length", () => {
   expect(isStopCommand("/fouine stop", "/fouine")).toBe(true);
   expect(isStopCommand("/review stop", "/review")).toBe(true);
   expect(isStopCommand("stop")).toBe(false);
+});
+
+test("recognises /fouine skip nits, and only skip nits", () => {
+  expect(isSkipNitsCommand("/fouine skip nits")).toBe(true);
+  expect(isSkipNitsCommand("  /fouine   skip   nits  ")).toBe(true);
+  expect(isSkipNitsCommand("/fouine skip\tnits")).toBe(true);
+  expect(isSkipNitsCommand("/review skip nits")).toBe(true);
+  expect(isSkipNitsCommand("/fouine skip nitsy")).toBe(false);
+  expect(isSkipNitsCommand("/fouine skip nits please")).toBe(false);
+  expect(isSkipNitsCommand("/fouine skip")).toBe(false);
+  expect(isSkipNitsCommand("/fouine skipnits")).toBe(false);
+  expect(isSkipNitsCommand("/fouine")).toBe(false);
+  expect(isSkipNitsCommand("skip nits")).toBe(false);
+  expect(isStopCommand("/fouine skip nits")).toBe(false);
 });
 
 test("matchTrigger returns the trigger a comment starts with", () => {

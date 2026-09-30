@@ -2,6 +2,7 @@ export {
   runReviewForPR,
   abortReview,
   abortReviewsForPR,
+  isReviewRunningForPR,
   abortRefinesForIssue,
   runRefine,
   abortImplementsForIssue,

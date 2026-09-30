@@ -135,3 +135,9 @@ test("prompt lists the PRs and the current notes", () => {
   expect(prompt).toContain("existing rules");
   expect(buildImprovePrompt(target, "main", undefined)).toContain("none yet");
 });
+
+test("prompt explains what a skip-nits approval means", () => {
+  const prompt = buildImprovePrompt(target, "main", undefined);
+  expect(prompt).toContain("/fouine skip nits");
+  expect(prompt).toContain("not worth fixing");
+});

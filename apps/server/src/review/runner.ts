@@ -41,6 +41,17 @@ export function abortReviewsForPR(repoFullName: string, prNumber: number): numbe
   return abortByKey(`${repoFullName}#${prNumber}`);
 }
 
+// `/fouine skip nits` refuses while a review is in flight for the PR — its
+// result is about to replace the one being skipped. Same key as abortReviewsForPR,
+// but only looks.
+export function isReviewRunningForPR(repoFullName: string, prNumber: number): boolean {
+  const key = `${repoFullName}#${prNumber}`;
+  for (const entry of activeReviews.values()) {
+    if (entry.key === key) return true;
+  }
+  return false;
+}
+
 // Issues get their own key namespace: a PR and an issue can never share a
 // number in one repo, but keeping `#issue#` explicit means a future numbering
 // change can't make `/fouine stop` on an issue kill a PR review.

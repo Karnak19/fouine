@@ -4,6 +4,7 @@ import {
   abortImplementsForIssue,
   abortRefinesForIssue,
   abortReviewsForPR,
+  isReviewRunningForPR,
   runImplement,
   runRefine,
   runReviewForPR,
@@ -21,6 +22,9 @@ import {
 } from "~/settings";
 import { evaluateArm } from "~/merge/evaluate";
 import { isBotLogin } from "~/merge/decide";
+import { skipNitsPipeline } from "~/review/skip-nits";
+import { GitHubService } from "~/effect/github";
+import { Effect } from "effect";
 
 // `ready_for_review` matters: draft PRs are skipped below, so without it a PR
 // opened as a draft (what `gh stack submit` does) is never reviewed at all.
@@ -58,6 +62,13 @@ export function isRefineCommand(body: string, trigger = matchTrigger(body)): boo
 export function isImplementCommand(body: string, trigger = matchTrigger(body)): boolean {
   if (!trigger) return false;
   return body.trim().slice(trigger.length).trim() === "implement";
+}
+
+// `<trigger> skip nits`, same exact-argument rule, except internal whitespace
+// is collapsed so `/fouine skip  nits` still works. `/fouine skip nitsy` doesn't.
+export function isSkipNitsCommand(body: string, trigger = matchTrigger(body)): boolean {
+  if (!trigger) return false;
+  return body.trim().slice(trigger.length).trim().replace(/\s+/g, " ") === "skip nits";
 }
 
 // How many refine rounds a human can trigger by just replying before fouine
@@ -244,6 +255,48 @@ async function handleRefineFollowUp(
   }).catch((err) =>
     log.error("refine follow-up failed", { repo: fullName, number: issueNumber, error: String(err) }),
   );
+}
+
+// `/fouine skip nits` on a PR: same silent gates as the other PR commands
+// (no installation id, repo disabled), then the pipeline decides and posts;
+// the reaction is the ack either way.
+async function handleSkipNits(
+  payload: { installation?: { id: number }; comment: { id: number; user?: { login: string } } },
+  fullName: string,
+  prNumber: number,
+  trigger: string,
+): Promise<void> {
+  const installationId = payload.installation?.id;
+  if (!installationId) {
+    log.warn(`${trigger} skip nits skipped`, {
+      repo: fullName,
+      number: prNumber,
+      reason: "no installation id",
+    });
+    return;
+  }
+  const repoRow = upsertRepoAndPublish(fullName, installationId);
+  if (!repoRow.enabled) {
+    log.debug(`${trigger} skip nits skipped`, {
+      repo: fullName,
+      number: prNumber,
+      reason: "repo disabled",
+    });
+    return;
+  }
+  log.info(`${trigger} skip nits`, { repo: fullName, number: prNumber });
+  // The pipeline's error channel is `never`, but a defect (a DB throw) would
+  // still reject — log it and answer "confused" rather than leave no trace.
+  const reaction = await Effect.runPromise(
+    skipNitsPipeline(
+      { repoFullName: fullName, prNumber, installationId, commenter: payload.comment.user?.login },
+      () => isReviewRunningForPR(fullName, prNumber),
+    ).pipe(Effect.provide(GitHubService.Default)),
+  ).catch((err): "confused" => {
+    log.error("skip nits failed", { repo: fullName, number: prNumber, error: String(err) });
+    return "confused";
+  });
+  await react(installationId, fullName, payload.comment.id, reaction);
 }
 
 let handlersRegistered = false;
@@ -475,6 +528,13 @@ export function registerHandlers(): void {
         // rather than a reply comment: the same ack without the PR noise.
         stopped > 0 ? "+1" : "confused",
       );
+      return;
+    }
+
+    // Before the fallthrough below: otherwise the command would also queue a
+    // full review.
+    if (isSkipNitsCommand(body, trigger)) {
+      await handleSkipNits(payload, fullName, prNumber, trigger);
       return;
     }
 
