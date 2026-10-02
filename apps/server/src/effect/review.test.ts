@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { causeChain, failureMessage, reviewPipeline, shouldPostFailureComment } from "~/effect/review";
-import { DbService } from "~/effect/db";
-import { GitHubService } from "~/effect/github";
-import { GitService } from "~/effect/git";
-import { OpenCodeService } from "~/effect/opencode";
+import { DbService, type DbServiceShape } from "~/effect/db";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
+import { GitService, type GitServiceShape } from "~/effect/git";
+import { OpenCodeService, type OpenCodeServiceShape } from "~/effect/opencode";
 import { GitError, OpenCodeError } from "~/effect/errors";
 import type { PullRequestInfo } from "~/review/types";
 
@@ -61,7 +61,7 @@ function makeLayer(over: {
         return over.baseline ?? null;
       }),
     status: () => Effect.succeed(over.status ?? "running"),
-  } as unknown as DbService);
+  } as unknown as DbServiceShape);
 
   const gh = Layer.succeed(GitHubService, {
     installationClient: () => Effect.succeed({} as never),
@@ -82,13 +82,13 @@ function makeLayer(over: {
       }),
     createIssueComment: (_o: unknown, _owner: string, _repo: string, _n: number, body: string) =>
       Effect.sync(() => void calls.comments.push(body)),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
 
   const git = Layer.succeed(GitService, {
     ...gitOk(),
     patchId: () => Effect.succeed(over.patchId),
     ...over.git,
-  } as unknown as GitService);
+  } as unknown as GitServiceShape);
 
   const oc = Layer.succeed(OpenCodeService, {
     runReview: (
@@ -103,7 +103,7 @@ function makeLayer(over: {
         ? over.oc(signal)
         : Effect.succeed({ sessionId: "s", text: "ok", cost: 1, tokens: 2 });
     },
-  } as unknown as OpenCodeService);
+  } as unknown as OpenCodeServiceShape);
 
   return { layer: Layer.mergeAll(db, gh, git, oc), calls };
 }
@@ -170,7 +170,7 @@ test("supersede abort is recorded distinctly from a user stop", async () => {
   expect(calls.failed).toEqual(["Superseded by a newer commit"]);
 });
 
-// #60: an unexpected throw is a defect, which the old catchAll (typed channel
+// #60: an unexpected throw is a defect, which the old catchAll (now Effect.catch) (typed channel
 // only) let sail past — leaving the row at `running` forever.
 test("a defect still marks the review failed", async () => {
   const { layer, calls } = makeLayer({

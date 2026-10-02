@@ -263,7 +263,7 @@ test("the run path pushes the run's provider key before session.create", async (
         new AbortController().signal,
       );
     });
-    await Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+    await Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.layer))).catch(
       () => undefined,
     );
 
@@ -399,7 +399,7 @@ test("abort during session.create interrupts the late session and registers noth
         controller.signal,
       );
     });
-    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.layer))).catch(
       () => undefined,
     );
 
@@ -466,7 +466,7 @@ test("abort during session.create sends no prompt once the late session arrives"
         controller.signal,
       );
     });
-    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.layer))).catch(
       () => undefined,
     );
 
@@ -537,7 +537,7 @@ test("abort mid-run does not start the nudge prompt", async () => {
         controller.signal,
       );
     });
-    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.Default))).catch(
+    const run = Effect.runPromise(program.pipe(Effect.provide(OpenCodeService.layer))).catch(
       () => undefined,
     );
 

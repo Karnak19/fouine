@@ -84,7 +84,7 @@ export function installDeps(
       },
       catch: (cause) => cause,
     }).pipe(
-      Effect.catchAll((cause) =>
+      Effect.catch((cause) =>
         Effect.sync(() =>
           log.warn("dependency install could not be started — continuing", {
             path: worktree,

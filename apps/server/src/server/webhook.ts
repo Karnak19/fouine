@@ -291,7 +291,7 @@ async function handleSkipNits(
     skipNitsPipeline(
       { repoFullName: fullName, prNumber, installationId, commenter: payload.comment.user?.login },
       () => isReviewRunningForPR(fullName, prNumber),
-    ).pipe(Effect.provide(GitHubService.Default)),
+    ).pipe(Effect.provide(GitHubService.layer)),
   ).catch((err): "confused" => {
     log.error("skip nits failed", { repo: fullName, number: prNumber, error: String(err) });
     return "confused";
