@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { reconcileStaleChecks, STALE_MESSAGE } from "~/effect/reconcile";
-import { DbService } from "~/effect/db";
-import { GitHubService } from "~/effect/github";
+import { DbService, type DbServiceShape } from "~/effect/db";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
 import { config } from "~/config";
 import type { ReviewRow } from "@fouine/shared";
 
@@ -60,7 +60,7 @@ function makeLayer(over: {
     fail: (id: number, error: string) =>
       Effect.sync(() => void calls.failed.push({ id, error })),
     hasFindings: () => Effect.succeed(over.findings ?? false),
-  } as unknown as DbService);
+  } as unknown as DbServiceShape);
 
   const gh = Layer.succeed(GitHubService, {
     installationClient: () => Effect.succeed({} as never),
@@ -82,7 +82,7 @@ function makeLayer(over: {
         calls.statusCalls++;
         return over.checkState ?? "closed";
       }),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
 
   return { layer: Layer.mergeAll(db, gh), calls };
 }

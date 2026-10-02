@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { mergeArms, repos } from "~/db";
-import { GitHubService } from "~/effect/github";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
 import { evaluatePipeline } from "~/merge/evaluate";
 import type { MergeRiskAssessment } from "~/merge/assess";
 
@@ -82,7 +82,7 @@ function fakeLayer(opts: {
         merged = true;
         return { ok: true as const, sha: "merge-sha" };
       }),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
   return { gh, wasMerged: () => merged, comments };
 }
 

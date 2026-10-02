@@ -135,7 +135,7 @@ export function improvePipeline(
             denyTestCommands,
           },
           (sessionId) =>
-            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
+            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catch(() => Effect.void))),
           signal,
         );
 
@@ -183,12 +183,12 @@ export function improvePipeline(
           }
           const current = yield* db
             .status(id)
-            .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
+            .pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined)));
           if (current === "completed" || current === "failed") return;
           yield* writeFailure(db, id, message);
         }),
       ),
-      Effect.catchAll((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
+      Effect.catch((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
     );
   });
 }

@@ -7,7 +7,7 @@ import { buildPrompt } from "~/review/prompt";
 import { resolveDefaultModel, resolveDenyTestCommands, resolvePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
-import { DbService } from "~/effect/db";
+import { DbService, type DbServiceShape } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
 import { installDeps } from "~/effect/install";
@@ -23,7 +23,7 @@ export function cloneUrl(token: string, fullName: string): string {
 export const readRepoNotes = (worktree: string): Effect.Effect<string | undefined> =>
   Effect.tryPromise(() => readFile(resolve(worktree, "REVIEW.md"), "utf8")).pipe(
     Effect.map((s) => s.trim() || undefined),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   );
 
 // Turn whatever ended the run into the one-line message the dashboard shows.
@@ -66,8 +66,8 @@ export function failureMessage(
   supersededLabel: string,
 ): string {
   if (signal.aborted) return signal.reason === "superseded" ? supersededLabel : "Stopped by user";
-  if (Cause.isInterruptedOnly(cause)) return "Interrupted";
-  const failure = Cause.failureOption(cause);
+  if (Cause.hasInterruptsOnly(cause)) return "Interrupted";
+  const failure = Cause.findErrorOption(cause);
   if (Option.isSome(failure)) return causeChain(failure.value.cause);
   return causeChain(Cause.squash(cause));
 }
@@ -89,12 +89,12 @@ export function shouldPostFailureComment(input: {
 // can't be swallowed silently the way it used to be — a locked DB there means a
 // zombie row that the log claims is failed.
 export function writeFailure(
-  db: DbService,
+  db: DbServiceShape,
   id: number,
   message: string,
 ): Effect.Effect<void> {
   return db.fail(id, message).pipe(
-    Effect.catchAll((err) =>
+    Effect.catch((err) =>
       Effect.sync(() =>
         log.error("FAILED to write review failure status — row may be stuck", {
           review: id,
@@ -257,13 +257,13 @@ export function reviewPipeline(
             // error assume posted — better to miss a nudge than nudge a review
             // that's already on GitHub.
             hasPosted: () =>
-              Effect.runSync(db.hasFindings(id).pipe(Effect.catchAll(() => Effect.succeed(true)))),
+              Effect.runSync(db.hasFindings(id).pipe(Effect.catch(() => Effect.succeed(true)))),
           },
           // Persist the session id as soon as it exists so the dashboard can
           // stream `opencode export` mid-flight. setSession is a sync SQLite
           // write, so runSync completes it in place like the old callback.
           (sessionId) =>
-            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
+            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catch(() => Effect.void))),
           signal,
         );
 
@@ -305,7 +305,7 @@ export function reviewPipeline(
     });
 
     yield* guarded.pipe(
-      // onExit, not catchAll: catchAll only sees the typed ReviewError channel,
+      // onExit, not Effect.catch: it only sees the typed ReviewError channel,
       // so a defect or an interrupt used to sail past it and leave the row at
       // `running` forever (#60). The finaliser runs uninterruptibly, so the
       // status write survives even a fiber interrupt.
@@ -342,12 +342,12 @@ export function reviewPipeline(
             // better than a row stuck at `running`.
             const current = yield* db
               .status(id)
-              .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
+              .pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined)));
             const settled = current === "completed" || current === "failed";
             if (!settled) yield* writeFailure(db, id, message);
 
             // Final failure (the auto-retry already fired, or this IS the
-            // retry): tell the PR. Best-effort, catchAllCause for the same
+            // retry): tell the PR. Best-effort, catchCause for the same
             // reason as the check close below — a defect here must never mask
             // the original cause.
             if (shouldPostFailureComment({ failed, aborted, settled, attempt })) {
@@ -362,7 +362,7 @@ export function reviewPipeline(
                     `🦡 Review failed after an automatic retry: ${message.slice(0, 500)}. Comment \`/fouine\` to retry, or use the dashboard.`,
                   )
                   .pipe(
-                    Effect.catchAllCause((cause) =>
+                    Effect.catchCause((cause) =>
                       Effect.sync(() =>
                         log.error("failed to post failure comment", {
                           repo: pr.repoFullName,
@@ -398,10 +398,10 @@ export function reviewPipeline(
                 failed ? message : "Review completed.",
               )
               .pipe(
-                // catchAllCause, not catchAll: finishCheck has no typed error
+                // catchCause, not catch: finishCheck has no typed error
                 // channel left, but a defect here must still not mask the
                 // original cause.
-                Effect.catchAllCause((cause) =>
+                Effect.catchCause((cause) =>
                   Effect.sync(() =>
                     log.error("failed to close check run — it may stay in progress", {
                       repo: pr.repoFullName,
@@ -417,7 +417,7 @@ export function reviewPipeline(
       ),
       // Intentional stop → succeed (swallow). Real failure → propagate so the
       // caller's .catch logs it, as the old `throw err` did.
-      Effect.catchAll((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
+      Effect.catch((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
     );
   });
 }
