@@ -7,6 +7,7 @@ export {
   runRefine,
   abortImplementsForIssue,
   runImplement,
+  runTask,
 } from "~/review/runner";
 export { runImproverForRepo, runImproverSweep } from "~/review/improver";
 export { reapOrphanReviews, reapStaleArms } from "~/review/reap";

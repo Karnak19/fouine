@@ -15,6 +15,13 @@ const STALE_ARM_MS = 7 * 24 * 60 * 60 * 1000;
 // Order matters: the DB write comes first and never depends on GitHub. A
 // deleted repo, a revoked installation token or a network blip must not block
 // boot or leave the row lying about its status.
+// A queued task is 'pending' but owns nothing in memory — it is a DB row
+// waiting for a slot, and the queue resumes it at boot (task/queue.ts). Only a
+// task that was actually running is an orphan.
+export function isOrphan(row: Pick<ReviewRow, "trigger" | "status">): boolean {
+  return !(row.trigger === "task" && row.status === "pending");
+}
+
 export async function reapOrphanReviews(): Promise<void> {
   let orphans: ReviewRow[];
   try {
@@ -23,6 +30,7 @@ export async function reapOrphanReviews(): Promise<void> {
     log.error("orphan reap: could not read unfinished reviews", { error: String(err) });
     return;
   }
+  orphans = orphans.filter(isOrphan);
   if (!orphans.length) return;
 
   const reaped: ReviewRow[] = [];

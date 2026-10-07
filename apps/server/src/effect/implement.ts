@@ -1,13 +1,10 @@
-import { Effect, Exit } from "effect";
-import { resolve } from "node:path";
-import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
+import { Effect } from "effect";
 import { resolveImplementModel, resolveImplementPrompt } from "~/settings";
 import { log } from "~/server/log";
-import { config } from "~/config";
 import { DbService } from "~/effect/db";
 import { GitHubService } from "~/effect/github";
 import { GitService } from "~/effect/git";
-import { installDeps } from "~/effect/install";
+import { guardRun, openPullRequest, prepareWorktree } from "~/effect/agent-run";
 import { OpenCodeService } from "~/effect/opencode";
 import { buildImplementPrompt } from "~/review/implement-prompt";
 import { fetchIssueInfo } from "~/github";
@@ -96,14 +93,13 @@ export function implementPipeline(
         );
         const checkoutRef = branchExists ? `refs/heads/${branch}` : `refs/heads/${base}`;
 
-        yield* git.ensureBare(target.repoFullName, cloneUrl(token, target.repoFullName));
-        const sha = yield* git.fetchRef(target.repoFullName, checkoutRef);
-        yield* git.addWorktree(target.repoFullName, sha, worktree);
-        yield* installDeps(worktree, signal);
-        // bun install may rewrite the lockfile (no --frozen-lockfile, see
-        // install.ts); that churn must not end up in the PR, so reset tracked
-        // files before the agent starts.
-        yield* git.discardChanges(worktree);
+        yield* prepareWorktree({
+          repoFullName: target.repoFullName,
+          token,
+          ref: checkoutRef,
+          worktree,
+          signal,
+        });
 
         const repoRow = yield* db.getRepo(target.repoFullName);
         const prompt = buildImplementPrompt(
@@ -184,19 +180,15 @@ export function implementPipeline(
             `---`,
             `_🦡 Implemented by fouine from issue #${target.issueNumber}. Review it like any other PR; a human approval is required before the merger will merge it._`,
           ].join("\n");
-          const created = yield* Effect.tryPromise({
-            try: () =>
-              octokit.rest.pulls.create({
-                owner,
-                repo: repoName,
-                title: issue.title,
-                head: branch,
-                base,
-                body,
-              }),
-            catch: (cause) => new GitHubError({ op: "pulls.create", cause }),
+          url = yield* openPullRequest({
+            octokit,
+            owner,
+            repo: repoName,
+            title: issue.title,
+            head: branch,
+            base,
+            body,
           });
-          url = created.data.html_url;
         }
 
         yield* gh.createIssueComment(
@@ -210,42 +202,9 @@ export function implementPipeline(
         yield* db.complete(id, result.cost, result.tokens, model, null);
       });
 
-    const guarded = Effect.suspend(() => {
-      const worktree = resolve(
-        config.dataDir,
-        "worktrees",
-        `${target.repoFullName.replace("/", "__")}#implement-${id}`,
-      );
-      return run(worktree).pipe(
-        Effect.ensuring(git.removeWorktree(target.repoFullName, worktree)),
-      );
-    });
-
-    yield* guarded.pipe(
-      Effect.onExit((exit) =>
-        Effect.gen(function* () {
-          if (Exit.isSuccess(exit)) return;
-          const message = failureMessage(exit.cause, signal, "Superseded by a newer run");
-          if (signal.aborted) {
-            log.info(signal.reason === "superseded" ? "implementer superseded" : "implementer stopped", {
-              repo: target.repoFullName,
-              review: id,
-            });
-          } else {
-            log.error("implementer failed", {
-              repo: target.repoFullName,
-              review: id,
-              error: message,
-            });
-          }
-          const current = yield* db
-            .status(id)
-            .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
-          if (current === "completed" || current === "failed") return;
-          yield* writeFailure(db, id, message);
-        }),
-      ),
-      Effect.catchAll((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
+    yield* guardRun(
+      { label: "implementer", repoFullName: target.repoFullName, id, kind: "implement", signal },
+      run,
     );
   });
 }

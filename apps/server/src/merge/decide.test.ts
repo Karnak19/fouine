@@ -15,6 +15,7 @@ function baseState(overrides: Partial<MergeState> = {}): MergeState {
     statuses: [],
     requiredChecks: null,
     authorIsBot: false,
+    isTaskPr: false,
     ...overrides,
   };
 }
@@ -234,4 +235,17 @@ test("isBotLogin", () => {
   expect(isBotLogin("fouine-slug", "fouine-slug")).toBe(true);
   expect(isBotLogin("alice", "fouine-slug")).toBe(false);
   expect(isBotLogin(null, "fouine-slug")).toBe(false);
+});
+
+test("a task PR needs a human approval even when its author does not look like a bot", () => {
+  const d = shouldMerge(baseState({ isTaskPr: true, authorIsBot: false }));
+  expect(d.ok).toBe(false);
+  if (!d.ok) expect(d.reason).toContain("chat task");
+  const approved = shouldMerge(
+    baseState({
+      isTaskPr: true,
+      humanReviews: [{ user: "alice", state: "APPROVED", submitted_at: "2026-01-02T00:00:00Z" }],
+    }),
+  );
+  expect(approved.ok).toBe(true);
 });

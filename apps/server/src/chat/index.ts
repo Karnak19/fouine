@@ -5,7 +5,13 @@ import { resolveApiKey, resolveChatModel } from "~/settings";
 import { runStatsQuery } from "~/chat/query";
 import { buildChart } from "~/chat/chart";
 import { CHAT_SYSTEM_PROMPT } from "~/chat/prompt";
-import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
+import {
+  delegateTask,
+  listRepos,
+  MAX_TASKS_PER_REQUEST,
+  MAX_TASK_PROMPT_CHARS,
+} from "~/task/delegate";
+import { chatMockEnabled, createChatMockModel, wantsDelegation } from "~/chat/mock-model";
 
 // The opencode-go (Zen) inference endpoint. Per
 // https://opencode.ai/docs/go/#endpoints the gateway serves
@@ -39,7 +45,7 @@ export function wireModelId(spec: string): string {
   return slash === -1 ? spec : spec.slice(slash + 1);
 }
 
-/** The tools the chat agent gets. Read-only, guarded, no GitHub access. */
+/** The read-only SQL tool. Guarded; it never touches GitHub. */
 const queryStats = tool({
   description:
     "Run one read-only SQL SELECT against fouine's review database and get the rows back as JSON. " +
@@ -96,6 +102,45 @@ const renderChart = tool({
   execute: async (input, { abortSignal }) => buildChart(input, abortSignal),
 });
 
+const listReposTool = tool({
+  description:
+    "List the repositories fouine knows, with whether each is enabled, has the issue implementer enabled, " +
+    "and has auto-merge on. Call this to find where work can be delegated: only ENABLED repos accept " +
+    "delegate_task. It reads only fouine's own records — it says nothing about what a repository contains.",
+  inputSchema: z.object({}),
+  execute: async () => listRepos(),
+});
+
+/**
+ * Build the delegate_task tool for ONE request. The per-request call counter
+ * lives in this closure, so it cannot be reset by the model or shared across
+ * requests. The limits themselves are enforced in `delegateTask`.
+ */
+function makeDelegateTask() {
+  const budget = { calls: 0 };
+  return tool({
+    description:
+      "Hand a code change to an agent on ONE repository. It runs in the background (it can take minutes) and " +
+      "opens a pull request on a new branch; it never merges anything. Returns a task id at once — the result " +
+      "is not available in this conversation, the user follows it on the task card and in the dashboard. " +
+      "Only enabled repos are accepted (see list_repos); anything else is refused with an error. " +
+      "To change many repos, call this once per repo. When you cannot tell which repos are affected, send the " +
+      "same CONDITIONAL prompt to every enabled repo (\"if this repo uses X, do Y; otherwise change nothing\"): " +
+      "the others end as 'no changes'. At most " +
+      `${MAX_TASKS_PER_REQUEST} tasks per request.`,
+    inputSchema: z.object({
+      repo: z.string().describe('Exact "owner/name", as returned by list_repos.'),
+      prompt: z
+        .string()
+        .max(MAX_TASK_PROMPT_CHARS)
+        .describe(
+          "A complete, self-contained instruction for the agent: it sees only this text and the repository.",
+        ),
+    }),
+    execute: async (input) => delegateTask(input, budget),
+  });
+}
+
 /**
  * Keep only what the user actually typed.
  *
@@ -125,6 +170,11 @@ function textOnly(messages: UIMessage[]): UIMessage[] {
 }
 
 export { textOnly };
+
+function lastUserText(messages: UIMessage[]): string {
+  const last = messages.at(-1);
+  return (last?.parts ?? []).map((p) => (p.type === "text" ? p.text : "")).join(" ");
+}
 
 /**
  * Stream one chat turn as an AI SDK UI message stream.
@@ -188,17 +238,23 @@ export async function streamChat(
   const result = streamText({
     // Chat deliberately does NOT follow the dashboard's `opencode_model` setting —
     // it's a cheap high-volume workload on its own env-only knob.
-    model: mock ? createChatMockModel() : gateway(wireModelId(resolveChatModel())),
+    model: mock ? createChatMockModel({ delegate: wantsDelegation(lastUserText(messages)) }) : gateway(wireModelId(resolveChatModel())),
     system: CHAT_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
-    tools: { query_stats: queryStats, render_chart: renderChart },
-    // The model needs at least two steps for the normal shape of an answer:
-    // one to run the query, one to read the rows and reply. A few more allow it
-    // to correct a rejected or malformed query without giving up. Six still
-    // covers the longest normal run now that charts exist — query, chart, prose
-    // is three, and that leaves three retries for a rejected or mis-columned
-    // query. Worth revisiting only if a third tool lands.
-    stopWhen: stepCountIs(6),
+    tools: {
+      query_stats: queryStats,
+      render_chart: renderChart,
+      list_repos: listReposTool,
+      delegate_task: makeDelegateTask(),
+    },
+    // The model needs at least two steps for the normal shape of an answer: one
+    // to run the query, one to read the rows and reply, plus a few more to
+    // correct a rejected query. Delegation is the long case: list_repos, then
+    // one delegate_task per repo (up to MAX_TASKS_PER_REQUEST, enforced in the
+    // tool, one call per step in the worst case), then the reply — 20 + 1 + 1
+    // = 22, with headroom for a retry or a query. 30 is the ceiling: it stops a
+    // runaway loop, and the 20-call cap is what bounds the real damage.
+    stopWhen: stepCountIs(30),
     // The browser hanging up must stop the upstream run too, or a closed tab
     // leaves the model (and its tool calls) burning tokens to nobody.
     abortSignal: signal,

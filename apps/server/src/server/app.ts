@@ -8,6 +8,7 @@ import { auth, migrateAuth } from "~/server/auth";
 import { internalRoutes } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills, reloadOpencodeConfig } from "~/skills";
+import { pumpTasks } from "~/task/queue";
 import { reapOrphanReviews, reapStaleArms, runImproverSweep, reconcileReviewChecks } from "~/review";
 
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
@@ -217,6 +218,8 @@ export async function boot(): Promise<void> {
     log.error("orphan reap failed", { error: String(err) }),
   );
   reapStaleArms();
+  // Queued tasks survived the restart as 'pending' rows; start them now.
+  pumpTasks();
   // Heals whatever is currently stuck: wedged rows past the watchdog ceiling
   // and terminal rows whose check run never closed (a hung finishCheck only
   // shows GitHub-side). Runs hourly too — the boot reaper alone can't catch a

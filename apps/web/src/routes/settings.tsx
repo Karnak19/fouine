@@ -33,6 +33,7 @@ export default function SettingsPage() {
   const [implementModel, setImplementModel] = useState("");
   const [improverModel, setImproverModel] = useState("");
   const [chatModel, setChatModel] = useState("");
+  const [taskConcurrency, setTaskConcurrency] = useState("");
   const [prompt, setPrompt] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
   const [refineEnabled, setRefineEnabled] = useState(false);
@@ -53,6 +54,7 @@ export default function SettingsPage() {
     implementModel: "",
     improverModel: "",
     chatModel: "",
+    taskConcurrency: "",
     prompt: "",
     denyTestCommands: false,
     refineEnabled: false,
@@ -77,6 +79,7 @@ export default function SettingsPage() {
       const im = settings.implement_model ?? "";
       const ivm = settings.improver_model ?? "";
       const cm = settings.chat_model ?? "";
+      const tc = settings.task_concurrency ?? "";
       const p = settings.default_prompt ?? "";
       const d = settings.deny_test_commands === "1";
       const re = settings.refine_enabled === "1";
@@ -92,6 +95,7 @@ export default function SettingsPage() {
       setImplementModel(im);
       setImproverModel(ivm);
       setChatModel(cm);
+      setTaskConcurrency(tc);
       setPrompt(p);
       setDenyTestCommands(d);
       setRefineEnabled(re);
@@ -108,6 +112,7 @@ export default function SettingsPage() {
         implementModel: im,
         improverModel: ivm,
         chatModel: cm,
+        taskConcurrency: tc,
         prompt: p,
         denyTestCommands: d,
         refineEnabled: re,
@@ -131,6 +136,7 @@ export default function SettingsPage() {
     implementModel !== baseline.implementModel ||
     improverModel !== baseline.improverModel ||
     chatModel !== baseline.chatModel ||
+    taskConcurrency !== baseline.taskConcurrency ||
     prompt !== baseline.prompt ||
     denyTestCommands !== baseline.denyTestCommands ||
     refineEnabled !== baseline.refineEnabled ||
@@ -151,6 +157,7 @@ export default function SettingsPage() {
     setImplementModel(baseline.implementModel);
     setImproverModel(baseline.improverModel);
     setChatModel(baseline.chatModel);
+    setTaskConcurrency(baseline.taskConcurrency);
     setPrompt(baseline.prompt);
     setDenyTestCommands(baseline.denyTestCommands);
     setRefineEnabled(baseline.refineEnabled);
@@ -190,6 +197,7 @@ export default function SettingsPage() {
       data.implement_model = implementModel.trim();
       data.improver_model = improverModel.trim();
       data.chat_model = chatModel.trim();
+      data.task_concurrency = taskConcurrency.trim();
       if (prompt.trim()) data.default_prompt = prompt.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
@@ -215,6 +223,7 @@ export default function SettingsPage() {
         implementModel,
         improverModel,
         chatModel,
+        taskConcurrency,
         prompt,
         denyTestCommands,
         refineEnabled,
@@ -341,6 +350,25 @@ export default function SettingsPage() {
                 <p className="text-xs text-zinc-500">
                   Global only; empty = <code>OPENCODE_CHAT_MODEL</code>, then the repo default.
                   Independent of the review model. Needs an OpenAI-compatible model.
+                </p>
+              </AgentRow>
+              <AgentRow
+                id="task_concurrency"
+                name="Chat tasks"
+                description="Changes the chat hands to an agent, one PR per repo"
+              >
+                <Input
+                  id="task_concurrency"
+                  type="number"
+                  min={1}
+                  max={20}
+                  placeholder="3"
+                  value={taskConcurrency}
+                  onChange={(e) => setTaskConcurrency(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">
+                  How many tasks run at once; the rest wait in a queue that survives a restart.
+                  Empty = 3, maximum 20. Tasks use the implementer model.
                 </p>
               </AgentRow>
             </div>

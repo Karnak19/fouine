@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 import { formatCost, formatSeconds, formatTokens, timeAgo } from "@/lib/format";
 import { Bot } from "lucide-react";
 
-// The page's four agents, in display order. Raw `trigger` values roll up into
-// them: refine/implement/improve are their own agents, and everything else is
+// The page's five agents, in display order. Raw `trigger` values roll up into
+// them: refine/implement/improve/task are their own agents, and everything else is
 // review work (opened, push, reopened, /fouine, retry, ready_for_review).
-type AgentKey = "refiner" | "implementer" | "improver" | "reviewer";
+type AgentKey = "refiner" | "implementer" | "improver" | "reviewer" | "tasks";
 
 const AGENT_META: Record<AgentKey, { name: string; description: string }> = {
   refiner: {
@@ -27,6 +27,10 @@ const AGENT_META: Record<AgentKey, { name: string; description: string }> = {
     name: "Improver",
     description: "Revisits repos on its own schedule and follows up on past reviews.",
   },
+  tasks: {
+    name: "Tasks",
+    description: "Carries out change requests handed over from the dashboard chat and opens a pull request.",
+  },
   reviewer: {
     name: "Reviewer",
     description: "Reviews pull requests when they open, change, or get a /fouine comment.",
@@ -37,6 +41,7 @@ function agentOf(trigger: string | null): AgentKey {
   if (trigger === "refine") return "refiner";
   if (trigger === "implement") return "implementer";
   if (trigger === "improve") return "improver";
+  if (trigger === "task") return "tasks";
   return "reviewer";
 }
 
@@ -108,6 +113,7 @@ export default function AgentsPage() {
       implementer: fresh(),
       improver: fresh(),
       reviewer: fresh(),
+      tasks: fresh(),
     };
     function fresh() {
       return {
@@ -327,7 +333,7 @@ function RunRow({ r }: { r: ReviewRow }) {
 function AgentSkeleton() {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 divide-y divide-zinc-800/70 overflow-hidden">
-      {Array.from({ length: 4 }).map((_, i) => (
+      {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="px-4 py-3.5 space-y-2">
           <div className="h-4 w-24 rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />
           <div className="h-3 w-64 max-w-full rounded bg-zinc-800/70 animate-pulse motion-reduce:animate-none" />

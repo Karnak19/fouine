@@ -259,6 +259,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
     ): Effect.Effect<
       {
         headSha: string;
+        headRef: string;
         baseRef: string;
         draft: boolean;
         mergeable: boolean | null;
@@ -274,6 +275,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr });
           return {
             headSha: data.head.sha,
+            headRef: data.head.ref,
             baseRef: data.base.ref,
             draft: !!data.draft,
             mergeable: data.mergeable ?? null,

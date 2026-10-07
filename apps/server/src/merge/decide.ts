@@ -35,6 +35,11 @@ export interface MergeState {
   // approving and merging it alone would mean a bot reviewed and shipped its
   // own code with no human in the loop — a human APPROVED is required too.
   authorIsBot: boolean;
+  // Is this a PR fouine opened for a chat-delegated task (head branch
+  // `fouine/task-<id>`)? Such a PR always needs a human approval, even if the
+  // author check above were somehow bypassed — a task is started from a chat
+  // that reads untrusted text, so nothing it opens may merge unattended.
+  isTaskPr: boolean;
 }
 
 // True when `login` is a bot account: GitHub bot logins end in "[bot]", and
@@ -117,10 +122,14 @@ export function shouldMerge(state: MergeState): MergeDecision {
   // fouine's approval alone — that's a bot reviewing and shipping its own
   // code with nobody watching. Require at least one human whose standing
   // verdict is APPROVED.
-  if (state.authorIsBot) {
+  if (state.authorIsBot || state.isTaskPr) {
     const humanApproved = [...humanByUser.values()].some((reviews) => latestVerdict(reviews)?.state === "APPROVED");
     if (!humanApproved) {
-      return blocked("PR was authored by a bot — a human approval is required");
+      return blocked(
+        state.isTaskPr
+          ? "PR was opened for a chat task — a human approval is required"
+          : "PR was authored by a bot — a human approval is required",
+      );
     }
   }
 

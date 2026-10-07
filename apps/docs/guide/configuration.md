@@ -55,6 +55,7 @@ The dashboard (accessible at your server URL) allows setting:
 - **Command Code API key** — overrides `COMMANDCODE_API_KEY`
 - **Default model** — overrides `OPENCODE_MODEL` (reviews only)
 - **Chat model** — overrides `OPENCODE_CHAT_MODEL` for Chat and `/build`; empty falls back to the env var, then the repo default
+- **Chat tasks** — how many chat-delegated tasks run at once, default 3, maximum 20. See [Chat tasks](/guide/chat-tasks).
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 - **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).
 - **Merge method** — `merge` / `squash` / `rebase`, default `squash`. See the [merger guide](/guide/merger).

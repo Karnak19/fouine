@@ -62,6 +62,14 @@ export interface ReviewRow {
   model: string | null;
   check_run_id: number | null;
   patch_id: string | null;
+  // Chat-delegated tasks (trigger 'task', pr_number 0) only; null otherwise.
+  // task_prompt is what the chat handed over. outcome is how a COMPLETED task
+  // ended: 'pr_opened' | 'no_changes' | 'needs_input'. result_url is the PR url
+  // for 'pr_opened'; result_text is the agent's summary or its question.
+  task_prompt: string | null;
+  outcome: string | null;
+  result_url: string | null;
+  result_text: string | null;
   created_at: number;
   completed_at: number | null;
 }
