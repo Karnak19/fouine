@@ -11,7 +11,9 @@ import { runStatsQuery, MAX_ROWS } from "~/chat/query";
  * function and then shapes what comes back.
  */
 
-export type ChartType = "line" | "bar" | "stacked_bar";
+import type { ChartResult, ChartRow, ChartType } from "@fouine/shared";
+
+export type { ChartResult, ChartRow, ChartType };
 
 export interface ChartInput {
   sql: string;
@@ -21,19 +23,6 @@ export interface ChartInput {
   y: string;
   series?: string;
 }
-
-export type ChartRow = Record<string, string | number | null>;
-
-export type ChartResult =
-  | {
-      ok: true;
-      spec: { type: ChartType; title: string; x: string; y: string; series?: string };
-      rows: ChartRow[];
-      rowCount: number;
-      ms: number;
-      note?: string;
-    }
-  | { ok: false; error: string };
 
 /**
  * How many CATEGORIES (distinct x values) a chart may plot.

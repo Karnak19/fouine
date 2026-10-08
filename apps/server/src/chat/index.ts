@@ -1,9 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { streamText, tool, stepCountIs, convertToModelMessages, type UIMessage } from "ai";
-import { z } from "zod";
+import { streamText, stepCountIs, convertToModelMessages, type UIMessage } from "ai";
 import { resolveApiKey, resolveChatModel } from "~/settings";
-import { runStatsQuery } from "~/chat/query";
-import { buildChart } from "~/chat/chart";
+import { codemodeTool } from "~/chat/codemode";
 import { CHAT_SYSTEM_PROMPT } from "~/chat/prompt";
 import { chatMockEnabled, createChatMockModel } from "~/chat/mock-model";
 
@@ -38,63 +36,6 @@ export function wireModelId(spec: string): string {
   const slash = spec.indexOf("/");
   return slash === -1 ? spec : spec.slice(slash + 1);
 }
-
-/** The tools the chat agent gets. Read-only, guarded, no GitHub access. */
-const queryStats = tool({
-  description:
-    "Run one read-only SQL SELECT against fouine's review database and get the rows back as JSON. " +
-    "This is the ONLY way to answer questions about reviews, findings, cost, latency or repositories — " +
-    "never answer from memory or guess at numbers. Prefer aggregating in SQL (COUNT, SUM, AVG, GROUP BY). " +
-    "If a query is rejected or errors, read the message and try a corrected query.",
-  inputSchema: z.object({
-    sql: z
-      .string()
-      .describe("A single SQLite SELECT (or WITH ... SELECT) statement, no trailing semicolon needed."),
-  }),
-  execute: async ({ sql }, { abortSignal }) => {
-    // Guarding and execution both stay in src/chat/query.ts. The caller changed
-    // from an opencode subprocess to an in-process tool; the guard did not, and
-    // must not be reimplemented or relaxed here.
-    const out = await runStatsQuery(sql, abortSignal);
-    return out.ok ? `${out.rowCount} row(s) in ${out.ms}ms\n${out.text}` : out.text;
-  },
-});
-
-/**
- * Draw a chart. Runs its OWN SQL rather than reusing the last `query_stats`
- * result: a tool cannot see another tool's output, and threading rows through
- * the model would mean the model retyping them — the one way numbers get
- * invented. The cost is a second query; the gain is that what is drawn came
- * straight out of the database.
- *
- * Unlike `query_stats` this returns a structured object, not a string. The
- * frontend tool card needs the rows and the spec to draw; the model gets the
- * same object and quotes its numbers from there.
- */
-const renderChart = tool({
-  description:
-    "Run one read-only SQL SELECT and render the result as a chart in the answer. " +
-    "Use this when the SHAPE of the data is the answer — a trend over time, a ranking, a composition — " +
-    "not when the answer is a single number. `line` for change over time, `bar` for magnitude or ranking, " +
-    "`stacked_bar` for composition (needs `series`). The SQL must return one column for the x axis, " +
-    "one numeric column for the measure, and optionally one to split into series. " +
-    "Quote your numbers from THIS tool's rows, not from a separate query_stats call, so the prose and the chart agree. " +
-    "If it returns an error, read it — it lists the columns your query actually returned — and retry once.",
-  inputSchema: z.object({
-    sql: z
-      .string()
-      .describe("A single SQLite SELECT (or WITH ... SELECT) statement, no trailing semicolon needed."),
-    type: z.enum(["line", "bar", "stacked_bar"]).describe("The chart form."),
-    title: z.string().describe("A short title stating what the chart shows."),
-    x: z.string().describe("Name of the result column for the category or time axis."),
-    y: z.string().describe("Name of the result column holding the numeric measure."),
-    series: z
-      .string()
-      .optional()
-      .describe("Name of the result column that splits the data into series. Required for stacked_bar."),
-  }),
-  execute: async (input, { abortSignal }) => buildChart(input, abortSignal),
-});
 
 /**
  * Keep only what the user actually typed.
@@ -191,14 +132,12 @@ export async function streamChat(
     model: mock ? createChatMockModel() : gateway(wireModelId(resolveChatModel())),
     system: CHAT_SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
-    tools: { query_stats: queryStats, render_chart: renderChart },
-    // The model needs at least two steps for the normal shape of an answer:
-    // one to run the query, one to read the rows and reply. A few more allow it
-    // to correct a rejected or malformed query without giving up. Six still
-    // covers the longest normal run now that charts exist — query, chart, prose
-    // is three, and that leaves three retries for a rejected or mis-columned
-    // query. Worth revisiting only if a third tool lands.
-    stopWhen: stepCountIs(6),
+    tools: { codemode: codemodeTool },
+    // One tool now, and a whole program per call: the normal answer is one
+    // codemode step (query + chart + aggregation together) and one to write the
+    // prose. The rest is room to fix a program that errored or a query that was
+    // rejected. Four covers that; a model that needs more is looping.
+    stopWhen: stepCountIs(4),
     // The browser hanging up must stop the upstream run too, or a closed tab
     // leaves the model (and its tool calls) burning tokens to nobody.
     abortSignal: signal,

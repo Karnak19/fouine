@@ -19,8 +19,8 @@ type StreamPart =
  * scroll-to-bottom button, the sticky composer once the thread is non-empty,
  * reasoning blocks, the tool card — impossible to look at, let alone verify.
  *
- * So: same `streamText` call, same system prompt, same `query_stats` and
- * `render_chart` tools, same multi-step loop — only the model is swapped. The
+ * So: same `streamText` call, same system prompt, same `codemode` tool, same
+ * multi-step loop — only the model is swapped. The
  * tool calls it emits are real and run against the real SQLite database, so
  * what you see on screen is the actual pipeline with a scripted brain rather
  * than a mocked-out pipeline.
@@ -48,7 +48,10 @@ const FIRST_REASONING =
   "from memory — it has to come out of SQL. The reviews table has one row per " +
   "run with a status column, so a single aggregate over it gives the total, the " +
   "number of distinct repositories and the completed/failed split in one pass. " +
-  "No GROUP BY: I want one row back, not one per status.";
+  "No GROUP BY: I want one row back, not one per status. The split is a shape " +
+  "rather than a single number, so I draw it as a chart in the same program — " +
+  "and the numbers I quote afterwards come from the chart's own rows, so the " +
+  "prose and the picture cannot disagree.";
 
 // The chart the mock draws, and the one constraint that shaped it: a local dev
 // database is usually EMPTY, and a `GROUP BY status` over an empty table
@@ -61,12 +64,6 @@ const MOCK_CHART_SQL =
   "SELECT 'completed' AS status, COUNT(CASE WHEN status = 'completed' THEN 1 END) AS reviews FROM reviews " +
   "UNION ALL SELECT 'failed', COUNT(CASE WHEN status = 'failed' THEN 1 END) FROM reviews " +
   "UNION ALL SELECT 'running', COUNT(CASE WHEN status = 'running' THEN 1 END) FROM reviews";
-
-const CHART_REASONING =
-  "The totals are back, but a completed/failed split is a shape rather than a " +
-  "single number, so it reads better as a chart than as a sentence. A bar per " +
-  "status, counted in the same pass — and the numbers I quote afterwards come " +
-  "from the chart's own rows, so the prose and the picture cannot disagree.";
 
 const SECOND_REASONING =
   "The rows are back. Now I read them off rather than restating what I expected " +
@@ -153,9 +150,26 @@ const USAGE = {
   outputTokens: { total: 600, text: 500, reasoning: 100 },
 };
 
-/** Step one: think, then call the real tool. */
+/**
+ * The program the mock "writes": a real query and a real chart in one go,
+ * batched with Promise.all like the prompt tells the real model to.
+ */
+const MOCK_PROGRAM = `const [totals, chart] = await Promise.all([
+  tools.stats.query({ sql: ${JSON.stringify(MOCK_SQL)} }),
+  tools.stats.render_chart({
+    sql: ${JSON.stringify(MOCK_CHART_SQL)},
+    type: "bar",
+    title: "Reviews by status",
+    x: "status",
+    y: "reviews",
+  }),
+])
+console.log("totals rows:", totals.rowCount)
+return { totals: totals.rows[0], byStatus: chart.rows }`;
+
+/** Step one: think, then run the program. */
 function toolCallStep(): StreamPart[] {
-  const input = JSON.stringify({ sql: MOCK_SQL });
+  const input = JSON.stringify({ code: MOCK_PROGRAM });
   return [
     { type: "stream-start", warnings: [] },
     { type: "response-metadata", id: "mock-1", modelId: "chat-mock", timestamp: new Date() },
@@ -164,44 +178,17 @@ function toolCallStep(): StreamPart[] {
       (delta): StreamPart => ({ type: "reasoning-delta", id: "r1", delta }),
     ),
     { type: "reasoning-end", id: "r1" },
-    { type: "tool-input-start", id: "call-1", toolName: "query_stats" },
+    { type: "tool-input-start", id: "call-1", toolName: "codemode" },
     ...deltas(input, 32).map(
       (delta): StreamPart => ({ type: "tool-input-delta", id: "call-1", delta }),
     ),
     { type: "tool-input-end", id: "call-1" },
-    { type: "tool-call", toolCallId: "call-1", toolName: "query_stats", input },
+    { type: "tool-call", toolCallId: "call-1", toolName: "codemode", input },
     { type: "finish", finishReason: { unified: "tool-calls" as const, raw: "tool_calls" }, usage: USAGE },
   ];
 }
 
-/** Step two: think, then draw the chart from its own query. */
-function chartStep(): StreamPart[] {
-  const input = JSON.stringify({
-    sql: MOCK_CHART_SQL,
-    type: "bar",
-    title: "Reviews by status",
-    x: "status",
-    y: "reviews",
-  });
-  return [
-    { type: "stream-start", warnings: [] },
-    { type: "response-metadata", id: "mock-2", modelId: "chat-mock", timestamp: new Date() },
-    { type: "reasoning-start", id: "rc" },
-    ...deltas(CHART_REASONING, 24).map(
-      (delta): StreamPart => ({ type: "reasoning-delta", id: "rc", delta }),
-    ),
-    { type: "reasoning-end", id: "rc" },
-    { type: "tool-input-start", id: "call-2", toolName: "render_chart" },
-    ...deltas(input, 32).map(
-      (delta): StreamPart => ({ type: "tool-input-delta", id: "call-2", delta }),
-    ),
-    { type: "tool-input-end", id: "call-2" },
-    { type: "tool-call", toolCallId: "call-2", toolName: "render_chart", input },
-    { type: "finish", finishReason: { unified: "tool-calls" as const, raw: "tool_calls" }, usage: USAGE },
-  ];
-}
-
-/** Step three: think again, then the long answer. Ends the run. */
+/** Step two: think again, then the long answer. Ends the run. */
 function answerStep(): StreamPart[] {
   return [
     { type: "stream-start", warnings: [] },
@@ -223,9 +210,9 @@ function answerStep(): StreamPart[] {
 /**
  * Build the mock model for ONE request.
  *
- * `stopWhen: stepCountIs(6)` means the model is called again after each tool
- * result comes back, so the script is per-call: query, then chart, then the
- * answer — and every later call answers and finishes. Without that the run
+ * `stopWhen: stepCountIs(4)` means the model is called again after each tool
+ * result comes back, so the script is per-call: the program, then the answer —
+ * and every later call answers and finishes. Without that the run
  * would ask for the same query over and over until the step budget ran out.
  */
 export function createChatMockModel(): MockLanguageModelV4 {
@@ -235,7 +222,7 @@ export function createChatMockModel(): MockLanguageModelV4 {
     modelId: "chat-mock",
     doStream: async () => {
       const n = call++;
-      const step = n === 0 ? toolCallStep() : n === 1 ? chartStep() : answerStep();
+      const step = n === 0 ? toolCallStep() : answerStep();
       return {
         stream: simulateReadableStream({
           chunks: step,

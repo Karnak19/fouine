@@ -159,25 +159,49 @@ export interface QueryOutcome {
 // byte caps bound the OUTPUT; only a deadline bounds the WORK.
 export const QUERY_TIMEOUT_MS = 5_000;
 
-export async function runStatsQuery(raw: string, signal?: AbortSignal): Promise<QueryOutcome> {
+export type RowsOutcome =
+  | {
+      ok: true;
+      rows: Record<string, unknown>[];
+      /** The result blew the byte cap and was cut. */
+      truncated: boolean;
+      ms: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * The guarded, readonly, deadline-bound query path, returning rows as DATA.
+ * `runStatsQuery` below is the same path rendered as text; the codemode tool
+ * wants the objects themselves.
+ */
+export async function runStatsRows(raw: string, signal?: AbortSignal): Promise<RowsOutcome> {
   const guard = guardQuery(raw);
-  if (!guard.ok) return { ok: false, text: `Query rejected: ${guard.reason}` };
+  if (!guard.ok) return { ok: false, error: `Query rejected: ${guard.reason}` };
 
   const started = Date.now();
   let result: { ok: boolean; rows?: unknown[]; truncated?: boolean; error?: string };
   try {
     result = await runInWorker(guard.sql, signal);
   } catch (err) {
-    return { ok: false, text: String((err as Error)?.message ?? err) };
+    return { ok: false, error: String((err as Error)?.message ?? err) };
   }
   if (!result.ok) {
     // A malformed query is normal — the model should see the error and retry,
     // not have the request fail.
-    return { ok: false, text: `SQL error: ${result.error}` };
+    return { ok: false, error: `SQL error: ${result.error}` };
   }
-  const rows = result.rows ?? [];
-  const truncated = result.truncated ?? false;
-  const ms = Date.now() - started;
+  return {
+    ok: true,
+    rows: (result.rows ?? []) as Record<string, unknown>[],
+    truncated: result.truncated ?? false,
+    ms: Date.now() - started,
+  };
+}
+
+export async function runStatsQuery(raw: string, signal?: AbortSignal): Promise<QueryOutcome> {
+  const out = await runStatsRows(raw, signal);
+  if (!out.ok) return { ok: false, text: out.error };
+  const { rows, truncated, ms } = out;
 
   let text = JSON.stringify(rows);
   if (truncated) text += `\n(truncated: result exceeded ${MAX_JSON_BYTES} bytes — aggregate in SQL)`;
