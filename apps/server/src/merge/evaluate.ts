@@ -9,6 +9,7 @@ import { resolveAutoMerge, resolveMergeMethod } from "~/settings";
 import { GitHubService } from "~/effect/github";
 import { isBotLogin, shouldMerge, type MergeReview, type MergeState } from "~/merge/decide";
 import { assessMergeRisk, type AssessMergeRiskInput, type MergeRiskAssessment } from "~/merge/assess";
+import { TASK_BRANCH_PREFIX } from "~/review/task-prompt";
 import { renderRecap } from "~/merge/recap";
 import { log } from "~/server/log";
 
@@ -145,6 +146,7 @@ export function evaluatePipeline(
       statuses: checkData.statuses,
       requiredChecks,
       authorIsBot: isBotLogin(pull.author, botLogin),
+      isTaskPr: (pull.headRef ?? "").startsWith(TASK_BRANCH_PREFIX),
     };
 
     const decision = shouldMerge(state);

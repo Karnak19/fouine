@@ -183,6 +183,22 @@ function ReviewTableRow({ r }: { r: ReviewRow }) {
       <TableCell>
         {r.trigger === "improve" ? (
           <span className="text-sm text-zinc-400">improver</span>
+        ) : r.trigger === "task" ? (
+          <div className="flex items-center gap-1.5 relative z-10">
+            <span className="text-sm text-zinc-400">task</span>
+            {r.result_url && (
+              <a
+                href={r.result_url}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open the task's pull request on GitHub"
+                className="text-zinc-500 hover:text-zinc-300"
+              >
+                PR
+                <ExternalLink size={12} className="inline ml-1" />
+              </a>
+            )}
+          </div>
         ) : r.trigger === "refine" ? (
           <div className="flex items-center gap-1.5 relative z-10">
             <span className="text-sm text-zinc-400">refiner</span>

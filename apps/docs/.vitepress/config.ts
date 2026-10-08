@@ -42,7 +42,10 @@ export default defineConfig({
         },
         {
           text: "Features",
-          items: [{ text: "Merger", link: "/guide/merger" }],
+          items: [
+            { text: "Merger", link: "/guide/merger" },
+            { text: "Chat tasks", link: "/guide/chat-tasks" },
+          ],
         },
       ],
       "/architecture/": [

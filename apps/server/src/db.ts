@@ -160,8 +160,20 @@ for (const def of [
   "check_run_id INTEGER",
   "patch_id TEXT",
   "attempt INTEGER NOT NULL DEFAULT 0",
+  "task_prompt TEXT",
+  "outcome TEXT",
+  "result_url TEXT",
+  "result_text TEXT",
 ])
   addColumn("reviews", def);
+// Chat-delegated tasks (trigger = 'task', pr_number = 0) ride the reviews table.
+// task_prompt is what the chat handed over. outcome is how a task that ran to
+// the end ended — 'pr_opened' | 'no_changes' | 'needs_input' — and the row's
+// status is 'completed' for all three (the agent did its job; reviews.status
+// stays within its existing five values so no filter or UI breaks). result_url
+// is the PR url for 'pr_opened'; result_text is the agent's summary or, for
+// 'needs_input', its question. A queued task is a plain 'pending' row: pending
+// task rows are the queue, so it survives a restart (see task/queue.ts).
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
 // disabled (repos.upsert forces enabled=0 on first sight), and reviews only run
 // once it's enabled in the dashboard. Existing rows keep whatever they were set
@@ -370,6 +382,37 @@ export const reviews = {
     `UPDATE reviews SET status = 'failed', completed_at = unixepoch(), error = $error
      WHERE id = $id`,
   ),
+  // The chat's delegate_task: a queued task is a 'pending' row. pr_number is 0
+  // (no PR or issue exists yet; the PR url lands in result_url on success).
+  insertTask: db.prepare<
+    ReviewRow,
+    { $repo: string; $title: string; $prompt: string }
+  >(
+    `INSERT INTO reviews (repo_full_name, pr_number, title, status, trigger, task_prompt)
+     VALUES ($repo, 0, $title, 'pending', 'task', $prompt)
+     RETURNING *`,
+  ),
+  // The queue: tasks waiting for a slot, oldest first.
+  pendingTasks: db.prepare<ReviewRow, []>(
+    "SELECT * FROM reviews WHERE trigger = 'task' AND status = 'pending' ORDER BY id",
+  ),
+  // Terminal write for a task that ran to the end (any of the three outcomes).
+  completeTask: db.prepare<
+    null,
+    {
+      $id: number;
+      $cost: number;
+      $tokens: number;
+      $model: string | null;
+      $outcome: string;
+      $url: string | null;
+      $text: string | null;
+    }
+  >(
+    `UPDATE reviews SET status = 'completed', completed_at = unixepoch(),
+       cost = $cost, tokens = $tokens, model = $model,
+       outcome = $outcome, result_url = $url, result_text = $text WHERE id = $id`,
+  ),
   setSession: db.prepare<null, { $session: string | null; $id: number }>(
     "UPDATE reviews SET session_id = $session WHERE id = $id",
   ),
@@ -427,9 +470,12 @@ export const reviews = {
   ),
   // In-flight rows older than a cutoff — no legitimate fiber can still own them
   // once the cutoff passes the watchdog's absolute ceiling, so the periodic
-  // reconciler may fail them and close their checks outright.
+  // reconciler may fail them and close their checks outright. A queued task
+  // (pending, trigger 'task') is excluded: it may legitimately wait longer than
+  // the ceiling for a slot.
   unfinishedBefore: db.prepare<ReviewRow, { $cutoff: number }>(
-    "SELECT * FROM reviews WHERE status IN ('pending', 'running') AND created_at < $cutoff ORDER BY id",
+    `SELECT * FROM reviews WHERE status IN ('pending', 'running') AND created_at < $cutoff
+       AND NOT (trigger = 'task' AND status = 'pending') ORDER BY id`,
   ),
   // Terminal rows that opened a check run, recent first. The reconciler verifies
   // each one's GitHub-side state and closes the ones still open — the backstop
@@ -592,7 +638,7 @@ export const reviews = {
      FROM reviews
      WHERE repo_full_name = $repo AND status = 'completed'
        AND pr_number > 0 AND created_at > $since
-       AND (trigger IS NULL OR trigger NOT IN ('improve', 'refine', 'implement'))
+       AND (trigger IS NULL OR trigger NOT IN ('improve', 'refine', 'implement', 'task'))
      GROUP BY pr_number
      ORDER BY last DESC
      LIMIT 20`,

@@ -23,6 +23,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   reopened: "reopened",
   command: "/fouine",
   retry: "retry",
+  task: "task",
 };
 
 export function triggerLabel(trigger: string | null): string | null {

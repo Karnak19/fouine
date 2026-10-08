@@ -5,6 +5,7 @@ import { AppLayer, reviewPipeline } from "~/effect";
 import { improvePipeline, type ImproveTarget } from "~/effect/improve";
 import { refinePipeline, type RefineTarget } from "~/effect/refine";
 import { implementPipeline, type ImplementTarget } from "~/effect/implement";
+import { taskPipeline } from "~/effect/task";
 import { log } from "~/server/log";
 
 // ponytail: tracks live reviews so the dashboard Stop button can abort the
@@ -235,5 +236,23 @@ export function runImplement(target: ImplementTarget): Promise<void> {
 
   return Effect.runPromise(program).finally(() => {
     if (id !== undefined) activeReviews.delete(id);
+  });
+}
+
+// Bridge for a chat-delegated task. The row already exists (the chat tool
+// inserted it as the queue entry); task/queue.ts calls this when a slot frees.
+// The supersession key carries the row id, so two tasks on one repo never share
+// a key and never abort each other — and there is deliberately no
+// supersedeInFlight call. The dashboard Stop button works through the same map.
+export function runTask(id: number): Promise<void> {
+  const ctrl = new AbortController();
+  let registered = false;
+  const program = taskPipeline(id, ctrl.signal, (repoFullName) => {
+    registered = true;
+    activeReviews.set(id, { ctrl, key: `${repoFullName}#task#${id}` });
+  }).pipe(Effect.provide(AppLayer));
+
+  return Effect.runPromise(program).finally(() => {
+    if (registered) activeReviews.delete(id);
   });
 }

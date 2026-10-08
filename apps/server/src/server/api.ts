@@ -20,6 +20,7 @@ import {
 import { writeOpencodeConfig } from "~/skills";
 import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
+import { pumpTasks } from "~/task/queue";
 import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
 import { withOpencode, runReview, parseModel, describeOpencodeError } from "~/review/opencode";
 import { openCodeManager } from "~/effect/opencode";
@@ -264,6 +265,7 @@ const reviewsQuery = t.Composite([
         t.Literal("refine"),
         t.Literal("implement"),
         t.Literal("improve"),
+        t.Literal("task"),
       ]),
     ),
     limit: t.Optional(t.Numeric({ minimum: 1, maximum: 1000 })),
@@ -820,6 +822,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
+      setKey(SETTINGS.TASK_CONCURRENCY, body.task_concurrency);
+      // Raising the cap frees queued tasks right away.
+      if (body.task_concurrency !== undefined) pumpTasks();
       if (body.default_prompt) {
         settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
       }
@@ -836,6 +841,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         refine_model: t.Optional(t.String()),
         implement_model: t.Optional(t.String()),
         chat_model: t.Optional(t.String()),
+        task_concurrency: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),

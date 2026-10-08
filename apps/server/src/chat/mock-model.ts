@@ -1,3 +1,4 @@
+import { listRepos } from "~/task/delegate";
 import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 
 // The stream-part union (`text-delta`, `tool-call`, `finish`, …) as the
@@ -220,22 +221,87 @@ function answerStep(): StreamPart[] {
   ];
 }
 
+// The delegation script: list_repos, then one delegate_task, then a short
+// answer. Taken when the user's last message asks for it (see wantsDelegation)
+// so the stats script above stays the default.
+const DELEGATE_REASONING =
+  "This is a request to change code, not a question about numbers, so the SQL " +
+  "tools are the wrong ones. First I need to know which repositories I may hand " +
+  "work to, then I send the task to one that is enabled.";
+
+export function wantsDelegation(userText: string): boolean {
+  return /\b(delegate|upgrade|list_repos|which repos)\b/i.test(userText);
+}
+
+function toolStep(id: string, toolName: string, input: string, reasoning?: string): StreamPart[] {
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "response-metadata", id: `mock-${id}`, modelId: "chat-mock", timestamp: new Date() },
+    ...(reasoning
+      ? [
+          { type: "reasoning-start", id: `r-${id}` } as StreamPart,
+          ...deltas(reasoning, 24).map(
+            (delta): StreamPart => ({ type: "reasoning-delta", id: `r-${id}`, delta }),
+          ),
+          { type: "reasoning-end", id: `r-${id}` } as StreamPart,
+        ]
+      : []),
+    { type: "tool-input-start", id, toolName },
+    ...deltas(input, 32).map((delta): StreamPart => ({ type: "tool-input-delta", id, delta })),
+    { type: "tool-input-end", id },
+    { type: "tool-call", toolCallId: id, toolName, input },
+    { type: "finish", finishReason: { unified: "tool-calls" as const, raw: "tool_calls" }, usage: USAGE },
+  ];
+}
+
+function textStep(text: string): StreamPart[] {
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "response-metadata", id: "mock-text", modelId: "chat-mock", timestamp: new Date() },
+    { type: "text-start", id: "t-d" },
+    ...deltas(text, 18).map((delta): StreamPart => ({ type: "text-delta", id: "t-d", delta })),
+    { type: "text-end", id: "t-d" },
+    { type: "finish", finishReason: { unified: "stop" as const, raw: "stop" }, usage: USAGE },
+  ];
+}
+
 /**
  * Build the mock model for ONE request.
  *
- * `stopWhen: stepCountIs(6)` means the model is called again after each tool
- * result comes back, so the script is per-call: query, then chart, then the
- * answer — and every later call answers and finishes. Without that the run
- * would ask for the same query over and over until the step budget ran out.
+ * The model is called again after each tool result comes back, so the script is
+ * per-call: query, then chart, then the answer — and every later call answers
+ * and finishes. Without that the run would ask for the same query over and over
+ * until the step budget ran out. With `delegate` set the script is instead
+ * list_repos, delegate_task, answer; the tool calls are real, so a task row
+ * really is queued (on a mock-only dev database there may be no enabled repo, in
+ * which case the call is refused and the card shows the refusal).
  */
-export function createChatMockModel(): MockLanguageModelV4 {
+export function createChatMockModel(opts: { delegate?: boolean } = {}): MockLanguageModelV4 {
   let call = 0;
   return new MockLanguageModelV4({
     provider: "chat-mock",
     modelId: "chat-mock",
     doStream: async () => {
       const n = call++;
-      const step = n === 0 ? toolCallStep() : n === 1 ? chartStep() : answerStep();
+      let step: StreamPart[];
+      if (opts.delegate) {
+        const target = listRepos().find((r) => r.enabled)?.full_name ?? "mock/no-enabled-repo";
+        step =
+          n === 0
+            ? toolStep("call-d1", "list_repos", "{}", DELEGATE_REASONING)
+            : n === 1
+              ? toolStep(
+                  "call-d2",
+                  "delegate_task",
+                  JSON.stringify({
+                    repo: target,
+                    prompt: "Mock task: add a one-line note to the README saying this repo is reviewed by fouine.",
+                  }),
+                )
+              : textStep("I listed the repositories and handed the task off. Follow it on the card above.");
+      } else {
+        step = n === 0 ? toolCallStep() : n === 1 ? chartStep() : answerStep();
+      }
       return {
         stream: simulateReadableStream({
           chunks: step,

@@ -25,6 +25,7 @@ export const SETTINGS = {
   IMPLEMENT_LABEL: "implement_label",
   DEFAULT_IMPLEMENT_PROMPT: "default_implement_prompt",
   AUTO_READY: "auto_ready",
+  TASK_CONCURRENCY: "task_concurrency",
 } as const;
 
 // The label that, applied to an issue, triggers the implementer when
@@ -217,4 +218,17 @@ export function resolveImplementModel(
     settingValue(SETTINGS.IMPLEMENT_MODEL) ||
     resolveDefaultModel()
   );
+}
+
+// How many chat-delegated tasks may run at once; the rest wait in the queue
+// (see task/queue.ts). A dashboard setting only — no env var, no per-repo
+// override. Anything unparsable or out of range falls back to the default
+// rather than 0, which would park every task forever.
+export const DEFAULT_TASK_CONCURRENCY = 3;
+export const MAX_TASK_CONCURRENCY = 20;
+
+export function resolveTaskConcurrency(): number {
+  const n = Number(settingValue(SETTINGS.TASK_CONCURRENCY));
+  if (!Number.isInteger(n) || n < 1) return DEFAULT_TASK_CONCURRENCY;
+  return Math.min(n, MAX_TASK_CONCURRENCY);
 }

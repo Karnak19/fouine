@@ -34,6 +34,7 @@ function fakeLayer(opts: {
   reviewSha: string;
   // PR author login and extra (non-fouine) reviews, for the bot-authored guard.
   author?: string;
+  headRef?: string;
   extraReviews?: { user: string; state: string }[];
 }) {
   let merged = false;
@@ -43,6 +44,7 @@ function fakeLayer(opts: {
     getPull: () =>
       Effect.succeed({
         headSha: opts.headSha,
+        headRef: opts.headRef ?? "feature",
         baseRef: "main",
         draft: false,
         mergeable: true,
@@ -192,4 +194,36 @@ test("assess throwing holds for a human rather than merging", async () => {
   expect(wasMerged()).toBe(false);
   expect(comments).toHaveLength(1);
   expect(comments[0]).toContain("Ready to merge, but holding for you");
+});
+
+// A task PR (head branch fouine/task-<id>) must never merge on fouine's approval
+// alone — even when the PR does not look bot-authored to the merger, so this is
+// the branch rule at work and not the author rule.
+test("a task PR on an auto_merge repo is held without a human approval", async () => {
+  const full = "acme/task-no-human";
+  armedRepo(full, 5, "sha-t");
+  const { gh, wasMerged } = fakeLayer({
+    headSha: "sha-t",
+    reviewSha: "sha-t",
+    headRef: "fouine/task-42",
+  });
+
+  await Effect.runPromise(evaluatePipeline(full, 5, fakeAssess()).pipe(Effect.provide(gh)));
+
+  expect(wasMerged()).toBe(false);
+});
+
+test("a task PR merges once a human approves it", async () => {
+  const full = "acme/task-human";
+  armedRepo(full, 6, "sha-u");
+  const { gh, wasMerged } = fakeLayer({
+    headSha: "sha-u",
+    reviewSha: "sha-u",
+    headRef: "fouine/task-43",
+    extraReviews: [{ user: "alice", state: "APPROVED" }],
+  });
+
+  await Effect.runPromise(evaluatePipeline(full, 6, fakeAssess()).pipe(Effect.provide(gh)));
+
+  expect(wasMerged()).toBe(true);
 });

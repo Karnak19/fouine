@@ -247,7 +247,8 @@ export default function ReviewDetailPage() {
       inProgress ||
         review.trigger === "improve" ||
         review.trigger === "refine" ||
-        review.trigger === "implement"
+        review.trigger === "implement" ||
+        review.trigger === "task"
         ? "transcript"
         : "review",
     );
@@ -282,6 +283,10 @@ export default function ReviewDetailPage() {
   const isImprover = review.trigger === "improve";
   const isRefiner = review.trigger === "refine";
   const isImplementer = review.trigger === "implement";
+  // Chat-delegated task: no PR or issue to link at first (pr_number 0); the PR
+  // url, once opened, is result_url. Not retryable from here — the prompt lives
+  // in the chat, and the retry route would re-review "PR #0".
+  const isTask = review.trigger === "task";
   const messages = session?.messages ?? [];
 
   return (
@@ -299,7 +304,7 @@ export default function ReviewDetailPage() {
             {review.title ?? `Review #${review.id}`}
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
-            {isImprover ? (
+            {isImprover || isTask ? (
               <Link
                 to="/repos/$owner/$name"
                 params={{ owner, name }}
@@ -353,15 +358,17 @@ export default function ReviewDetailPage() {
             Stop
           </Button>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={retryMut.isPending || inProgress}
-          onClick={() => retryMut.mutate()}
-        >
-          <RotateCw size={14} />
-          {isImprover || isRefiner || isImplementer ? "Re-run" : "Retry"}
-        </Button>
+        {!isTask && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={retryMut.isPending || inProgress}
+            onClick={() => retryMut.mutate()}
+          >
+            <RotateCw size={14} />
+            {isImprover || isRefiner || isImplementer ? "Re-run" : "Retry"}
+          </Button>
+        )}
       </div>
 
       {session?.info && (
@@ -388,6 +395,31 @@ export default function ReviewDetailPage() {
         </div>
       )}
 
+      {isTask && (
+        <div className="space-y-2 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-sm">
+          <p className="text-xs font-medium text-zinc-500">Task</p>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-zinc-300">
+            {review.task_prompt}
+          </pre>
+          {review.outcome === "pr_opened" && review.result_url && (
+            <a
+              href={review.result_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+            >
+              Pull request opened <ExternalLink size={12} />
+            </a>
+          )}
+          {review.outcome === "no_changes" && (
+            <p className="text-zinc-400">No changes — nothing needed doing in this repo.</p>
+          )}
+          {review.outcome === "needs_input" && (
+            <p className="text-amber-300">Needs input: {review.result_text}</p>
+          )}
+        </div>
+      )}
+
       {review.status === "failed" && review.error && (
         <div className="flex items-start gap-2 rounded-md border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
           <CircleAlert size={16} className="mt-0.5 shrink-0" />
@@ -400,7 +432,7 @@ export default function ReviewDetailPage() {
           <div
             role="tablist"
             className={`inline-flex rounded-md border border-zinc-800 bg-zinc-950 p-0.5 text-xs ${
-              isImprover || isRefiner || isImplementer ? "hidden" : ""
+              isImprover || isRefiner || isImplementer || isTask ? "hidden" : ""
             }`}
           >
             <Button

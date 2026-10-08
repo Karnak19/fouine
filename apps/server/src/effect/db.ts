@@ -36,6 +36,35 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
         return row.id;
       }),
 
+    getReview: (id: number): Effect.Effect<ReviewRow | null, DatabaseError> =>
+      attempt("reviews.byId", () => reviews.byId.get({ $id: id }) ?? null),
+
+    // Terminal write for a delegated task that ran to the end. The row is
+    // 'completed' whatever the outcome; `outcome` says how it ended.
+    completeTask: (
+      id: number,
+      done: {
+        cost: number;
+        tokens: number;
+        model: string;
+        outcome: "pr_opened" | "no_changes" | "needs_input";
+        url: string | null;
+        text: string | null;
+      },
+    ): Effect.Effect<void, DatabaseError> =>
+      attempt("reviews.completeTask", () => {
+        reviews.completeTask.run({
+          $id: id,
+          $cost: done.cost,
+          $tokens: done.tokens,
+          $model: done.model,
+          $outcome: done.outcome,
+          $url: done.url,
+          $text: done.text,
+        });
+        publishReviewEvent("updated", id);
+      }),
+
     setRunning: (id: number): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.updateStatus", () => {
         reviews.updateStatus.run({ $status: "running", $done: 0, $id: id });

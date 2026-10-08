@@ -8,6 +8,7 @@ import {
   ToolFallbackTrigger,
 } from "@/components/assistant-ui/tool-fallback";
 import { ChartToolUI } from "@/components/assistant-ui/chart-tool-ui";
+import { DelegateTaskToolUI } from "@/components/assistant-ui/task-tool-ui";
 
 /**
  * The SQL behind an answer, collapsed under it — the whole point of this page is
@@ -49,10 +50,40 @@ const QueryStatsToolUI: ToolCallMessagePartComponent<{ sql?: string }, string> =
   );
 };
 
+type RepoListing = {
+  full_name: string;
+  enabled: boolean;
+  implement_enabled: boolean;
+  auto_merge: boolean;
+};
+
+/** The repo list, collapsed like a query: it is a trace of how the answer was reached. */
+const ListReposToolUI: ToolCallMessagePartComponent<Record<string, never>, RepoListing[]> = ({
+  result,
+  status,
+}) => (
+  <ToolFallbackRoot>
+    <ToolFallbackTrigger toolName="list_repos" status={status} />
+    <ToolFallbackContent>
+      <ToolFallbackError status={status} />
+      {Array.isArray(result) && (
+        <ul className="text-xs">
+          {result.map((r) => (
+            <li key={r.full_name} className="flex justify-between gap-3 py-0.5">
+              <span className="font-mono">{r.full_name}</span>
+              <span className="text-muted-foreground">{r.enabled ? "enabled" : "disabled"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </ToolFallbackContent>
+  </ToolFallbackRoot>
+);
+
 /**
  * The renderers for the chat's tools, keyed by the name the model calls.
  *
- * Both tools are DEFINED AND EXECUTED on our own Elysia server (see
+ * All of these tools are DEFINED AND EXECUTED on our own Elysia server (see
  * `apps/server/src/chat/index.ts`), so the client's only job is to draw their
  * calls. In toolkit terms that is `externalTool()` — "backend, defined
  * elsewhere" — whose compiled shape is exactly `{ type: "backend", render }`:
@@ -72,4 +103,8 @@ export const chatToolkit = {
   // "1 tool call" chain-of-thought group, where a picture drawn for the user
   // would sit behind a disclosure triangle nobody opens.
   render_chart: { type: "backend", display: "standalone", render: ChartToolUI },
+  list_repos: { type: "backend", render: ListReposToolUI },
+  // `standalone`: the card is the user's receipt for work started in their name,
+  // and it keeps updating live — it must not sit folded away in the tool group.
+  delegate_task: { type: "backend", display: "standalone", render: DelegateTaskToolUI },
 } satisfies Toolkit;

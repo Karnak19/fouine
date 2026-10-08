@@ -31,7 +31,10 @@ export const internalBaseUrl = `http://127.0.0.1:${config.port}`;
 // The improver/refiner/implementer ride the same table with their own trigger,
 // and each gets its own kind so the routes can gate what they may call.
 export function kindOf(trigger: string | null): string {
-  return trigger === "improve" || trigger === "refine" || trigger === "implement"
+  return trigger === "improve" ||
+    trigger === "refine" ||
+    trigger === "implement" ||
+    trigger === "task"
     ? trigger
     : "review";
 }

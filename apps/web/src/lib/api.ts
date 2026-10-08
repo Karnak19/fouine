@@ -161,6 +161,8 @@ export interface Settings {
   implement_model?: string;
   // Chat + /build model. Empty string deletes the row -> OPENCODE_CHAT_MODEL.
   chat_model?: string;
+  // How many chat-delegated tasks may run at once (default 3). "" deletes the row.
+  task_concurrency?: string;
   // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
   deny_test_commands?: string;
   // "1" = on, "" = delete the row (off). Default off.
