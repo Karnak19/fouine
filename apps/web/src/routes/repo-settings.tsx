@@ -16,21 +16,93 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Trash2, FolderX } from "lucide-react";
+import { ArrowLeft, ChevronRight, Trash2, FolderX } from "lucide-react";
 import { AUTOMATION_LEVELS, automationLevel, presetFlags } from "@/lib/automation";
 
 const SELECT_CLASS =
-  "flex h-9 w-full min-w-0 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-ring disabled:opacity-50";
+  "flex h-9 w-full min-w-0 max-w-sm rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm shadow-sm transition-colors focus-ring disabled:opacity-50";
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <section className="space-y-2.5">
-      <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">{title}</h2>
-      <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-        {children}
-      </div>
+    <section className={className}>
+      <h2 className="text-base font-semibold text-zinc-100">{title}</h2>
+      <p className="mt-1 text-sm text-zinc-500">{description}</p>
+      <div className="mt-3 min-w-0 space-y-4">{children}</div>
     </section>
   );
+}
+
+// One inline disclosure row inside the Agents list. The body stays mounted
+// (just hidden) so field ids and native validation keep working while closed.
+function AgentRow({
+  id,
+  name,
+  open,
+  onToggle,
+  edited,
+  summary,
+  children,
+}: {
+  id: string;
+  name: string;
+  open: boolean;
+  onToggle: () => void;
+  edited: boolean;
+  summary: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div data-agent={id}>
+      <button
+        type="button"
+        id={`agent-${id}-trigger`}
+        aria-expanded={open}
+        aria-controls={`agent-${id}-body`}
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/60 focus-ring"
+      >
+        <ChevronRight
+          size={14}
+          className={`mt-1 shrink-0 text-zinc-500 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        <span className="min-w-0 flex-1 space-y-0.5">
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-medium text-zinc-100">{name}</span>
+            {edited && <span className="text-xs text-zinc-300">edited</span>}
+          </span>
+          <span className="block text-xs text-zinc-500">{summary}</span>
+        </span>
+      </button>
+      <div
+        id={`agent-${id}-body`}
+        role="group"
+        aria-labelledby={`agent-${id}-trigger`}
+        hidden={!open}
+        className="space-y-4 px-4 pb-4 pl-[2.75rem]"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Overridden parts read brighter than defaults; ember stays out of it.
+function Part({ on, mono, children }: { on: boolean; mono?: boolean; children: ReactNode }) {
+  return <span className={`${on ? "text-zinc-100" : "text-zinc-500"} ${mono && on ? "font-mono" : ""}`}>{children}</span>;
+}
+
+function Sep() {
+  return <span className="text-zinc-600"> · </span>;
 }
 
 export default function RepoSettingsPage() {
@@ -90,6 +162,10 @@ export default function RepoSettingsPage() {
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
+  const [openAgents, setOpenAgents] = useState({ reviewer: false, refiner: false, implementer: false });
+  type AgentId = keyof typeof openAgents;
+  const openAgent = (id: AgentId) => setOpenAgents((o) => (o[id] ? o : { ...o, [id]: true }));
+  const toggleAgent = (id: AgentId) => setOpenAgents((o) => ({ ...o, [id]: !o[id] }));
 
   // Only to show which way "inherit" currently resolves. Same query key as the
   // settings page, so it's usually already cached.
@@ -319,10 +395,40 @@ export default function RepoSettingsPage() {
     );
   }
 
+  const refineOn = (refineEnabled ?? (globals.refine_enabled ? 1 : 0)) === 1;
+  const implementOn = (implementEnabled ?? (globals.implement_enabled ? 1 : 0)) === 1;
+  const reviewerEdited =
+    model !== baseline.model ||
+    prompt !== baseline.prompt ||
+    enabled !== baseline.enabled ||
+    denyTestCommands !== baseline.denyTestCommands ||
+    autoMerge !== baseline.autoMerge;
+  const refinerEdited =
+    refineEnabled !== baseline.refineEnabled ||
+    refineModel !== baseline.refineModel ||
+    refinePrompt !== baseline.refinePrompt;
+  const implementerEdited =
+    implementEnabled !== baseline.implementEnabled ||
+    autoReady !== baseline.autoReady ||
+    implementLabel !== baseline.implementLabel ||
+    implementModel !== baseline.implementModel ||
+    implementPrompt !== baseline.implementPrompt;
+  const agentSummary = (run: string, m: string, p: string) => (
+    <>
+      {run}
+      <Sep />
+      <Part on={m.trim() !== ""} mono>
+        {m.trim() || "default model"}
+      </Part>
+      <Sep />
+      <Part on={p.trim() !== ""}>{p.trim() ? "custom prompt" : "default prompt"}</Part>
+    </>
+  );
+
   const customSummary = `Custom: auto-review ${enabled ? "on" : "off"}, auto-merge ${onOff(autoMerge, globals.auto_merge)}, refine ${onOff(refineEnabled, globals.refine_enabled)}, implement ${onOff(implementEnabled, globals.implement_enabled)}, auto-ready ${onOff(autoReady, globals.auto_ready)}`;
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-[48rem] space-y-7">
+    <div className="w-full min-w-0 max-w-3xl space-y-7">
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -411,20 +517,28 @@ export default function RepoSettingsPage() {
 
       <form
         id="repo-settings"
+        className="space-y-10"
+        onFocusCapture={(e) => {
+          const row = (e.target as HTMLElement).closest<HTMLElement>("[data-agent]");
+          if (row) openAgent(row.dataset.agent as AgentId);
+        }}
+        onInvalidCapture={(e) => {
+          const row = (e.target as HTMLElement).closest<HTMLElement>("[data-agent]");
+          if (row) openAgent(row.dataset.agent as AgentId);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           requestSave();
         }}
-        className="space-y-7"
       >
-        <Section title="Automation">
+        <Section title="Automation" description="What fouine does on its own for this repo.">
           <fieldset className="space-y-2">
             <legend className="sr-only">Automation level</legend>
-            <div className="rounded-md border border-zinc-800 divide-y divide-zinc-800">
+            <div className="divide-y divide-zinc-800 rounded-md border border-zinc-800">
               {AUTOMATION_LEVELS.map((l) => (
                 <label
                   key={l.value}
-                  className="flex gap-3 p-3 has-[:checked]:bg-zinc-800/60 cursor-pointer"
+                  className="flex cursor-pointer gap-3 p-3 has-[:checked]:bg-zinc-800/60"
                 >
                   <input
                     type="radio"
@@ -447,238 +561,272 @@ export default function RepoSettingsPage() {
                 </label>
               ))}
             </div>
-            {currentLevel === "custom" && (
-              <p className="text-xs text-zinc-400">{customSummary}</p>
-            )}
+            {currentLevel === "custom" && <p className="text-xs text-zinc-400">{customSummary}</p>}
           </fieldset>
+
+          {mergeMethodActive && (
+            <div className="max-w-sm space-y-1.5 pt-2">
+              <Label htmlFor="merge_method">Merge method</Label>
+              <select
+                id="merge_method"
+                className={SELECT_CLASS}
+                value={mergeMethod ?? "inherit"}
+                onChange={(e) =>
+                  setMergeMethod(
+                    e.target.value === "inherit"
+                      ? null
+                      : (e.target.value as "merge" | "squash" | "rebase"),
+                  )
+                }
+              >
+                <option value="inherit">
+                  Use global default (currently {settings?.merge_method ?? "squash"})
+                </option>
+                <option value="squash">Squash and merge</option>
+                <option value="merge">Create a merge commit</option>
+                <option value="rebase">Rebase and merge</option>
+              </select>
+            </div>
+          )}
         </Section>
 
-        <Section title="Review">
-          <div className="space-y-1.5">
-            <Label htmlFor="model">Model override</Label>
-            <ModelInput
-              id="model"
-              placeholder="provider/model (leave empty for default)"
-              value={model}
-              onChange={setModel}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="prompt">Review prompt override</Label>
-            <Textarea
-              id="prompt"
-              rows={4}
-              className="resize-y"
-              placeholder="Custom review instructions for this repo..."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="deny_test_commands">Let the reviewer run tests, lint, typecheck, build</Label>
-            <select
-              id="deny_test_commands"
-              className={SELECT_CLASS}
-              value={denyTestCommands === null ? "inherit" : String(denyTestCommands)}
-              onChange={(e) =>
-                setDenyTestCommands(e.target.value === "inherit" ? null : Number(e.target.value))
-              }
+        <Section
+          title="Agents"
+          description="Models and instructions per agent. Empty fields use the global default."
+        >
+          <div className="divide-y divide-zinc-800 rounded-md border border-zinc-800">
+            <AgentRow
+              id="reviewer"
+              name="Reviewer"
+              open={openAgents.reviewer}
+              onToggle={() => toggleAgent("reviewer")}
+              edited={reviewerEdited}
+              summary={agentSummary(enabled ? "Runs on every PR" : "Off", model, prompt)}
             >
-              <option value="inherit">
-                Use global default (currently{" "}
-                {settings?.deny_test_commands === "1" ? "don't run them" : "run them"})
-              </option>
-              <option value="1">Don't run them on this repo</option>
-              <option value="0">Run them on this repo</option>
-            </select>
-          </div>
-        </Section>
+              <div className="space-y-1.5">
+                <Label htmlFor="model">Model override</Label>
+                <div className="max-w-md">
+                  <ModelInput
+                    id="model"
+                    placeholder="provider/model (leave empty for default)"
+                    value={model}
+                    onChange={setModel}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="prompt">Review prompt override</Label>
+                <Textarea
+                  id="prompt"
+                  rows={4}
+                  className="resize-y"
+                  placeholder="Custom review instructions for this repo..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="deny_test_commands">
+                  Let the reviewer run tests, lint, typecheck, build
+                </Label>
+                <select
+                  id="deny_test_commands"
+                  className={SELECT_CLASS}
+                  value={denyTestCommands === null ? "inherit" : String(denyTestCommands)}
+                  onChange={(e) =>
+                    setDenyTestCommands(e.target.value === "inherit" ? null : Number(e.target.value))
+                  }
+                >
+                  <option value="inherit">
+                    Use global default (currently{" "}
+                    {settings?.deny_test_commands === "1" ? "don't run them" : "run them"})
+                  </option>
+                  <option value="1">Don't run them on this repo</option>
+                  <option value="0">Run them on this repo</option>
+                </select>
+              </div>
+            <div className="max-w-sm space-y-1.5">
+              <Label htmlFor="auto_merge">Auto-merge PRs once fouine approves</Label>
+              <select
+                id="auto_merge"
+                className={SELECT_CLASS}
+                value={autoMerge === null ? "inherit" : String(autoMerge)}
+                onChange={(e) =>
+                  setAutoMerge(e.target.value === "inherit" ? null : Number(e.target.value))
+                }
+              >
+                <option value="inherit">
+                  Use global default (currently {settings?.auto_merge === "1" ? "on" : "off"})
+                </option>
+                <option value="1">On for this repo</option>
+                <option value="0">Off for this repo</option>
+              </select>
+            </div>
+            </AgentRow>
 
-        <Section title="Merge">
-          <div className="space-y-1.5">
-            <Label htmlFor="auto_merge">Auto-merge PRs once fouine approves</Label>
-            <select
-              id="auto_merge"
-              className={SELECT_CLASS}
-              value={autoMerge === null ? "inherit" : String(autoMerge)}
-              onChange={(e) =>
-                setAutoMerge(e.target.value === "inherit" ? null : Number(e.target.value))
-              }
+            <AgentRow
+              id="refiner"
+              name="Refiner"
+              open={openAgents.refiner}
+              onToggle={() => toggleAgent("refiner")}
+              edited={refinerEdited}
+              summary={agentSummary(
+                refineOn ? "Refines new issues" : "On demand only",
+                refineModel,
+                refinePrompt,
+              )}
             >
-              <option value="inherit">
-                Use global default (currently {settings?.auto_merge === "1" ? "on" : "off"})
-              </option>
-              <option value="1">On for this repo</option>
-              <option value="0">Off for this repo</option>
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="merge_method">Merge method</Label>
-            <select
-              id="merge_method"
-              disabled={!mergeMethodActive}
-              className={SELECT_CLASS}
-              value={mergeMethod ?? "inherit"}
-              onChange={(e) =>
-                setMergeMethod(
-                  e.target.value === "inherit"
-                    ? null
-                    : (e.target.value as "merge" | "squash" | "rebase"),
-                )
-              }
-            >
-              <option value="inherit">
-                Use global default (currently {settings?.merge_method ?? "squash"})
-              </option>
-              <option value="squash">Squash and merge</option>
-              <option value="merge">Create a merge commit</option>
-              <option value="rebase">Rebase and merge</option>
-            </select>
-            {!mergeMethodActive && (
-              <p className="text-xs text-zinc-500">Applies when auto-merge is on.</p>
-            )}
-          </div>
-        </Section>
+              <div className="space-y-1.5">
+                <Label htmlFor="refine_enabled">Auto-refine issues on open</Label>
+                <select
+                  id="refine_enabled"
+                  className={SELECT_CLASS}
+                  value={refineEnabled === null ? "inherit" : String(refineEnabled)}
+                  onChange={(e) =>
+                    setRefineEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                  }
+                >
+                  <option value="inherit">
+                    Use global default (currently {settings?.refine_enabled === "1" ? "on" : "off"})
+                  </option>
+                  <option value="1">On for this repo</option>
+                  <option value="0">Off for this repo</option>
+                </select>
+                <p className="text-xs text-zinc-500">
+                  Refines a newly opened issue automatically. Always available on demand via{" "}
+                  <span className="font-mono">/fouine refine</span>.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="refine_model">Refine model override</Label>
+                <div className="max-w-md">
+                  <ModelInput
+                    id="refine_model"
+                    placeholder="provider/model (leave empty to inherit the review model)"
+                    value={refineModel}
+                    onChange={setRefineModel}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="refine_prompt">Refine prompt override</Label>
+                <Textarea
+                  id="refine_prompt"
+                  rows={4}
+                  className="resize-y"
+                  placeholder="Custom issue-refinement instructions for this repo..."
+                  value={refinePrompt}
+                  onChange={(e) => setRefinePrompt(e.target.value)}
+                />
+              </div>
+            </AgentRow>
 
-        <Section title="Refine">
-          <div className="space-y-1.5">
-            <Label htmlFor="refine_enabled">Auto-refine issues on open</Label>
-            <select
-              id="refine_enabled"
-              className={SELECT_CLASS}
-              value={refineEnabled === null ? "inherit" : String(refineEnabled)}
-              onChange={(e) =>
-                setRefineEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
-              }
+            <AgentRow
+              id="implementer"
+              name="Implementer"
+              open={openAgents.implementer}
+              onToggle={() => toggleAgent("implementer")}
+              edited={implementerEdited}
+              summary={agentSummary(
+                implementOn ? "Implements labelled issues" : "On demand only",
+                implementModel,
+                implementPrompt,
+              )}
             >
-              <option value="inherit">
-                Use global default (currently {settings?.refine_enabled === "1" ? "on" : "off"})
-              </option>
-              <option value="1">On for this repo</option>
-              <option value="0">Off for this repo</option>
-            </select>
-            <p className="text-xs text-zinc-500">
-              Refines a newly opened issue automatically. Always available on demand via{" "}
-              <span className="font-mono">/fouine refine</span>.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="refine_model">Refine model override</Label>
-            <ModelInput
-              id="refine_model"
-              placeholder="provider/model (leave empty to inherit the review model)"
-              value={refineModel}
-              onChange={setRefineModel}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="refine_prompt">Refine prompt override</Label>
-            <Textarea
-              id="refine_prompt"
-              rows={3}
-              className="resize-y"
-              placeholder="Custom issue-refinement instructions for this repo..."
-              value={refinePrompt}
-              onChange={(e) => setRefinePrompt(e.target.value)}
-            />
-          </div>
-        </Section>
-
-        <Section title="Implement">
-          <div className="space-y-1.5">
-            <Label htmlFor="implement_enabled">Implement issues when labelled</Label>
-            <select
-              id="implement_enabled"
-              className={SELECT_CLASS}
-              value={implementEnabled === null ? "inherit" : String(implementEnabled)}
-              onChange={(e) =>
-                setImplementEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
-              }
-            >
-              <option value="inherit">
-                Use global default (currently {settings?.implement_enabled === "1" ? "on" : "off"})
-              </option>
-              <option value="1">On for this repo</option>
-              <option value="0">Off for this repo</option>
-            </select>
-            <p className="text-xs text-zinc-500">
-              Implements an issue once it's labelled. Always available on demand via{" "}
-              <span className="font-mono">/fouine implement</span>.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="auto_ready">Mark issues ready itself</Label>
-            <select
-              id="auto_ready"
-              className={SELECT_CLASS}
-              value={autoReady === null ? "inherit" : String(autoReady)}
-              onChange={(e) =>
-                setAutoReady(e.target.value === "inherit" ? null : Number(e.target.value))
-              }
-            >
-              <option value="inherit">
-                Use global default (currently {settings?.auto_ready === "1" ? "on" : "off"})
-              </option>
-              <option value="1">On for this repo</option>
-              <option value="0">Off for this repo</option>
-            </select>
-            <p className="text-xs text-zinc-500">
-              fouine adds the ready label itself when the issue is clear; humans can still add it.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="implement_label">Implement label</Label>
-            <Input
-              id="implement_label"
-              placeholder="fouine-ready"
-              value={implementLabel}
-              onChange={(e) => setImplementLabel(e.target.value)}
-            />
-            <p className="text-xs text-zinc-500">
-              Label that triggers the implementer. Empty = inherit the global label.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="implement_model">Implement model override</Label>
-            <ModelInput
-              id="implement_model"
-              placeholder="provider/model (leave empty to inherit the review model)"
-              value={implementModel}
-              onChange={setImplementModel}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="implement_prompt">Implement prompt override</Label>
-            <Textarea
-              id="implement_prompt"
-              rows={3}
-              className="resize-y"
-              placeholder="Custom issue-implementation instructions for this repo..."
-              value={implementPrompt}
-              onChange={(e) => setImplementPrompt(e.target.value)}
-            />
+              <div className="space-y-1.5">
+                <Label htmlFor="implement_enabled">Implement issues when labelled</Label>
+                <select
+                  id="implement_enabled"
+                  className={SELECT_CLASS}
+                  value={implementEnabled === null ? "inherit" : String(implementEnabled)}
+                  onChange={(e) =>
+                    setImplementEnabled(e.target.value === "inherit" ? null : Number(e.target.value))
+                  }
+                >
+                  <option value="inherit">
+                    Use global default (currently{" "}
+                    {settings?.implement_enabled === "1" ? "on" : "off"})
+                  </option>
+                  <option value="1">On for this repo</option>
+                  <option value="0">Off for this repo</option>
+                </select>
+                <p className="text-xs text-zinc-500">
+                  Implements an issue once it's labelled. Always available on demand via{" "}
+                  <span className="font-mono">/fouine implement</span>.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="auto_ready">Mark issues ready itself</Label>
+                <select
+                  id="auto_ready"
+                  className={SELECT_CLASS}
+                  value={autoReady === null ? "inherit" : String(autoReady)}
+                  onChange={(e) =>
+                    setAutoReady(e.target.value === "inherit" ? null : Number(e.target.value))
+                  }
+                >
+                  <option value="inherit">
+                    Use global default (currently {settings?.auto_ready === "1" ? "on" : "off"})
+                  </option>
+                  <option value="1">On for this repo</option>
+                  <option value="0">Off for this repo</option>
+                </select>
+                <p className="text-xs text-zinc-500">
+                  fouine adds the ready label itself when the issue is clear; humans can still add it.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="implement_label">Implement label</Label>
+                <Input
+                  id="implement_label"
+                  className="max-w-xs"
+                  placeholder="fouine-ready"
+                  value={implementLabel}
+                  onChange={(e) => setImplementLabel(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">
+                  Label that triggers the implementer. Empty = inherit the global label.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="implement_model">Implement model override</Label>
+                <div className="max-w-md">
+                  <ModelInput
+                    id="implement_model"
+                    placeholder="provider/model (leave empty to inherit the review model)"
+                    value={implementModel}
+                    onChange={setImplementModel}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="implement_prompt">Implement prompt override</Label>
+                <Textarea
+                  id="implement_prompt"
+                  rows={4}
+                  className="resize-y"
+                  placeholder="Custom issue-implementation instructions for this repo..."
+                  value={implementPrompt}
+                  onChange={(e) => setImplementPrompt(e.target.value)}
+                />
+              </div>
+            </AgentRow>
           </div>
         </Section>
       </form>
 
-      <section className="space-y-2.5">
-        <h2 className="text-xs font-medium uppercase tracking-wider text-red-300/80">Danger zone</h2>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-900/40 p-4">
-          <p className="min-w-0 text-sm text-zinc-400">
-            Remove this repository from fouine. Reviews are kept; GitHub is untouched.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-red-900/60 text-red-300 hover:bg-red-950/40 hover:text-red-200"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2 size={14} />
-            Delete repository
-          </Button>
-        </div>
-      </section>
+      <Section title="Danger zone" description="Removes the repository from fouine. Reviews are kept, GitHub is untouched." className="!mt-12">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-red-300 hover:bg-red-950/40 hover:text-red-200"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 size={14} />
+          Delete repository
+        </Button>
+      </Section>
 
       {dirty && (
         <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center justify-between gap-3 border-t border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-lg md:border">

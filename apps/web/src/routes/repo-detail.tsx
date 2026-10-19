@@ -4,24 +4,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type ReviewRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ArrowLeft, ExternalLink, ChevronRight, Play, FolderX, Settings, RotateCw } from "lucide-react";
+import { ArrowLeft, ExternalLink, ChevronRight, Play, FolderX, Settings, RotateCw, Inbox } from "lucide-react";
 import { timeAgo, formatCost, formatSeconds } from "@/lib/format";
 import { useLiveEvents } from "@/lib/live";
 import { LiveBadge } from "@/components/live-badge";
 import { cn } from "@/lib/utils";
 import { Stat } from "@/components/stat";
 
-// Improver runs pile up hourly, so the card shows only the latest few by default.
+// Improver runs pile up hourly, so the panel shows only the latest few by default.
 const IMPROVER_RUNS_PREVIEW = 5;
 // How long "Improver queued" stays up before the button is usable again.
 const IMPROVER_QUEUED_MS = 5000;
@@ -149,14 +140,9 @@ export default function RepoDetailPage() {
   // One line answering "is it healthy": what is running, and whether the last
   // finished review failed. Reviews come newest-first.
   const running = reviews.filter((r) => r.status === "running" || r.status === "pending");
-  // Only PR reviews count as "last review": an improver/refine/implement run
-  // failing isn't what that line claims.
-  const lastFinished = reviews.find(
-    (r) =>
-      r.trigger !== "improve" && r.trigger !== "refine" && r.trigger !== "implement" &&
-      (r.status === "completed" || r.status === "failed"),
-  );
-  const lastFailed = lastFinished?.status === "failed" ? lastFinished : undefined;
+  // PRs whose latest run failed (a group's head is its latest run). Newest first.
+  const failedPrs = prGroups.filter((g) => g[0].status === "failed");
+  const lastFailed = failedPrs[0]?.[0];
 
   // A repo:removed refetch 404s, so distinguish gone from still-loading —
   // otherwise a deleted repo shimmers forever.
@@ -188,9 +174,13 @@ export default function RepoDetailPage() {
   }
 
   const stopRow = (e: MouseEvent) => e.stopPropagation();
+  const rowClass =
+    "flex cursor-pointer items-center gap-2 px-4 sm:gap-3 py-2.5 transition-colors hover:bg-zinc-800/40";
+  const panelLabel = "text-xs font-medium uppercase tracking-wide text-zinc-500";
+  const panelBody = "rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden";
 
   return (
-    <div className="min-w-0 space-y-6">
+    <div className="min-w-0 space-y-7">
       <Link
         to="/repos"
         className="text-sm text-zinc-400 hover:text-zinc-100 flex items-center gap-1"
@@ -199,11 +189,11 @@ export default function RepoDetailPage() {
       </Link>
 
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="text-2xl font-bold font-mono min-w-0 break-all">{repo.full_name}</h1>
+        <div className="flex items-center gap-x-3">
+          <h1 className="min-w-0 truncate text-2xl font-bold font-mono">{repo.full_name}</h1>
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 tabular-nums",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 tabular-nums",
               repo.enabled
                 ? "bg-ember-950/50 text-ember-300 ring-ember-800/40"
                 : "bg-zinc-800/60 text-zinc-400 ring-zinc-700/50",
@@ -218,7 +208,7 @@ export default function RepoDetailPage() {
             href={`https://github.com/${owner}/${name}`}
             target="_blank"
             rel="noreferrer"
-            className="text-zinc-500 transition-colors hover:text-zinc-300 focus-ring rounded-sm"
+            className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-300 focus-ring rounded-sm"
             aria-label="Open on GitHub"
           >
             <ExternalLink size={14} />
@@ -227,14 +217,15 @@ export default function RepoDetailPage() {
           <Link
             to="/repos/$owner/$name/settings"
             params={{ owner, name }}
-            className="ml-auto inline-flex h-8 items-center justify-center gap-2 rounded-md border border-zinc-700 px-3 text-sm font-medium transition-colors hover:bg-zinc-800 focus-ring"
+            aria-label="Settings"
+            className="ml-auto inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-700 px-2 text-sm font-medium transition-colors hover:bg-zinc-800 focus-ring sm:px-3"
           >
             <Settings size={14} />
-            Settings
+            <span className="hidden sm:inline">Settings</span>
           </Link>
         </div>
         <p className="mt-2 text-sm text-zinc-400 tabular-nums">
-          {running.length === 0 && !lastFailed ? (
+          {running.length === 0 && failedPrs.length === 0 ? (
             reviews.length === 0 ? (
               "No reviews yet"
             ) : (
@@ -251,23 +242,18 @@ export default function RepoDetailPage() {
                   {running.length} running
                 </Link>
               )}
-              {running.length > 0 && lastFailed && " \u00b7 "}
+              {running.length > 0 && failedPrs.length > 0 && " · "}
               {lastFailed && (
                 <Link
                   to="/reviews/$id"
                   params={{ id: String(lastFailed.id) }}
                   className="text-red-300 hover:text-red-200"
                 >
-                  last review failed {timeAgo(lastFailed.created_at)}
+                  {failedPrs.length} {failedPrs.length === 1 ? "PR" : "PRs"} failed
                 </Link>
               )}
             </>
           )}
-        </p>
-        <p className="text-xs text-zinc-500 mt-1">
-          Installation ID: {repo.installation_id}. Reviews run when a PR is opened, pushed to,
-          reopened, or marked ready for review, and on a <span className="font-mono">/fouine</span>{" "}
-          comment.
         </p>
       </div>
 
@@ -284,91 +270,11 @@ export default function RepoDetailPage() {
         </div>
       )}
 
-      <Card className="min-w-0">
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Improver runs</CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={improveMut.isPending || improveMut.isSuccess}
-            onClick={() => improveMut.mutate()}
-            title="Read human feedback on this repo's review threads and open a REVIEW.md PR"
-          >
-            <Play size={14} />
-            {improveMut.isSuccess ? "Improver queued" : "Run improver"}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {improverRuns.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              No improver runs yet. It reads review feedback and opens a REVIEW.md PR.
-            </p>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Run</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Started</TableHead>
-                    <TableHead className="w-8" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleImproverRuns.map((r) => (
-                    <TableRow
-                      key={r.id}
-                      className="cursor-pointer"
-                      onClick={() => navigate({ to: "/reviews/$id", params: { id: String(r.id) } })}
-                    >
-                      <TableCell>
-                        <Link
-                          to="/reviews/$id"
-                          params={{ id: String(r.id) }}
-                          onClick={stopRow}
-                          className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
-                        >
-                          #{r.id}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge status={r.status} />
-                      </TableCell>
-                      <TableCell
-                        className="text-zinc-500 text-sm text-right tabular-nums"
-                        title={new Date(r.created_at * 1000).toLocaleString()}
-                      >
-                        {timeAgo(r.created_at)}
-                      </TableCell>
-                      <TableCell className="text-zinc-500">
-                        <ChevronRight size={16} aria-hidden="true" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {improverRuns.length > IMPROVER_RUNS_PREVIEW && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 w-full text-zinc-400"
-                  onClick={() => setShowAllImprover((v) => !v)}
-                >
-                  {showAllImprover ? "Show less" : `Show all ${improverRuns.length} runs`}
-                </Button>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>Reviews by PR</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section className="min-w-0 space-y-2.5">
+        <h2 className={panelLabel}>Reviews by PR</h2>
+        <div className={panelBody}>
           {reviewsError ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-zinc-800 py-8 text-center">
+            <div className="flex flex-col items-center justify-center py-8 text-center">
               <p className="text-sm text-zinc-500">Couldn't load reviews.</p>
               <Button
                 variant="outline"
@@ -380,97 +286,164 @@ export default function RepoDetailPage() {
               </Button>
             </div>
           ) : prGroups.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              No reviews yet. Open a PR or comment <span className="font-mono">/fouine</span> to
-              trigger one.
-            </p>
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <Inbox size={20} className="text-zinc-700" />
+              <p className="text-sm text-zinc-400">No reviews yet.</p>
+              <p className="text-xs text-zinc-500 max-w-xs">
+                Open a PR or comment <span className="font-mono text-zinc-500">/fouine</span> to
+                trigger one.
+              </p>
+            </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>PR</TableHead>
-                  <TableHead className="text-right">Reviews</TableHead>
-                  <TableHead title="Status of the latest run">Latest</TableHead>
-                  <TableHead className="text-right">Last run</TableHead>
-                  <TableHead className="w-8" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {prGroups.map((group) => {
-                  const latest = group[0];
-                  return (
-                    <TableRow
-                      key={latest.pr_number}
-                      className="cursor-pointer"
-                      onClick={() =>
-                        navigate({
-                          to: "/repos/$owner/$name/pr/$number",
-                          params: { owner, name, number: String(latest.pr_number) },
-                        })
-                      }
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Link
-                            to="/repos/$owner/$name/pr/$number"
-                            params={{ owner, name, number: String(latest.pr_number) }}
-                            onClick={stopRow}
-                            className="text-sm text-zinc-300 hover:text-zinc-100 tabular-nums"
-                          >
-                            #{latest.pr_number}
-                          </Link>
-                          <a
-                            href={`https://github.com/${owner}/${name}/pull/${latest.pr_number}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={stopRow}
-                            className="text-zinc-500 hover:text-zinc-300"
-                            aria-label={`Open PR #${latest.pr_number} on GitHub`}
-                          >
-                            <ExternalLink size={12} />
-                          </a>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-zinc-400 text-sm text-right tabular-nums">
-                        {group.length}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge status={latest.status} />
-                          {latest.status === "failed" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={retryMut.isPending}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                retryMut.mutate(latest.id);
-                              }}
-                            >
-                              <RotateCw size={12} />
-                              Retry
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell
-                        className="text-zinc-500 text-sm text-right tabular-nums"
-                        title={new Date(latest.created_at * 1000).toLocaleString()}
+            <ul className="divide-y divide-zinc-800/70">
+              {prGroups.map((group) => {
+                const latest = group[0];
+                return (
+                  <li
+                    key={latest.pr_number}
+                    className={rowClass}
+                    onClick={() =>
+                      navigate({
+                        to: "/repos/$owner/$name/pr/$number",
+                        params: { owner, name, number: String(latest.pr_number) },
+                      })
+                    }
+                  >
+                    <div className="flex w-16 shrink-0 items-center gap-1.5 sm:w-24">
+                      <Link
+                        to="/repos/$owner/$name/pr/$number"
+                        params={{ owner, name, number: String(latest.pr_number) }}
+                        onClick={stopRow}
+                        className="font-mono text-sm text-zinc-200 hover:text-zinc-100 tabular-nums"
                       >
-                        {timeAgo(latest.created_at)}
-                      </TableCell>
-                      <TableCell className="text-zinc-500">
-                        <ChevronRight size={16} aria-hidden="true" />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        #{latest.pr_number}
+                      </Link>
+                      <a
+                        href={`https://github.com/${owner}/${name}/pull/${latest.pr_number}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={stopRow}
+                        className="text-zinc-500 hover:text-zinc-300"
+                        aria-label={`Open PR #${latest.pr_number} on GitHub`}
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                    <span className="shrink-0 w-24 sm:w-28">
+                      <Badge status={latest.status} />
+                    </span>
+                    {latest.status === "failed" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-xs"
+                        aria-label="Retry review"
+                        disabled={retryMut.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retryMut.mutate(latest.id);
+                        }}
+                      >
+                        <RotateCw size={12} />
+                        <span className="hidden sm:inline">Retry</span>
+                      </Button>
+                    )}
+                    <span className="min-w-0 flex-1" />
+                    <span className="hidden sm:block shrink-0 w-16 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap">
+                      {group.length} {group.length === 1 ? "run" : "runs"}
+                    </span>
+                    <span
+                      className="shrink-0 w-16 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap"
+                      title={new Date(latest.created_at * 1000).toLocaleString()}
+                    >
+                      {timeAgo(latest.created_at)}
+                    </span>
+                    <ChevronRight size={16} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
+
+      <section className="min-w-0 space-y-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className={panelLabel}>Improver runs</h2>
+          <div className="flex items-center gap-2">
+            {improverRuns.length > IMPROVER_RUNS_PREVIEW && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-zinc-400"
+                onClick={() => setShowAllImprover((v) => !v)}
+              >
+                {showAllImprover ? "Show less" : `Show all ${improverRuns.length}`}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={improveMut.isPending || improveMut.isSuccess}
+              onClick={() => improveMut.mutate()}
+              title="Read human feedback on this repo's review threads and open a REVIEW.md PR"
+            >
+              <Play size={12} />
+              {improveMut.isSuccess ? "Improver queued" : "Run improver"}
+            </Button>
+          </div>
+        </div>
+        <div className={panelBody}>
+          {improverRuns.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <Inbox size={20} className="text-zinc-700" />
+              <p className="text-sm text-zinc-400">No improver runs yet.</p>
+              <p className="text-xs text-zinc-500 max-w-xs">
+                It reads review feedback and opens a REVIEW.md PR.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-zinc-800/70">
+              {visibleImproverRuns.map((r) => (
+                <li
+                  key={r.id}
+                  className={rowClass}
+                  onClick={() => navigate({ to: "/reviews/$id", params: { id: String(r.id) } })}
+                >
+                  <div className="w-16 shrink-0 sm:w-24">
+                    <Link
+                      to="/reviews/$id"
+                      params={{ id: String(r.id) }}
+                      onClick={stopRow}
+                      className="font-mono text-sm text-zinc-200 hover:text-zinc-100 tabular-nums"
+                    >
+                      #{r.id}
+                    </Link>
+                  </div>
+                  <span className="shrink-0 w-24 sm:w-28">
+                    <Badge status={r.status} />
+                  </span>
+                  <span className="min-w-0 flex-1" />
+                  <span
+                    className="shrink-0 w-16 text-right text-xs text-zinc-500 tabular-nums whitespace-nowrap"
+                    title={new Date(r.created_at * 1000).toLocaleString()}
+                  >
+                    {timeAgo(r.created_at)}
+                  </span>
+                  <ChevronRight size={16} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <p className="text-xs text-zinc-500">
+        Installation ID: {repo.installation_id}. Reviews run when a PR is opened, pushed to,
+        reopened, or marked ready for review, and on a <span className="font-mono">/fouine</span>{" "}
+        comment.
+      </p>
     </div>
   );
 }
