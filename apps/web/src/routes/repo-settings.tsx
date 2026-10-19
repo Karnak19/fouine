@@ -518,10 +518,6 @@ export default function RepoSettingsPage() {
       <form
         id="repo-settings"
         className="space-y-10"
-        onFocusCapture={(e) => {
-          const row = (e.target as HTMLElement).closest<HTMLElement>("[data-agent]");
-          if (row) openAgent(row.dataset.agent as AgentId);
-        }}
         onInvalidCapture={(e) => {
           const row = (e.target as HTMLElement).closest<HTMLElement>("[data-agent]");
           if (row) openAgent(row.dataset.agent as AgentId);
