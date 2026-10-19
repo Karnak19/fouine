@@ -180,3 +180,5 @@ export interface SkillMetaRow {
   enabled: number;
   created_at: number;
 }
+
+export type * from "./chat";
