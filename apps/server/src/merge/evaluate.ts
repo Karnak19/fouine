@@ -39,7 +39,7 @@ export function evaluateArm(repoFullName: string, prNumber: number): Promise<voi
 
 function runEvaluation(repoFullName: string, prNumber: number): Promise<void> {
   return Effect.runPromise(
-    evaluatePipeline(repoFullName, prNumber).pipe(Effect.provide(GitHubService.Default)),
+    evaluatePipeline(repoFullName, prNumber).pipe(Effect.provide(GitHubService.layer)),
   );
 }
 
@@ -60,12 +60,12 @@ export function evaluatePipeline(
     const [owner, repoName] = repoFullName.split("/");
     const octokit = yield* gh
       .installationClient(repo.installation_id)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!octokit) return;
 
     let pull = yield* gh
       .getPull(octokit, owner, repoName, prNumber)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!pull) return;
 
     // Bounded poll for a still-computing `mergeable` (issue trap: ordering of
@@ -74,7 +74,7 @@ export function evaluatePipeline(
       yield* Effect.sleep("2 seconds");
       pull = yield* gh
         .getPull(octokit, owner, repoName, prNumber)
-        .pipe(Effect.catchAll(() => Effect.succeed(pull!)));
+        .pipe(Effect.catch(() => Effect.succeed(pull!)));
     }
 
     if (pull.merged) {
@@ -101,18 +101,18 @@ export function evaluatePipeline(
 
     const reviewsList = yield* gh
       .listReviews(octokit, owner, repoName, prNumber)
-      .pipe(Effect.catchAll(() => Effect.succeed([])));
+      .pipe(Effect.catch(() => Effect.succeed([])));
     // Fail closed: an empty check list would satisfy the CI condition, so an
     // API error here skips this evaluation and waits for the next event.
     const checkData = yield* gh
       .headChecks(octokit, owner, repoName, pull.headSha)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!checkData) {
       log.warn("merge: could not read checks, skipping evaluation", { repo: repoFullName, pr: prNumber });
       return;
     }
     const requiredChecks = yield* gh.branchProtectionRequiredChecks(octokit, owner, repoName, pull.baseRef);
-    const botLogin = yield* gh.botLogin().pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    const botLogin = yield* gh.botLogin().pipe(Effect.catch(() => Effect.succeed(undefined)));
 
     // Pin fouine's reviews to the armed SHA: without this, an APPROVED on an
     // older commit plus green CI on a later re-armed push would merge a
@@ -178,7 +178,7 @@ export function evaluatePipeline(
     const diff = yield* gh
       .getDiff(octokit, owner, repoName, prNumber)
       .pipe(
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             log.warn("merge: could not fetch diff for risk assessment", {
               repo: repoFullName,
@@ -201,7 +201,7 @@ export function evaluatePipeline(
               findingsCount,
             }),
           ).pipe(
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.sync(() => {
                 log.warn("merge risk assessment threw, holding for human review", {
                   repo: repoFullName,

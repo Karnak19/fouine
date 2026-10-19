@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { findings, repos, reviews, type RepoRow, type ReviewRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
 import { publishReviewEvent } from "~/server/events";
@@ -9,8 +9,8 @@ import { publishReviewEvent } from "~/server/events";
 const attempt = <A>(op: string, run: () => A) =>
   Effect.try({ try: run, catch: (cause) => new DatabaseError({ op, cause }) });
 
-export class DbService extends Effect.Service<DbService>()("app/DbService", {
-  sync: () => ({
+export class DbService extends Context.Service<DbService>()("app/DbService", {
+  make: Effect.sync(() => ({
     getRepo: (fullName: string): Effect.Effect<RepoRow | null, DatabaseError> =>
       attempt("repos.get", () => repos.get.get({ $full_name: fullName }) ?? null),
 
@@ -125,5 +125,10 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
     // actually posted to GitHub. Used to nudge sessions that end silent.
     hasFindings: (id: number): Effect.Effect<boolean, DatabaseError> =>
       attempt("findings.byReview", () => findings.byReview.all({ $review: id }).length > 0),
-  }),
-}) {}
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make);
+}
+
+// The service's method bag — what `yield* DbService` returns. v4's class instance type is not the shape.
+export type DbServiceShape = Context.Service.Shape<typeof DbService>;

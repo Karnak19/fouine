@@ -1,9 +1,9 @@
 import { expect, test, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { DbService } from "~/effect/db";
-import { GitHubService } from "~/effect/github";
-import { GitService } from "~/effect/git";
-import { OpenCodeService } from "~/effect/opencode";
+import { DbService, type DbServiceShape } from "~/effect/db";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
+import { GitService, type GitServiceShape } from "~/effect/git";
+import { OpenCodeService, type OpenCodeServiceShape } from "~/effect/opencode";
 import { OpenCodeError } from "~/effect/errors";
 import { buildImplementPrompt } from "~/review/implement-prompt";
 import type { IssueInfo } from "~/review/types";
@@ -72,7 +72,7 @@ function makeLayer(
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
     status: () => Effect.succeed("running"),
-  } as unknown as DbService);
+  } as unknown as DbServiceShape);
 
   const octokit = {
     rest: {
@@ -100,7 +100,7 @@ function makeLayer(
     botLogin: () => Effect.succeed("fouine[bot]"),
     createIssueComment: (_octokit: unknown, _owner: string, _repo: string, issueNumber: number, body: string) =>
       Effect.sync(() => void calls.comments.push({ issueNumber, body })),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
 
   const git = Layer.succeed(GitService, {
     ensureBare: () => Effect.succeed("bare"),
@@ -112,7 +112,7 @@ function makeLayer(
     commitAll: () => Effect.sync(() => ((calls.committed = true), "deadbeef")),
     pushHead: (_worktree: string, branch: string) =>
       Effect.sync(() => ((calls.pushed = true), (calls.pushedBranch = branch))),
-  } as unknown as GitService);
+  } as unknown as GitServiceShape);
 
   const oc = Layer.succeed(OpenCodeService, {
     runReview: (o: { agent?: string; prompt?: string }) => {
@@ -123,7 +123,7 @@ function makeLayer(
         ? over.oc()
         : Effect.succeed({ sessionId: "s", text: "did the thing", cost: 1, tokens: 2 });
     },
-  } as unknown as OpenCodeService);
+  } as unknown as OpenCodeServiceShape);
 
   return { layer: Layer.mergeAll(db, gh, git, oc), calls };
 }

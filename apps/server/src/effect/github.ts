@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { Octokit } from "octokit";
 import { getApp, getInstallationOctokit } from "~/github";
 import { log } from "~/server/log";
@@ -29,16 +29,16 @@ const isNotFound = (cause: unknown): boolean => {
 // per-installation), worth avoiding on every evaluation.
 let cachedBotLogin: string | undefined;
 
-export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubService", {
-  sync: () => ({
+export class GitHubService extends Context.Service<GitHubService>()("app/GitHubService", {
+  make: Effect.sync(() => ({
     installationClient: (installationId: number): Effect.Effect<Octokit, GitHubError> =>
       Effect.tryPromise({
         try: () => getInstallationOctokit(installationId),
         catch: (cause) => new GitHubError({ op: "getInstallationOctokit", cause }),
       }).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: CHECK_TIMEOUT_MS,
-          onTimeout: () => new GitHubError({ op: "getInstallationOctokit", cause: "timeout" }),
+          orElse: () => Effect.fail(new GitHubError({ op: "getInstallationOctokit", cause: "timeout" })),
         }),
       ),
 
@@ -95,7 +95,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         // the run — same as any other create failure: the review proceeds and
         // the row simply carries no check to close.
         Effect.timeout(CHECK_TIMEOUT_MS),
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             log.warn("check create failed (needs checks:write permission?)", {
               error: String(cause),
@@ -118,7 +118,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         octokit.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body }),
       ).pipe(
         Effect.asVoid,
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             log.warn("issue comment create failed", { error: String(cause) });
           }),
@@ -153,7 +153,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       ).pipe(
         Effect.as(true),
         Effect.timeout(CHECK_TIMEOUT_MS),
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             log.warn("check update failed", { error: String(cause) });
             return false;
@@ -176,7 +176,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
       ).pipe(
         Effect.map((res): "open" | "closed" => (res.data.status === "completed" ? "closed" : "open")),
         Effect.timeout(CHECK_TIMEOUT_MS),
-        Effect.catchAll(
+        Effect.catch(
           (cause): Effect.Effect<"open" | "closed" | "unknown"> =>
             Effect.succeed(isNotFound(cause) ? "closed" : "unknown"),
         ),
@@ -361,7 +361,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         octokit.rest.repos.getBranchProtection({ owner, repo, branch }),
       ).pipe(
         Effect.map((res) => res.data.required_status_checks?.contexts ?? null),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       ),
 
     // Never throws: the caller (merge/evaluate.ts) needs to tell a head-moved
@@ -386,7 +386,7 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
         }),
       ).pipe(
         Effect.map((res) => ({ ok: true as const, sha: res.data.sha })),
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             const status = (cause as { status?: number })?.status ?? 0;
             const message = String((cause as { message?: string })?.message ?? cause);
@@ -395,5 +395,10 @@ export class GitHubService extends Effect.Service<GitHubService>()("app/GitHubSe
           }),
         ),
       ),
-  }),
-}) {}
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make);
+}
+
+// The service's method bag — what `yield* GitHubService` returns. v4's class instance type is not the shape.
+export type GitHubServiceShape = Context.Service.Shape<typeof GitHubService>;

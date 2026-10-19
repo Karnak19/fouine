@@ -171,17 +171,17 @@ export function skipNitsPipeline(
 
     const octokit = yield* gh
       .installationClient(target.installationId)
-      .pipe(Effect.catchAll(fail("installationClient")));
+      .pipe(Effect.catch(fail("installationClient")));
     if (!octokit) return "confused";
     const pull = yield* gh
       .getPull(octokit, owner, repo, prNumber)
-      .pipe(Effect.catchAll(fail("getPull")));
+      .pipe(Effect.catch(fail("getPull")));
     if (!pull) return "confused";
-    const botLogin = yield* gh.botLogin().pipe(Effect.catchAll(fail("botLogin")));
+    const botLogin = yield* gh.botLogin().pipe(Effect.catch(fail("botLogin")));
     if (!botLogin) return "confused";
     const all = yield* gh
       .listReviews(octokit, owner, repo, prNumber)
-      .pipe(Effect.catchAll(fail("listReviews")));
+      .pipe(Effect.catch(fail("listReviews")));
     if (!all) return "confused";
 
     const fouineRaw = all.filter((r) => r.user === botLogin);
@@ -232,7 +232,7 @@ export function skipNitsPipeline(
     });
     const approvalId = yield* gh
       .approvePull(octokit, owner, repo, prNumber, reviewed, body)
-      .pipe(Effect.catchAll(fail("approvePull")));
+      .pipe(Effect.catch(fail("approvePull")));
     if (approvalId === undefined) return "confused";
 
     yield* Effect.sync(() =>

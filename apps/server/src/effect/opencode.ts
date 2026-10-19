@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { OpenCode } from "@opencode/client";
 import type { PermissionRuleset } from "@opencode/client";
 import { resolveApiKey, resolveDefaultModel, ZAI_PROVIDER } from "~/settings";
@@ -412,8 +412,8 @@ process.on("exit", () => openCodeManager.stop());
 // manager (spawning/reconnecting on first use), registers a demux sink for the
 // session, races the run against the watchdog and against server loss, then
 // interrupts the session and deregisters. It NEVER kills the server.
-export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/OpenCodeService", {
-  sync: () => ({
+export class OpenCodeService extends Context.Service<OpenCodeService>()("app/OpenCodeService", {
+  make: Effect.sync(() => ({
     runReview: (
       opts: RunOptions,
       onSession: (id: string) => void,
@@ -461,7 +461,7 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
             else signal.addEventListener("abort", onAbort, { once: true });
           });
 
-          const watchdog = Effect.async<never, OpenCodeError>((resume) => {
+          const watchdog = Effect.callback<never, OpenCodeError>((resume) => {
             const timer = setInterval(() => {
               const verdict = watchdogVerdict(
                 state,
@@ -562,5 +562,10 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
           }),
       );
     },
-  }),
-}) {}
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make);
+}
+
+// The service's method bag — what `yield* OpenCodeService` returns. v4's class instance type is not the shape.
+export type OpenCodeServiceShape = Context.Service.Shape<typeof OpenCodeService>;

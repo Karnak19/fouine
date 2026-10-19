@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
 import { buildImprovePrompt, improvePipeline, type ImproveTarget } from "~/effect/improve";
-import { DbService } from "~/effect/db";
-import { GitHubService } from "~/effect/github";
-import { GitService } from "~/effect/git";
-import { OpenCodeService } from "~/effect/opencode";
+import { DbService, type DbServiceShape } from "~/effect/db";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
+import { GitService, type GitServiceShape } from "~/effect/git";
+import { OpenCodeService, type OpenCodeServiceShape } from "~/effect/opencode";
 import { OpenCodeError } from "~/effect/errors";
 
 const target: ImproveTarget = {
@@ -39,7 +39,7 @@ function makeLayer(over: {
     complete: () => Effect.sync(() => void calls.completed++),
     fail: (_id: number, error: string) => Effect.sync(() => void calls.failed.push(error)),
     status: () => Effect.succeed("running"),
-  } as unknown as DbService);
+  } as unknown as DbServiceShape);
 
   const octokit = {
     rest: {
@@ -55,14 +55,14 @@ function makeLayer(over: {
     installationClient: () => Effect.succeed(octokit as never),
     installationToken: () => Effect.succeed("tok"),
     defaultBranch: () => Effect.succeed("main"),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
 
   const git = Layer.succeed(GitService, {
     ensureBare: () => Effect.succeed("bare"),
     fetchRef: (_repo: string, ref: string) => Effect.sync(() => ((calls.fetchedRef = ref), "sha")),
     addWorktree: () => Effect.void,
     removeWorktree: () => Effect.void,
-  } as unknown as GitService);
+  } as unknown as GitServiceShape);
 
   const oc = Layer.succeed(OpenCodeService, {
     runReview: (o: { agent?: string; prompt?: string; denyTestCommands?: boolean }) => {
@@ -73,7 +73,7 @@ function makeLayer(over: {
         ? over.oc()
         : Effect.succeed({ sessionId: "s", text: "no learnings", cost: 1, tokens: 2 });
     },
-  } as unknown as OpenCodeService);
+  } as unknown as OpenCodeServiceShape);
 
   return { layer: Layer.mergeAll(db, gh, git, oc), calls };
 }

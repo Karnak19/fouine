@@ -3,8 +3,8 @@ import type { Octokit } from "octokit";
 import type { ReviewRow } from "@fouine/shared";
 import { config } from "~/config";
 import { log } from "~/server/log";
-import { DbService } from "~/effect/db";
-import { GitHubService } from "~/effect/github";
+import { DbService, type DbServiceShape } from "~/effect/db";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
 import type { DatabaseError, GitHubError } from "~/effect/errors";
 
 // How long past the review watchdog's absolute ceiling an in-flight row may sit
@@ -39,8 +39,8 @@ const terminalSummary = (status: string): string =>
 // Resolve the repo's current installation client. Null when the repo row is
 // gone (deleted) — the caller then settles the DB row but has no check to close.
 function clientFor(
-  db: DbService,
-  gh: GitHubService,
+  db: DbServiceShape,
+  gh: GitHubServiceShape,
   repoFullName: string,
 ): Effect.Effect<Octokit | null, DatabaseError | GitHubError> {
   return Effect.gen(function* () {
@@ -54,8 +54,8 @@ function clientFor(
 // a single bad row must not abort the sweep; the error is logged and the next
 // tick retries what was left behind.
 function settleStaleRow(
-  db: DbService,
-  gh: GitHubService,
+  db: DbServiceShape,
+  gh: GitHubServiceShape,
   row: ReviewRow,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
@@ -80,7 +80,7 @@ function settleStaleRow(
       closed,
     });
   }).pipe(
-    Effect.catchAll((cause) =>
+    Effect.catch((cause) =>
       Effect.sync(() =>
         log.warn("stale row reconcile failed, will retry next tick", {
           review: row.id,
@@ -94,8 +94,8 @@ function settleStaleRow(
 // One terminal row: close its check only if GitHub still shows it open. Never
 // fails, same reason as above.
 function verifyTerminalRow(
-  db: DbService,
-  gh: GitHubService,
+  db: DbServiceShape,
+  gh: GitHubServiceShape,
   row: ReviewRow,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
@@ -123,7 +123,7 @@ function verifyTerminalRow(
       closed,
     });
   }).pipe(
-    Effect.catchAll((cause) =>
+    Effect.catch((cause) =>
       Effect.sync(() =>
         log.warn("terminal row verify failed, will retry next tick", {
           review: row.id,

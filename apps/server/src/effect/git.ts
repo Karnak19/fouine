@@ -1,4 +1,4 @@
-import { Effect, Schedule } from "effect";
+import { Context, Effect, Layer, Schedule } from "effect";
 import {
   addWorktree,
   commitAll,
@@ -17,7 +17,7 @@ import { GitError } from "~/effect/errors";
 // git ops. Local worktree add/remove don't retry — a failure there is a real
 // problem, not a flaky network. tapError logs each failed attempt so a retried
 // clone/fetch is visible, not silent.
-const retryNetwork = Schedule.exponential("500 millis").pipe(Schedule.compose(Schedule.recurs(2)));
+const retryNetwork = Schedule.max([Schedule.exponential("500 millis"), Schedule.recurs(2)]);
 
 const withRetry = <A>(op: string, run: () => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (cause) => new GitError({ op, cause }) }).pipe(
@@ -25,8 +25,8 @@ const withRetry = <A>(op: string, run: () => Promise<A>) =>
     Effect.retry(retryNetwork),
   );
 
-export class GitService extends Effect.Service<GitService>()("app/GitService", {
-  sync: () => ({
+export class GitService extends Context.Service<GitService>()("app/GitService", {
+  make: Effect.sync(() => ({
     ensureBare: (fullName: string, cloneUrl: string): Effect.Effect<string, GitError> =>
       withRetry("ensureBare", () => ensureBare(fullName, cloneUrl)),
 
@@ -80,5 +80,10 @@ export class GitService extends Effect.Service<GitService>()("app/GitService", {
 
     pushHead: (worktreePath: string, branch: string): Effect.Effect<void, GitError> =>
       withRetry("pushHead", () => pushHead(worktreePath, branch)),
-  }),
-}) {}
+  })),
+}) {
+  static readonly layer = Layer.effect(this, this.make);
+}
+
+// The service's method bag — what `yield* GitService` returns. v4's class instance type is not the shape.
+export type GitServiceShape = Context.Service.Shape<typeof GitService>;

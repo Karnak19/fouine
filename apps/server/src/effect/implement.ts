@@ -77,7 +77,7 @@ export function implementPipeline(
 
         const token = yield* gh.installationToken(octokit);
         const base = yield* gh.defaultBranch(octokit, owner, repoName);
-        const botLogin = yield* gh.botLogin().pipe(Effect.catchAll(() => Effect.succeed("fouine[bot]")));
+        const botLogin = yield* gh.botLogin().pipe(Effect.catch(() => Effect.succeed("fouine[bot]")));
 
         // Resume on the issue's own branch if a previous attempt already
         // pushed one — otherwise start fresh off the default branch. Fails
@@ -89,7 +89,7 @@ export function implementPipeline(
           catch: (cause) => cause,
         }).pipe(
           Effect.map(() => true),
-          Effect.catchAll((cause) => {
+          Effect.catch((cause) => {
             if ((cause as { status?: number }).status === 404) return Effect.succeed(false);
             return Effect.fail(new GitHubError({ op: "git.getRef", cause }));
           }),
@@ -122,7 +122,7 @@ export function implementPipeline(
             transcript: { reviewId: id, repo: target.repoFullName },
           },
           (sessionId) =>
-            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
+            Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catch(() => Effect.void))),
           signal,
         );
 
@@ -240,12 +240,12 @@ export function implementPipeline(
           }
           const current = yield* db
             .status(id)
-            .pipe(Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)));
+            .pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined)));
           if (current === "completed" || current === "failed") return;
           yield* writeFailure(db, id, message);
         }),
       ),
-      Effect.catchAll((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
+      Effect.catch((err) => (signal.aborted ? Effect.void : Effect.fail(err))),
     );
   });
 }

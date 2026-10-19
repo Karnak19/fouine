@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { findings, nitDismissals, repos, reviews, type FindingRow } from "~/db";
-import { GitHubService } from "~/effect/github";
+import { GitHubService, type GitHubServiceShape } from "~/effect/github";
 import {
   decideSkipNits,
   renderSkipNitsApproval,
@@ -190,7 +190,7 @@ function fakeLayer(opts: { author?: string; state?: string; commit?: string }) {
       Effect.sync(() => {
         calls.comments.push(body);
       }),
-  } as unknown as GitHubService);
+  } as unknown as GitHubServiceShape);
   return { gh, calls };
 }
 

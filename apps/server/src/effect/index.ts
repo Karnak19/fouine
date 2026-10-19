@@ -7,10 +7,10 @@ import { OpenCodeService } from "~/effect/opencode";
 // The full dependency graph the review pipeline needs. Provide this once at the
 // runPromise boundary; swap individual layers in tests.
 export const AppLayer = Layer.mergeAll(
-  DbService.Default,
-  GitHubService.Default,
-  GitService.Default,
-  OpenCodeService.Default,
+  DbService.layer,
+  GitHubService.layer,
+  GitService.layer,
+  OpenCodeService.layer,
 );
 
 export * from "~/effect/errors";
