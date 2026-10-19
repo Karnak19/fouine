@@ -109,6 +109,21 @@ export function CommandPalette({
             );
           })}
         </CommandGroup>
+        <CommandGroup heading="Repository settings">
+          {repos?.map((r) => {
+            const [owner, name] = r.full_name.split("/");
+            return (
+              <CommandItem
+                key={r.full_name}
+                value={`${r.full_name} settings`}
+                onSelect={() => go("/repos/$owner/$name/settings", { owner, name })}
+              >
+                <Settings />
+                {r.full_name} settings
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
         <CommandGroup heading="Reviews">
           {isReviewId && (
             <CommandItem

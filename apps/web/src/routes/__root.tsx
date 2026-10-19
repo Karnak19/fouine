@@ -300,6 +300,12 @@ const repoRoute = createRoute({
   component: lazyRouteComponent(() => import("./repo-detail")),
   staticData: { title: (p) => `${p.owner}/${p.name}` },
 });
+const repoSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/repos/$owner/$name/settings",
+  component: lazyRouteComponent(() => import("./repo-settings")),
+  staticData: { title: (p) => `${p.owner}/${p.name} settings` },
+});
 const prRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos/$owner/$name/pr/$number",
@@ -360,6 +366,7 @@ export const routeTree = rootRoute.addChildren([
   indexRoute,
   reposRoute,
   repoRoute,
+  repoSettingsRoute,
   prRoute,
   reviewsRoute,
   reviewDetailRoute,
