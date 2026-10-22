@@ -10,23 +10,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.30",
-    "@brainervirus/opencode-commandcode": "0.7.73",
+    "@ai-sdk/openai-compatible": "^3.0.75",
+    "@brainervirus/opencode-commandcode": "0.7.81",
     "@elysia/static": "^1.4.11",
     "@fouine/shared": "workspace:*",
-    "@json-render/core": "0.21.0",
-    "@json-render/yaml": "0.21.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@json-render/core": "0.21.1",
+    "@json-render/yaml": "0.21.1",
     "@octokit/webhooks": "^14.2.0",
-    "@opencode-ai/models": "^0.0.24",
+    "@opencode-ai/models": "^0.0.112",
     "@opencode/client": "2.0.11",
-    "ai": "^7.0.65",
+    "ai": "^7.0.148",
     "better-auth": "^1.6.23",
     "bun-plugin-tailwind": "^0.1.2",
     "effect": "^3.21.4",
     "elysia": "^1.4.29",
     "octokit": "^5.0.5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.11"
