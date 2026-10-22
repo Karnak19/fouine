@@ -228,16 +228,20 @@ export default function SettingsPage() {
       data.implement_model = implementModel.trim();
       data.improver_model = improverModel.trim();
       data.chat_model = chatModel.trim();
+      // Not like the two prompts below: PUT /settings only ever sets
+      // default_prompt and ignores "", so sending blank would not clear it.
       if (prompt.trim()) data.default_prompt = prompt.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
       data.deny_test_commands = denyTestCommands ? "1" : "";
       data.refine_enabled = refineEnabled ? "1" : "";
-      if (refinePrompt.trim()) data.default_refine_prompt = refinePrompt.trim();
+      // Prompts round-trip like models: blank deletes the row and the built-in
+      // prompt takes over. Safe because the form only renders once hydrated.
+      data.default_refine_prompt = refinePrompt.trim();
       data.auto_ready = autoReady ? "1" : "";
       data.implement_enabled = implementEnabled ? "1" : "";
       data.implement_label = implementLabel.trim();
-      if (implementPrompt.trim()) data.default_implement_prompt = implementPrompt.trim();
+      data.default_implement_prompt = implementPrompt.trim();
       data.auto_merge = autoMerge ? "1" : "";
       data.merge_method = mergeMethod;
       return api.settings.update(data);
