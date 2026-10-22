@@ -47,8 +47,22 @@ export function formatSeconds(secs: number | null): string | null {
   return `${h}h ${m % 60}m`;
 }
 
+const TOKEN_UNITS = [
+  ["k", 1e3],
+  ["M", 1e6],
+  ["B", 1e9],
+] as const;
+
+// Three significant digits in the largest unit that keeps the number under
+// 1000: 12.3k, 29.1M, 1.5B. Rounding can carry a value over the edge (999,950
+// is 999.95k, which rounds to 1000k), so that case moves up a unit and reads 1M.
 export function formatTokens(tokens: number | null): string | null {
   if (tokens == null) return null;
-  if (tokens < 1000) return `${tokens}`;
-  return `${(tokens / 1000).toFixed(1)}k`;
+  if (Math.abs(tokens) < 1000) return `${tokens}`;
+  for (let i = 0; i < TOKEN_UNITS.length; i++) {
+    const [unit, size] = TOKEN_UNITS[i]!;
+    const rounded = Number((tokens / size).toPrecision(3));
+    if (Math.abs(rounded) < 1000 || i === TOKEN_UNITS.length - 1) return `${rounded}${unit}`;
+  }
+  return null; // unreachable: the last unit always returns
 }
