@@ -17,9 +17,8 @@ import { LiveBadge } from "@/components/live-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Stat } from "@/components/stat";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
-import { DonutChart, mixFromRows, SEVERITY_COLORS } from "@/components/charts";
+import { DonutChart, mixFromRows, RankedBars, SEVERITY_COLORS } from "@/components/charts";
 import { Inbox } from "lucide-react";
 
 const DAY_S = 24 * 60 * 60;
@@ -195,20 +194,16 @@ export default function DashboardPage() {
       )}
 
       {stats && (stats.projects.length > 0 || stats.models.length > 0 || stats.topCost.length > 0) && (
-        <div className="grid gap-7 lg:grid-cols-2 items-start">
-          {/* The 5-col project table is wide by nature — span both columns; the
-              model table + expensive list pair up beside each other. */}
-          {stats.projects.length > 0 && (
-            <div className="lg:col-span-2">
-              <ProjectStats projects={stats.projects} />
-            </div>
-          )}
+        // Three ranked lists of the same shape, so they sit as one row of
+        // columns once there is room and stack on a phone.
+        <div className="grid grid-cols-1 gap-7 lg:grid-cols-2 xl:grid-cols-3 items-start">
+          {stats.projects.length > 0 && <ProjectStats projects={stats.projects} />}
           {stats.models.length > 0 && <ModelStats models={stats.models} />}
-          {stats.topCost.length > 0 && <TopCost rows={stats.topCost} />}
+          {stats.topCost.length > 0 && <TopCost rows={stats.topCost} reviews={all} />}
         </div>
       )}
 
-      <section className="space-y-2.5">
+      <section className="min-w-0 space-y-2.5">
         <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Recent activity</h2>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
           {isPending ? (
@@ -292,6 +287,9 @@ function CostTrend({ daily }: { daily: DailyStatsRow[] }) {
   );
 }
 
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+const dot = (parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(" · ");
+
 function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
   const totals = projects.reduce(
     (acc, p) => {
@@ -304,73 +302,47 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
   );
 
   return (
-    <section className="space-y-2.5">
+    <section className="min-w-0 space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost by project</h2>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Project</TableHead>
-              <TableHead className="text-right">Reviews</TableHead>
-              <TableHead className="text-right">Avg time</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {projects.map((p) => {
-              const [owner, name] = p.repo_full_name.split("/");
-              return (
-                <TableRow key={p.repo_full_name}>
-                  <TableCell className="py-2.5 font-mono text-zinc-200">
-                    {owner && name ? (
-                      <Link
-                        to="/repos/$owner/$name"
-                        params={{ owner, name }}
-                        className="hover:text-ember-300"
-                      >
-                        {p.repo_full_name}
+        <RankedBars
+          rows={projects.map((p) => {
+            const [owner, name] = p.repo_full_name.split("/");
+            return {
+              key: p.repo_full_name,
+              label: p.repo_full_name,
+              title: p.repo_full_name,
+              value: p.cost,
+              valueLabel: formatCost(p.cost) ?? "—",
+              meta: dot([
+                plural(p.reviews, "review"),
+                p.avg_duration != null && `avg ${formatSeconds(p.avg_duration)}`,
+                p.tokens > 0 && `${formatTokens(p.tokens)} tokens`,
+              ]),
+              wrap:
+                owner && name
+                  ? (children, className) => (
+                      <Link to="/repos/$owner/$name" params={{ owner, name }} className={className}>
+                        {children}
                       </Link>
-                    ) : (
-                      p.repo_full_name
-                    )}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {p.reviews}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {formatSeconds(p.avg_duration) ?? "—"}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                    {formatTokens(p.tokens) ?? "—"}
-                  </TableCell>
-                  <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
-                    {formatCost(p.cost) ?? "—"}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-          {projects.length > 1 && (
-            <tfoot className="border-t border-zinc-800">
-              <TableRow className="hover:bg-transparent">
-                <TableCell className="py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                  Total
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-300">
-                  {totals.reviews}
-                </TableCell>
-                <TableCell />
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-300">
-                  {formatTokens(totals.tokens) ?? "—"}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-100 font-semibold">
+                    )
+                  : undefined,
+            };
+          })}
+          footer={
+            projects.length > 1 && (
+              <>
+                <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Total</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-zinc-500 tabular-nums">
+                  {dot([plural(totals.reviews, "review"), totals.tokens > 0 && `${formatTokens(totals.tokens)} tokens`])}
+                </span>
+                <span className="shrink-0 text-sm font-semibold text-zinc-100 tabular-nums">
                   {formatCost(totals.cost) ?? "—"}
-                </TableCell>
-              </TableRow>
-            </tfoot>
-          )}
-        </Table>
+                </span>
+              </>
+            )
+          }
+        />
       </div>
     </section>
   );
@@ -378,74 +350,60 @@ function ProjectStats({ projects }: { projects: ProjectStatsRow[] }) {
 
 function ModelStats({ models }: { models: ModelStatsRow[] }) {
   return (
-    <section className="space-y-2.5">
+    <section className="min-w-0 space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cost by model</h2>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Model</TableHead>
-              <TableHead className="text-right">Reviews</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {models.map((m) => (
-              <TableRow key={m.model}>
-                <TableCell className="py-2.5 font-mono text-zinc-200">{m.model}</TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                  {m.reviews}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-400">
-                  {formatTokens(m.tokens) ?? "—"}
-                </TableCell>
-                <TableCell className="py-2.5 text-right tabular-nums text-zinc-200">
-                  {formatCost(m.cost) ?? "—"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <RankedBars
+          rows={models.map((m) => ({
+            key: m.model,
+            label: m.model,
+            title: m.model,
+            value: m.cost,
+            valueLabel: formatCost(m.cost) ?? "—",
+            meta: dot([plural(m.reviews, "review"), m.tokens > 0 && `${formatTokens(m.tokens)} tokens`]),
+          }))}
+        />
       </div>
     </section>
   );
 }
 
-function TopCost({ rows }: { rows: Stats["topCost"] }) {
+// Specific PRs, not a distribution, so it stays a list of links — the bar only
+// says how each compares with the priciest. /api/stats returns just id, repo,
+// PR, model and tokens here; the title and date come from the review list the
+// page already holds, when the review is recent enough to be in it.
+function TopCost({ rows, reviews }: { rows: Stats["topCost"]; reviews: ReviewRow[] }) {
+  const byId = new Map(reviews.map((r) => [r.id, r]));
   return (
-    <section className="space-y-2.5">
+    <section className="min-w-0 space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
         Most expensive reviews
       </h2>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-        <ul className="divide-y divide-zinc-800/70">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to="/reviews/$id"
-                params={{ id: String(r.id) }}
-                className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-zinc-800/40"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-sm text-zinc-200 truncate">
-                    {r.repo_full_name}
-                    {r.pr_number > 0 ? `#${r.pr_number}` : ""}
-                  </div>
-                  {r.model && <div className="text-xs text-zinc-500 truncate">{r.model}</div>}
-                </div>
-                {r.tokens != null && (
-                  <span className="shrink-0 text-xs text-zinc-500 tabular-nums w-14 text-right">
-                    {formatTokens(r.tokens)}
-                  </span>
-                )}
-                <span className="shrink-0 text-sm text-zinc-100 tabular-nums w-16 text-right">
-                  {formatCost(r.cost)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <RankedBars
+          rows={rows.map((r) => {
+            const review = byId.get(r.id);
+            const name = `${r.repo_full_name}${r.pr_number > 0 ? `#${r.pr_number}` : ""}`;
+            return {
+              key: String(r.id),
+              label: name,
+              title: name,
+              sub: review?.title ?? undefined,
+              value: r.cost,
+              valueLabel: formatCost(r.cost) ?? "—",
+              meta: dot([
+                r.model,
+                r.tokens != null && `${formatTokens(r.tokens)} tokens`,
+                review && timeAgo(review.created_at),
+              ]),
+              wrap: (children, className) => (
+                <Link to="/reviews/$id" params={{ id: String(r.id) }} className={className}>
+                  {children}
+                </Link>
+              ),
+            };
+          })}
+        />
       </div>
     </section>
   );
@@ -462,7 +420,7 @@ function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
     "count",
   );
   return (
-    <section className="space-y-2.5">
+    <section className="min-w-0 space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">How reviews start</h2>
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40">
         <DonutChart slices={slices} unit={total === 1 ? "review" : "reviews"} />
@@ -489,7 +447,7 @@ function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
       color: SEVERITY_COLORS[x.severity] ?? "bg-zinc-500",
     }));
   return (
-    <section className="space-y-2.5">
+    <section className="min-w-0 space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
         Findings by severity
       </h2>
