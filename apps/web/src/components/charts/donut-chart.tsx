@@ -1,7 +1,7 @@
 import { Pie, PieChart } from "recharts";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { formatValue } from "./from-rows";
-import { ChartTip, fillOf, Measured, type TipProps } from "./recharts-base";
+import { ChartTip, fillOf, Measured } from "./recharts-base";
 
 // A donut for "what is this made of" when there are only a handful of parts.
 // The ring shows the split, the hole carries the total, and the legend beside
@@ -55,7 +55,7 @@ export function DonutChart({
           <ChartContainer config={config} className="aspect-square h-full w-full">
             <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
               <ChartTooltip
-                content={({ active, payload }: TipProps) => {
+                content={({ active, payload }) => {
                   const s = payload?.[0]?.payload as DonutSlice | undefined;
                   return (
                     <ChartTip
