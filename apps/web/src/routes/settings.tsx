@@ -228,9 +228,7 @@ export default function SettingsPage() {
       data.implement_model = implementModel.trim();
       data.improver_model = improverModel.trim();
       data.chat_model = chatModel.trim();
-      // Not like the two prompts below: PUT /settings only ever sets
-      // default_prompt and ignores "", so sending blank would not clear it.
-      if (prompt.trim()) data.default_prompt = prompt.trim();
+      data.default_prompt = prompt.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
       data.deny_test_commands = denyTestCommands ? "1" : "";

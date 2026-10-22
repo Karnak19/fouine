@@ -820,9 +820,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
-      if (body.default_prompt) {
-        settings.set.run({ $key: SETTINGS.PROMPT, $value: body.default_prompt });
-      }
+      setKey(SETTINGS.PROMPT, body.default_prompt);
       return settingsSnapshot();
     },
     {
