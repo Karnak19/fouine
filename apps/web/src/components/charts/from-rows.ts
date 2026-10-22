@@ -131,8 +131,8 @@ export function stackedFromRows(rows: Row[], x: string, y: string, series: strin
 }
 
 /**
- * MixBar items: one slice per label, summed, in the palette's fixed order with
- * the same fold as the stacked bars. A MixBar shows proportion only, so a
+ * MixBar (and DonutChart) items: one slice per label, summed, in the palette's
+ * fixed order with the same fold as the stacked bars. A MixBar shows proportion only, so a
  * negative slice would draw a negative width — those are dropped.
  */
 export function mixFromRows(rows: Row[], labelCol: string, valueCol: string): MixBarItem[] {
@@ -142,7 +142,9 @@ export function mixFromRows(rows: Row[], labelCol: string, valueCol: string): Mi
     totals.set(key, (totals.get(key) ?? 0) + num(r[valueCol]));
   }
   const ordered = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-  const keep = TRIGGER_COLORS.length - 1;
+  // When everything fits there is nothing to fold: a fifth slice keeps its own
+  // name on the last hue rather than becoming "1 others".
+  const keep = ordered.length <= TRIGGER_COLORS.length ? ordered.length : TRIGGER_COLORS.length - 1;
   const head = ordered.slice(0, keep);
   const tail = ordered.slice(keep);
   const items = head.map(([key, count], i) => ({
