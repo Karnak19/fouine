@@ -16,6 +16,7 @@ export {
   type StackedBar,
   type StackedBarSegment,
 } from "./bar-chart";
+export { DonutChart, type DonutSlice } from "./donut-chart";
 export { LineChart, type LinePoint, DOTS_UP_TO } from "./line-chart";
 export { SEVERITY_COLORS, TRIGGER_COLORS } from "./colors";
 export { scaleMax } from "./scale";

@@ -120,6 +120,16 @@ test("mix bar folds past the palette too", () => {
   expect(items.at(-1)!.color).toBe(TRIGGER_COLORS.at(-1)!);
 });
 
+test("mix bar names a fifth slice instead of folding it alone", () => {
+  const items = mixFromRows(
+    Array.from({ length: TRIGGER_COLORS.length }, (_, i) => ({ k: `k${i}`, v: 9 - i })),
+    "k",
+    "v",
+  );
+  expect(items.map((i) => i.label)).toEqual(TRIGGER_COLORS.map((_, i) => `k${i}`));
+  expect(items.map((i) => i.color)).toEqual(TRIGGER_COLORS);
+});
+
 test("bars stand up for dates and short buckets, lie down for long or many names", () => {
   expect(barLayout(["2026-08-01", "2026-08-02", "2026-08-03"])).toBe("vertical");
   // A month of dates is still a timeline, however many there are.

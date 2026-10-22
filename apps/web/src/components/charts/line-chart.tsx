@@ -1,7 +1,7 @@
 import { CartesianGrid, Line, LineChart as RLineChart, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { formatValue } from "./from-rows";
-import { ChartTip, Measured, TICK, Y_AXIS_WIDTH } from "./recharts-base";
+import { ChartTip, Measured, TICK, Y_AXIS_WIDTH, type TipProps } from "./recharts-base";
 
 export interface LinePoint {
   key: string;
@@ -52,7 +52,7 @@ export function LineChart({
           />
           <ChartTooltip
             cursor={{ stroke: "var(--color-border)" }}
-            content={({ active, payload }) => (
+            content={({ active, payload }: TipProps) => (
               <ChartTip active={active} lines={payload?.[0] ? lines(payload[0].payload as LinePoint) : []} />
             )}
           />

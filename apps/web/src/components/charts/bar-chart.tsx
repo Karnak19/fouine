@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { barLayout, capBars, formatValue, type BarLayout } from "./from-rows";
-import { ChartTip, fillOf, Measured, TICK, Y_AXIS_WIDTH } from "./recharts-base";
+import { ChartTip, fillOf, Measured, TICK, Y_AXIS_WIDTH, type TipProps } from "./recharts-base";
 
 // Bars on Recharts. Two forms, decided from the labels by `barLayout` unless
 // the caller says otherwise: vertical for timelines and short buckets, where
@@ -80,7 +80,7 @@ export function BarChart({
               />
               <ChartTooltip
                 cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-                content={({ active, payload }) => (
+                content={({ active, payload }: TipProps) => (
                   <ChartTip
                     active={active}
                     lines={payload?.[0] ? tipLines(payload[0].payload as BarChartBar, unit) : []}
@@ -137,7 +137,7 @@ export function BarChart({
             />
             <ChartTooltip
               cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-              content={({ active, payload }) => (
+              content={({ active, payload }: TipProps) => (
                 <ChartTip
                   active={active}
                   lines={payload?.[0] ? tipLines(payload[0].payload as BarChartBar, unit) : []}
@@ -246,7 +246,7 @@ export function StackedBarChart({
             />
             <ChartTooltip
               cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-              content={({ active, payload }) => {
+              content={({ active, payload }: TipProps) => {
                 const bar = payload?.[0] ? shown.find((b) => b.key === (payload[0]!.payload as StackedBar).key) : undefined;
                 return <ChartTip active={active} lines={bar ? lines(bar) : []} />;
               }}

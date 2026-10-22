@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Stat } from "@/components/stat";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCost, formatSeconds, formatTokens, timeAgo, triggerLabel } from "@/lib/format";
-import { TRIGGER_COLORS } from "@/components/charts/colors";
+import { DonutChart, mixFromRows, SEVERITY_COLORS } from "@/components/charts";
 import { Inbox } from "lucide-react";
 
 const DAY_S = 24 * 60 * 60;
@@ -454,71 +454,47 @@ function TopCost({ rows }: { rows: Stats["topCost"] }) {
 function TriggerMix({ triggers }: { triggers: TriggerStatsRow[] }) {
   const total = triggers.reduce((s, t) => s + t.count, 0);
   if (!total) return null;
+  // The shared palette and its fold, so a trigger is the same colour here and
+  // on /stats, and a sixth trigger becomes "others" instead of reusing a hue.
+  const slices = mixFromRows(
+    triggers.map((t) => ({ trigger: triggerLabel(t.trigger) ?? t.trigger, count: t.count })),
+    "trigger",
+    "count",
+  );
   return (
     <section className="space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">How reviews start</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3.5 space-y-3">
-        <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
-          {triggers.map((t, i) => (
-            <div
-              key={t.trigger}
-              className={TRIGGER_COLORS[i % TRIGGER_COLORS.length]}
-              style={{ width: `${(t.count / total) * 100}%` }}
-              title={`${triggerLabel(t.trigger) ?? t.trigger}: ${t.count}`}
-            />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
-          {triggers.map((t, i) => (
-            <span key={t.trigger} className="flex items-center gap-1.5 tabular-nums">
-              <span
-                className={`h-2 w-2 rounded-full ${TRIGGER_COLORS[i % TRIGGER_COLORS.length]}`}
-              />
-              {triggerLabel(t.trigger) ?? t.trigger}
-              <span className="text-zinc-500">{t.count}</span>
-            </span>
-          ))}
-        </div>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40">
+        <DonutChart slices={slices} unit={total === 1 ? "review" : "reviews"} />
       </div>
     </section>
   );
 }
 
-// blocking = alarm, question = ask, nit = muted — same palette as the review view.
-const SEVERITY_META: Record<string, { label: string; dot: string }> = {
-  blocking: { label: "blocking", dot: "bg-red-400" },
-  question: { label: "question", dot: "bg-amber-400" },
-  nit: { label: "nit", dot: "bg-zinc-500" },
-};
+// Severity is ordered, so the ring keeps that order (worst first, clockwise)
+// whatever the counts; the endpoint sorts by count. A severity the dashboard
+// doesn't know yet goes after the known ones.
+const SEVERITY_ORDER = ["blocking", "question", "nit"];
 
 function SeverityMix({ severity }: { severity: SeverityStatsRow[] }) {
   const total = severity.reduce((s, x) => s + x.count, 0);
   if (!total) return null;
+  const rank = (s: string) => (SEVERITY_ORDER.includes(s) ? SEVERITY_ORDER.indexOf(s) : SEVERITY_ORDER.length);
+  const slices = [...severity]
+    .sort((a, b) => rank(a.severity) - rank(b.severity))
+    .map((x) => ({
+      key: x.severity,
+      label: x.severity,
+      count: x.count,
+      color: SEVERITY_COLORS[x.severity] ?? "bg-zinc-500",
+    }));
   return (
     <section className="space-y-2.5">
       <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
         Findings by severity
       </h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3.5 space-y-3">
-        <div className="flex h-2 overflow-hidden rounded-full bg-zinc-800">
-          {severity.map((x) => (
-            <div
-              key={x.severity}
-              className={SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}
-              style={{ width: `${(x.count / total) * 100}%` }}
-              title={`${SEVERITY_META[x.severity]?.label ?? x.severity}: ${x.count}`}
-            />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-400">
-          {severity.map((x) => (
-            <span key={x.severity} className="flex items-center gap-1.5 tabular-nums">
-              <span className={`h-2 w-2 rounded-full ${SEVERITY_META[x.severity]?.dot ?? "bg-zinc-500"}`} />
-              {SEVERITY_META[x.severity]?.label ?? x.severity}
-              <span className="text-zinc-500">{x.count}</span>
-            </span>
-          ))}
-        </div>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40">
+        <DonutChart slices={slices} unit={total === 1 ? "finding" : "findings"} />
       </div>
     </section>
   );

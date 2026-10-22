@@ -54,6 +54,11 @@ export function Measured({
   );
 }
 
+// What a `<ChartTooltip content={…}>` render function receives. Spelled out
+// because TypeScript 7 no longer infers it from the `content` prop, and an
+// untyped destructure is an implicit-any error under `strict`.
+export type TipProps = TooltipContentProps<number, string>;
+
 /**
  * One tooltip for every chart. The first line is the category, the rest are
  * "value unit" pairs — the same "a · b · c" convention the old title= strings
