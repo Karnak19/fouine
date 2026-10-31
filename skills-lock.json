@@ -37,11 +37,23 @@
       "skillPath": "skills/devtools-react/SKILL.md",
       "computedHash": "765ca54c37c7e6cd98e9bc9fe7695867217d9622cca902aac149c157f1735a29"
     },
+    "elements": {
+      "source": "assistant-ui/skills",
+      "sourceType": "github",
+      "skillPath": "assistant-ui/skills/elements/SKILL.md",
+      "computedHash": "8b03415d5e0c5b7dd699987a274df323cad025987c989591f0e5d85daea25bd8"
+    },
     "elysiajs": {
       "source": "elysiajs/skills",
       "sourceType": "github",
       "skillPath": "elysia/SKILL.md",
       "computedHash": "55268e69a2c766ed67e56a0db57544f60cc52dba0c7f024a974baf965e525e1b"
+    },
+    "generative-ui": {
+      "source": "assistant-ui/skills",
+      "sourceType": "github",
+      "skillPath": "assistant-ui/skills/generative-ui/SKILL.md",
+      "computedHash": "bff5ebf624929bbed048c229a2994001c136ea336e7cf245eadaa0d29baaad7a"
     },
     "markdown": {
       "source": "assistant-ui/skills",
