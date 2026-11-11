@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { findings, repos, reviews, type RepoRow, type ReviewRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
 import { publishReviewEvent } from "~/server/events";
+import { emitReviewCompleted } from "~/mastra/review-events";
 
 // bun:sqlite is synchronous; each call is wrapped in Effect.try so a statement
 // throwing surfaces as a typed DatabaseError instead of a raw exception. The
@@ -96,6 +97,9 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
           $patch: patchId,
         });
         publishReviewEvent("updated", id);
+        // MCP events are experimental and fire-and-forget: this promise is
+        // never awaited and never rejects, so a client bug cannot fail a review.
+        void emitReviewCompleted(id);
       }),
 
     // Terminal, like complete/fail — the push carried no diff change.
