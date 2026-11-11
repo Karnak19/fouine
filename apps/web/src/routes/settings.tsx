@@ -295,7 +295,12 @@ export default function SettingsPage() {
       data.slack_bot_user_id = slackBotUserId.trim();
       data.discord_public_key = discordPublicKey.trim();
       data.discord_application_id = discordApplicationId.trim();
-      data.discord_gateway = discordGateway ? "1" : "0";
+      // Only send when the user actually toggled it: sending unconditionally
+      // would pin the row on every save and defeat the DISCORD_GATEWAY env
+      // escape hatch (the row always wins once it exists).
+      if (discordGateway !== baseline.discordGateway) {
+        data.discord_gateway = discordGateway ? "1" : "0";
+      }
       data.channel_targets = channelTargets.trim();
       return api.settings.update(data);
     },

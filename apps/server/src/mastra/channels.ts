@@ -222,13 +222,31 @@ export interface NotificationDeps {
   health?: ChannelHealthStore;
 }
 
-async function defaultPoster(): Promise<
-  ((target: ChannelTarget, text: string) => Promise<unknown>) | null
-> {
-  const runtime = await channelRuntime();
-  if (!runtime) return null;
-  return (target, text) =>
-    runtime.sdk.channel(`${target.platform}:${target.channel}`).post(text);
+/**
+ * Build the production poster. Injectable runtime for tests; production
+ * resolves the live one.
+ */
+export async function defaultPoster(
+  runtime?: ChannelRuntime | null,
+): Promise<((target: ChannelTarget, text: string) => Promise<unknown>) | null> {
+  const rt = runtime === undefined ? await channelRuntime() : runtime;
+  if (!rt) return null;
+  return (target, text) => {
+    // A target whose platform has no registered adapter (e.g. a `discord` row
+    // in a Slack-only deployment) is a config mismatch, not a channel outage:
+    // `Chat#channel()` would throw ADAPTER_NOT_FOUND and the fan-out would
+    // book it as a consecutive failure, auto-disabling the target on the 5th
+    // review. Skip it instead — the same rule as the `!post` branch above,
+    // and the same `hasAdapter` check the webhook path already does.
+    if (!rt.channels.hasAdapter(target.platform)) {
+      log.warn("channel review notification skipped: no adapter for platform", {
+        platform: target.platform,
+        channel: target.channel,
+      });
+      return Promise.resolve();
+    }
+    return rt.sdk.channel(`${target.platform}:${target.channel}`).post(text);
+  };
 }
 
 /**

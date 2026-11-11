@@ -1,5 +1,5 @@
 import { Elysia, t, sse, status } from "elysia";
-import { repos, reviews, settings, findings } from "~/db";
+import { repos, reviews, settings, settingValue, findings } from "~/db";
 import {
   publishRepoRemoved,
   publishRepoUpdated,
@@ -79,6 +79,11 @@ function settingsSnapshot() {
   const all = settings.all.all().filter((s) => !SECRET_SETTINGS_KEYS.has(s.key));
   return {
     ...Object.fromEntries(all.map((s) => [s.key, s.value])),
+    // The checkbox must show the EFFECTIVE gateway state: with no dashboard
+    // row the env default (DISCORD_GATEWAY) decides. Without this overlay the
+    // UI rendered ON under DISCORD_GATEWAY=0, and the next settings save —
+    // which sends discord_gateway when the user touched it — pinned it on.
+    discord_gateway: settingValue(SETTINGS.DISCORD_GATEWAY) ?? (config.channels.discord.gateway ? "1" : "0"),
     opencode_key_source: opencodeKeySource(),
     zai_key_source: zaiKeySource(),
     commandcode_key_source: commandcodeKeySource(),

@@ -9,6 +9,7 @@ import {
   type ChannelTarget,
 } from "~/mastra/channel-config";
 import {
+  defaultPoster,
   notifyReviewCompleted,
   reviewNotificationText,
   type ChannelHealthStore,
@@ -301,4 +302,37 @@ test("a throwing notifier is only a warning — the review emit still runs", asy
   } finally {
     warn.mockRestore();
   }
+});
+
+test("the production poster skips targets with no adapter instead of failing them", async () => {
+  // A Slack-only deployment with a stray `discord` row in channel_targets:
+  // the poster must skip the discord target (no ADAPTER_NOT_FOUND throw, so
+  // no failure count, no auto-disable) and still post to Slack (fouine #180).
+  const posted: string[] = [];
+  const runtime = {
+    channels: { hasAdapter: (platform: string) => platform === "slack" },
+    sdk: {
+      channel: (id: string) => {
+        if (!id.startsWith("slack:")) throw new Error("ADAPTER_NOT_FOUND");
+        return { post: async (text: string) => void posted.push(`${id}:${text}`) };
+      },
+    },
+  };
+  const poster = await defaultPoster(runtime as never);
+  expect(poster).toBeTypeOf("function");
+
+  const health = memoryHealth();
+  await notifyReviewCompleted(REVIEW, {
+    targets: () => [
+      { platform: "discord", channel: "D1" },
+      { platform: "slack", channel: "C1" },
+    ],
+    post: poster!,
+    health,
+  });
+
+  // Discord skipped without a failure row; Slack posted once.
+  expect(health.map).toEqual({});
+  expect(posted).toHaveLength(1);
+  expect(posted[0]).toContain("slack:C1:");
 });
