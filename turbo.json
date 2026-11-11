@@ -11,7 +11,9 @@
       "persistent": true,
       // Turbo's env mode is strict: anything not listed here never reaches the
       // server process, so `CHAT_MOCK=1 bun run dev` would silently do nothing.
-      "passThroughEnv": ["CHAT_MOCK"]
+      // `OPENCODE_API_KEY` is the upstream credential and `LOG_LEVEL` gates the
+      // debug lines; both were being stripped by the same default.
+      "passThroughEnv": ["CHAT_MOCK", "OPENCODE_API_KEY", "LOG_LEVEL"]
     }
   }
 }
