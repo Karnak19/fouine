@@ -52,11 +52,15 @@ export const MAX_TURNS = 40;
 export const MAX_QUESTION_CHARS = 4_000;
 export const MAX_PARTS_PER_MESSAGE = 64;
 
-export async function streamChat(
-  rawMessages: UIMessage[],
-  signal?: AbortSignal,
-  chatId?: string,
-): Promise<Response> {
+/**
+ * Apply the cost bounds to a turn list, whoever sent it.
+ *
+ * Shared by the HTTP route and the MCP `ask_chat` tool on purpose: an MCP
+ * client is another way to spend the same API key, so it must not get a looser
+ * budget than the dashboard. Returns the surviving messages or throws the
+ * message the caller should show.
+ */
+export function boundChatMessages(rawMessages: UIMessage[]): UIMessage[] {
   if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     throw new Error("No question to answer.");
   }
@@ -65,12 +69,26 @@ export async function streamChat(
   const messages = textOnly(rawMessages).slice(-MAX_TURNS);
   if (messages.length === 0) throw new Error("No question to answer.");
   for (const m of messages) {
+    // The HTTP route caps parts in its TypeBox schema; this is the bound MCP
+    // turns (and any future caller) get.
+    if (m.parts.length > MAX_PARTS_PER_MESSAGE) {
+      throw new Error(`Too many parts in one message — keep it to ${MAX_PARTS_PER_MESSAGE}.`);
+    }
     for (const p of m.parts) {
       if (p.type === "text" && p.text.length > MAX_QUESTION_CHARS) {
         throw new Error(`Question too long — keep it under ${MAX_QUESTION_CHARS} characters.`);
       }
     }
   }
+  return messages;
+}
+
+export async function streamChat(
+  rawMessages: UIMessage[],
+  signal?: AbortSignal,
+  chatId?: string,
+): Promise<Response> {
+  const messages = boundChatMessages(rawMessages);
   // Dev escape hatch: with CHAT_MOCK=1 (never in production) the gateway is
   // replaced by a scripted model so the chat UI can be built and looked at
   // without an API key. Everything below this line is the real pipeline.

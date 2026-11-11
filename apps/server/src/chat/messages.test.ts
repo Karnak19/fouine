@@ -73,3 +73,32 @@ test("input bounds: oversized and empty requests are refused", async () => {
   ] as unknown as UIMessage[];
   await expect(streamChat(assistantOnly)).rejects.toThrow("No question");
 });
+
+// The same bounds guard MCP turns (`ask_chat` calls boundChatMessages), so they
+// are pinned here once, where the dashboard route's schema and the reused
+// function must agree.
+test("boundChatMessages enforces the turn and per-message part caps", async () => {
+  const { boundChatMessages, MAX_PARTS_PER_MESSAGE, MAX_TURNS } = await import("~/chat");
+
+  const manyParts = [
+    {
+      id: "1",
+      role: "user",
+      parts: Array.from({ length: MAX_PARTS_PER_MESSAGE + 1 }, (_, i) => ({
+        type: "text",
+        text: `part ${i}`,
+      })),
+    },
+  ] as unknown as UIMessage[];
+  expect(() => boundChatMessages(manyParts)).toThrow("Too many parts");
+
+  const longThread = Array.from({ length: MAX_TURNS + 5 }, (_, i) => ({
+    id: String(i),
+    role: "user",
+    parts: [{ type: "text", text: `turn ${i}` }],
+  })) as unknown as UIMessage[];
+  const kept = boundChatMessages(longThread);
+  expect(kept).toHaveLength(MAX_TURNS);
+  // The tail is what survives; the head is history the model re-queries anyway.
+  expect(JSON.stringify(kept.at(-1))).toContain(`turn ${MAX_TURNS + 4}`);
+});

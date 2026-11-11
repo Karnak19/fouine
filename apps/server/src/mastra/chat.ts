@@ -55,6 +55,18 @@ export const chatAgent = new Agent({
 });
 
 /**
+ * The request context every chat run needs: the per-conversation session id.
+ *
+ * Exported because MCP's `ask_chat` starts its own runs and must set the same
+ * key; the agent's model resolver reads it to build the upstream model.
+ */
+export function chatRequestContext(session: string): RequestContext {
+  const requestContext = new RequestContext();
+  requestContext.setRaw(SESSION_KEY, session);
+  return requestContext;
+}
+
+/**
  * Stream one sanitised chat turn through the Mastra agent, as the same AI SDK
  * v7 UI message stream the browser already consumes.
  *
@@ -66,8 +78,7 @@ export async function streamChatViaAgent(
   session: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const requestContext = new RequestContext();
-  requestContext.setRaw(SESSION_KEY, session);
+  const requestContext = chatRequestContext(session);
 
   const stream = await chatAgent.stream(messages, {
     requestContext,
