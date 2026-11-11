@@ -3,6 +3,7 @@ import { LibSQLStore } from "@mastra/libsql";
 import { resolve } from "node:path";
 import { config } from "~/config";
 import { buildAgent } from "./build";
+import { channelAgent } from "./channel-agent";
 import { chatAgent } from "./chat";
 
 /**
@@ -31,7 +32,7 @@ export function mastraStoragePath(dataDir: string = config.dataDir): string {
  * SPIKE-167.md.
  */
 export const mastra = new Mastra({
-  agents: { chat: chatAgent, build: buildAgent },
+  agents: { chat: chatAgent, build: buildAgent, channel: channelAgent },
   storage: new LibSQLStore({
     id: "fouine",
     url: `file:${mastraStoragePath()}`,

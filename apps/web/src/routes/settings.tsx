@@ -81,6 +81,15 @@ export default function SettingsPage() {
   const [implementPrompt, setImplementPrompt] = useState("");
   const [autoMerge, setAutoMerge] = useState(false);
   const [mergeMethod, setMergeMethod] = useState<"merge" | "squash" | "rebase">("squash");
+  // Channels (#176): secrets are write-only, the rest round-trips.
+  const [slackSigningSecret, setSlackSigningSecret] = useState("");
+  const [slackBotToken, setSlackBotToken] = useState("");
+  const [slackBotUserId, setSlackBotUserId] = useState("");
+  const [discordPublicKey, setDiscordPublicKey] = useState("");
+  const [discordBotToken, setDiscordBotToken] = useState("");
+  const [discordApplicationId, setDiscordApplicationId] = useState("");
+  const [discordGateway, setDiscordGateway] = useState(true);
+  const [channelTargets, setChannelTargets] = useState("");
 
   // Baseline to diff against for dirty-tracking; reset on hydrate and on save.
   // apiKey/zaiApiKey/commandcodeApiKey never round-trip from the server (write-only secrets), so
@@ -101,6 +110,11 @@ export default function SettingsPage() {
     implementPrompt: "",
     autoMerge: false,
     mergeMethod: "squash" as "merge" | "squash" | "rebase",
+    slackBotUserId: "",
+    discordPublicKey: "",
+    discordApplicationId: "",
+    discordGateway: true,
+    channelTargets: "",
   });
 
   // Hydrate once per fetched settings object, not on every refetch — a ref
@@ -125,6 +139,11 @@ export default function SettingsPage() {
       const ip = settings.default_implement_prompt ?? "";
       const am = settings.auto_merge === "1";
       const mm = settings.merge_method ?? "squash";
+      const sbu = settings.slack_bot_user_id ?? "";
+      const dpk = settings.discord_public_key ?? "";
+      const dai = settings.discord_application_id ?? "";
+      const dgw = settings.discord_gateway !== "0";
+      const ct = settings.channel_targets ?? "";
       setModel(m);
       setRefineModel(rm);
       setImplementModel(im);
@@ -140,6 +159,11 @@ export default function SettingsPage() {
       setImplementPrompt(ip);
       setAutoMerge(am);
       setMergeMethod(mm);
+      setSlackBotUserId(sbu);
+      setDiscordPublicKey(dpk);
+      setDiscordApplicationId(dai);
+      setDiscordGateway(dgw);
+      setChannelTargets(ct);
       setBaseline({
         model: m,
         refineModel: rm,
@@ -156,6 +180,11 @@ export default function SettingsPage() {
         implementPrompt: ip,
         autoMerge: am,
         mergeMethod: mm,
+        slackBotUserId: sbu,
+        discordPublicKey: dpk,
+        discordApplicationId: dai,
+        discordGateway: dgw,
+        channelTargets: ct,
       });
     }
   }, [settings]);
@@ -178,7 +207,15 @@ export default function SettingsPage() {
     implementLabel !== baseline.implementLabel ||
     implementPrompt !== baseline.implementPrompt ||
     autoMerge !== baseline.autoMerge ||
-    mergeMethod !== baseline.mergeMethod;
+    mergeMethod !== baseline.mergeMethod ||
+    slackSigningSecret.trim() !== "" ||
+    slackBotToken.trim() !== "" ||
+    discordBotToken.trim() !== "" ||
+    slackBotUserId !== baseline.slackBotUserId ||
+    discordPublicKey !== baseline.discordPublicKey ||
+    discordApplicationId !== baseline.discordApplicationId ||
+    discordGateway !== baseline.discordGateway ||
+    channelTargets !== baseline.channelTargets;
 
   const reset = () => {
     setApiKey("");
@@ -199,6 +236,14 @@ export default function SettingsPage() {
     setImplementPrompt(baseline.implementPrompt);
     setAutoMerge(baseline.autoMerge);
     setMergeMethod(baseline.mergeMethod);
+    setSlackSigningSecret("");
+    setSlackBotToken("");
+    setDiscordBotToken("");
+    setSlackBotUserId(baseline.slackBotUserId);
+    setDiscordPublicKey(baseline.discordPublicKey);
+    setDiscordApplicationId(baseline.discordApplicationId);
+    setDiscordGateway(baseline.discordGateway);
+    setChannelTargets(baseline.channelTargets);
   };
 
   useEffect(() => {
@@ -242,6 +287,21 @@ export default function SettingsPage() {
       data.default_implement_prompt = implementPrompt.trim();
       data.auto_merge = autoMerge ? "1" : "";
       data.merge_method = mergeMethod;
+      // Channels: secrets are write-only, so only a non-empty field rotates the
+      // stored value (same rule as the provider keys).
+      if (slackSigningSecret.trim()) data.slack_signing_secret = slackSigningSecret.trim();
+      if (slackBotToken.trim()) data.slack_bot_token = slackBotToken.trim();
+      if (discordBotToken.trim()) data.discord_bot_token = discordBotToken.trim();
+      data.slack_bot_user_id = slackBotUserId.trim();
+      data.discord_public_key = discordPublicKey.trim();
+      data.discord_application_id = discordApplicationId.trim();
+      // Only send when the user actually toggled it: sending unconditionally
+      // would pin the row on every save and defeat the DISCORD_GATEWAY env
+      // escape hatch (the row always wins once it exists).
+      if (discordGateway !== baseline.discordGateway) {
+        data.discord_gateway = discordGateway ? "1" : "0";
+      }
+      data.channel_targets = channelTargets.trim();
       return api.settings.update(data);
     },
     onSuccess: () => {
@@ -249,6 +309,9 @@ export default function SettingsPage() {
       setApiKey("");
       setZaiApiKey("");
       setCommandcodeApiKey("");
+      setSlackSigningSecret("");
+      setSlackBotToken("");
+      setDiscordBotToken("");
       setBaseline({
         model,
         refineModel,
@@ -265,6 +328,11 @@ export default function SettingsPage() {
         implementPrompt,
         autoMerge,
         mergeMethod,
+        slackBotUserId,
+        discordPublicKey,
+        discordApplicationId,
+        discordGateway,
+        channelTargets,
       });
       toast.success("Settings saved");
     },
@@ -715,6 +783,118 @@ export default function SettingsPage() {
             </AgentRow>
           </div>
         </Section>
+
+        <Section
+          title="Channels"
+          description={
+            <>
+              Slack and Discord are read-only ways into fouine. Point each platform's request URL at{" "}
+              <span className="font-mono">/webhook/channels/slack</span> or{" "}
+              <span className="font-mono">/webhook/channels/discord</span>; the platform signature is
+              verified before the agent sees anything. Tokens are stored write-only and never shown
+              back.
+            </>
+          }
+        >
+          <div className="grid gap-5 md:grid-cols-2">
+            <fieldset className="min-w-0 space-y-3">
+              <legend className="text-sm font-medium text-zinc-200">Slack</legend>
+              <div className="space-y-1.5">
+                <Label htmlFor="slack_signing_secret">Signing secret</Label>
+                <Input
+                  id="slack_signing_secret"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="unchanged"
+                  value={slackSigningSecret}
+                  onChange={(e) => setSlackSigningSecret(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="slack_bot_token">Bot token</Label>
+                <Input
+                  id="slack_bot_token"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="xoxb-… / unchanged"
+                  value={slackBotToken}
+                  onChange={(e) => setSlackBotToken(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="slack_bot_user_id">Bot user id</Label>
+                <Input
+                  id="slack_bot_user_id"
+                  placeholder="U… (optional)"
+                  value={slackBotUserId}
+                  onChange={(e) => setSlackBotUserId(e.target.value)}
+                />
+                <p className="text-xs text-zinc-500">Skips Slack's startup auth lookup when set.</p>
+              </div>
+            </fieldset>
+
+            <fieldset className="min-w-0 space-y-3">
+              <legend className="text-sm font-medium text-zinc-200">Discord</legend>
+              <div className="space-y-1.5">
+                <Label htmlFor="discord_public_key">Public key</Label>
+                <Input
+                  id="discord_public_key"
+                  placeholder="Application public key"
+                  value={discordPublicKey}
+                  onChange={(e) => setDiscordPublicKey(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="discord_bot_token">Bot token</Label>
+                <Input
+                  id="discord_bot_token"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="unchanged"
+                  value={discordBotToken}
+                  onChange={(e) => setDiscordBotToken(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="discord_application_id">Application id</Label>
+                <Input
+                  id="discord_application_id"
+                  placeholder="1234567890"
+                  value={discordApplicationId}
+                  onChange={(e) => setDiscordApplicationId(e.target.value)}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  className={CHECKBOX_CLASS}
+                  checked={discordGateway}
+                  onChange={(e) => setDiscordGateway(e.target.checked)}
+                />
+                Keep the Gateway WebSocket connected (DMs and @mentions)
+              </label>
+            </fieldset>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="channel_targets">Per-repo channels (JSON)</Label>
+            <Textarea
+              id="channel_targets"
+              rows={6}
+              spellCheck={false}
+              className="font-mono text-xs"
+              placeholder={`{\n  "owner/repo": [\n    { "platform": "slack", "channel": "C0123456789" },\n    { "platform": "discord", "channel": "123456789012345678" }\n  ]\n}`}
+              value={channelTargets}
+              onChange={(e) => setChannelTargets(e.target.value)}
+            />
+            <p className="text-xs text-zinc-500">
+              One post per review per channel, fire-and-forget. A channel that fails 5 times in a row
+              is disabled and shown below.
+            </p>
+          </div>
+
+          <ChannelWarnings raw={settings?.channel_health} />
+        </Section>
       </form>
 
       <SkillsSection />
@@ -953,6 +1133,59 @@ function AgentRow({
 
 // Global reviewer skills, installed from a skills.sh / GitHub URL. They apply to
 // every review; per-repo skills belong in the repo's own .claude/skills instead.
+// Auto-disabled notification channels, straight from the CHANNEL_HEALTH row the
+// notification path maintains. Only disabled entries are shown: a healthy
+// channel needs no UI. Clearing the row resets every streak, which is the
+// manual re-enable path (saving credentials alone never resurrects a channel
+// that has been failing).
+function ChannelWarnings({ raw }: { raw?: string }) {
+  const queryClient = useQueryClient();
+  let health: Record<string, { failures?: number; disabled?: boolean; lastError?: string }> = {};
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) health = parsed;
+    } catch {
+      // A malformed row is not worth blocking the page over; the notification
+      // path treats it as empty too.
+    }
+  }
+  const disabled = Object.entries(health).filter(([, value]) => value?.disabled);
+  const clear = useMutation({
+    mutationFn: () => api.settings.update({ channel_health: "" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Channel warnings cleared");
+    },
+    onError: (e: Error) => toast.error("Couldn't clear warnings", { description: e.message }),
+  });
+  if (disabled.length === 0) return null;
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2.5">
+      <CircleAlert size={16} className="mt-0.5 shrink-0 text-amber-500" />
+      <div className="min-w-0 space-y-1 text-xs text-amber-200/90">
+        <p className="font-medium text-amber-200">Notification channel disabled</p>
+        {disabled.map(([key, value]) => (
+          <p key={key} className="font-mono">
+            {key} — {value.failures ?? "?"} consecutive failures
+            {value.lastError ? `: ${value.lastError}` : ""}
+          </p>
+        ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1"
+          disabled={clear.isPending}
+          onClick={() => clear.mutate()}
+        >
+          {clear.isPending ? "Clearing…" : "Clear warnings"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SkillsSection() {
   const queryClient = useQueryClient();
   const { data: skills, isError, refetch } = useQuery({

@@ -45,6 +45,20 @@ export const queryStatsTool = createTool({
  * needs the rows and the spec to draw. `z.unknown()` keeps that object intact:
  * the shape is `ChartResult` (ok true/false) and the client already narrows it.
  */
+export const renderChartInputSchema = z.object({
+  sql: z
+    .string()
+    .describe("A single SQLite SELECT (or WITH ... SELECT) statement, no trailing semicolon needed."),
+  type: z.enum(["line", "bar", "stacked_bar"]).describe("The chart form."),
+  title: z.string().describe("A short title stating what the chart shows."),
+  x: z.string().describe("Name of the result column for the category or time axis."),
+  y: z.string().describe("Name of the result column holding the numeric measure."),
+  series: z
+    .string()
+    .optional()
+    .describe("Name of the result column that splits the data into series. Required for stacked_bar."),
+});
+
 export const renderChartTool = createTool({
   id: "render_chart",
   description:
@@ -55,19 +69,7 @@ export const renderChartTool = createTool({
     "one numeric column for the measure, and optionally one to split into series. " +
     "Quote your numbers from THIS tool's rows, not from a separate query_stats call, so the prose and the chart agree. " +
     "If it returns an error, read it — it lists the columns your query actually returned — and retry once.",
-  inputSchema: z.object({
-    sql: z
-      .string()
-      .describe("A single SQLite SELECT (or WITH ... SELECT) statement, no trailing semicolon needed."),
-    type: z.enum(["line", "bar", "stacked_bar"]).describe("The chart form."),
-    title: z.string().describe("A short title stating what the chart shows."),
-    x: z.string().describe("Name of the result column for the category or time axis."),
-    y: z.string().describe("Name of the result column holding the numeric measure."),
-    series: z
-      .string()
-      .optional()
-      .describe("Name of the result column that splits the data into series. Required for stacked_bar."),
-  }),
+  inputSchema: renderChartInputSchema,
   outputSchema: z.unknown(),
   execute: async (input, { abortSignal }) => buildChart(input, abortSignal),
 });

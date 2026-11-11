@@ -10,6 +10,7 @@ import { internalRoutes } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills, reloadOpencodeConfig } from "~/skills";
 import { mastra } from "~/mastra";
+import { handleChannelWebhook } from "~/mastra/channels";
 import { createMcpRoute } from "~/mastra/mcp-http";
 import { reapOrphanReviews, reapStaleArms, runImproverSweep, reconcileReviewChecks } from "~/review";
 
@@ -132,6 +133,22 @@ export async function createServer() {
         log.info("mcp request", {
           method: request.method,
           path: p,
+          status: res.status,
+          ms: Date.now() - at,
+        });
+        return res;
+      }
+      // Slack/Discord channel webhooks (#176). Public like `/webhook/github`:
+      // the platform cannot log in. Each adapter verifies its own signature
+      // (Slack signing secret, Discord Ed25519 public key) and returns 401
+      // before the agent sees anything. Answered from onRequest because the
+      // handler must receive the raw request body, untouched by routing.
+      if (request.method === "POST" && p.startsWith("/webhook/channels/")) {
+        const platform = p.slice("/webhook/channels/".length);
+        const at = Date.now();
+        const res = await handleChannelWebhook(platform, request);
+        log.info("channel webhook", {
+          platform,
           status: res.status,
           ms: Date.now() - at,
         });

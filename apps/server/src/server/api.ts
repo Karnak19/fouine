@@ -1,5 +1,5 @@
 import { Elysia, t, sse, status } from "elysia";
-import { repos, reviews, settings, findings } from "~/db";
+import { repos, reviews, settings, settingValue, findings } from "~/db";
 import {
   publishRepoRemoved,
   publishRepoUpdated,
@@ -69,12 +69,21 @@ const SECRET_SETTINGS_KEYS = new Set<string>([
   SETTINGS.API_KEY,
   SETTINGS.ZAI_API_KEY,
   SETTINGS.COMMANDCODE_API_KEY,
+  // Channel credentials (#176): the same rule as the model keys — write-only.
+  SETTINGS.SLACK_SIGNING_SECRET,
+  SETTINGS.SLACK_BOT_TOKEN,
+  SETTINGS.DISCORD_BOT_TOKEN,
 ]);
 
 function settingsSnapshot() {
   const all = settings.all.all().filter((s) => !SECRET_SETTINGS_KEYS.has(s.key));
   return {
     ...Object.fromEntries(all.map((s) => [s.key, s.value])),
+    // The checkbox must show the EFFECTIVE gateway state: with no dashboard
+    // row the env default (DISCORD_GATEWAY) decides. Without this overlay the
+    // UI rendered ON under DISCORD_GATEWAY=0, and the next settings save —
+    // which sends discord_gateway when the user touched it — pinned it on.
+    discord_gateway: settingValue(SETTINGS.DISCORD_GATEWAY) ?? (config.channels.discord.gateway ? "1" : "0"),
     opencode_key_source: opencodeKeySource(),
     zai_key_source: zaiKeySource(),
     commandcode_key_source: commandcodeKeySource(),
@@ -821,6 +830,18 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
       setKey(SETTINGS.PROMPT, body.default_prompt);
+      // Channels (#176). Tokens/secrets follow the key rule above (blank keeps
+      // the stored value, "" deletes back to env); the wiring rows are plain
+      // JSON strings and blank clears them.
+      setKey(SETTINGS.SLACK_SIGNING_SECRET, body.slack_signing_secret);
+      setKey(SETTINGS.SLACK_BOT_TOKEN, body.slack_bot_token);
+      setKey(SETTINGS.SLACK_BOT_USER_ID, body.slack_bot_user_id);
+      setKey(SETTINGS.DISCORD_PUBLIC_KEY, body.discord_public_key);
+      setKey(SETTINGS.DISCORD_BOT_TOKEN, body.discord_bot_token);
+      setKey(SETTINGS.DISCORD_APPLICATION_ID, body.discord_application_id);
+      setKey(SETTINGS.DISCORD_GATEWAY, body.discord_gateway);
+      setKey(SETTINGS.CHANNEL_TARGETS, body.channel_targets);
+      setKey(SETTINGS.CHANNEL_HEALTH, body.channel_health);
       return settingsSnapshot();
     },
     {
@@ -845,6 +866,16 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),
+        // Channels (#176). Secrets are write-only, like the provider keys.
+        slack_signing_secret: t.Optional(t.String()),
+        slack_bot_token: t.Optional(t.String()),
+        slack_bot_user_id: t.Optional(t.String()),
+        discord_public_key: t.Optional(t.String()),
+        discord_bot_token: t.Optional(t.String()),
+        discord_application_id: t.Optional(t.String()),
+        discord_gateway: t.Optional(t.String()),
+        channel_targets: t.Optional(t.String()),
+        channel_health: t.Optional(t.String()),
       }),
     },
   )

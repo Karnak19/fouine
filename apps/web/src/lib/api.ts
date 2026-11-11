@@ -177,6 +177,17 @@ export interface Settings {
   default_implement_prompt?: string;
   // "1" = on, "" = delete the row (off). Default off.
   auto_ready?: string;
+  // Channels (#176). Secret fields are write-only on PUT (never returned by
+  // GET); the wiring rows are JSON strings that round-trip.
+  slack_signing_secret?: string;
+  slack_bot_token?: string;
+  slack_bot_user_id?: string;
+  discord_public_key?: string;
+  discord_bot_token?: string;
+  discord_application_id?: string;
+  discord_gateway?: string;
+  channel_targets?: string;
+  channel_health?: string;
 }
 
 // Route query objects go straight to Eden — it drops null/undefined keys

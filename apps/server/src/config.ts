@@ -85,6 +85,26 @@ export const config = {
     // overrides this (see resolveChatModel in settings.ts).
     model: process.env.OPENCODE_CHAT_MODEL ?? "opencode-go/deepseek-v4.1-flash",
   },
+  // Env fallbacks for the Slack/Discord channel adapters (#176). The dashboard
+  // rows win (see resolveSlackChannel/resolveDiscordChannel in settings.ts).
+  // Access tokens stay out of any model-facing env: the channel agent runs in
+  // this process and never spawns a model shell.
+  channels: {
+    slack: {
+      signingSecret: process.env.SLACK_SIGNING_SECRET,
+      botToken: process.env.SLACK_BOT_TOKEN,
+      botUserId: process.env.SLACK_BOT_USER_ID,
+    },
+    discord: {
+      publicKey: process.env.DISCORD_PUBLIC_KEY,
+      botToken: process.env.DISCORD_BOT_TOKEN,
+      applicationId: process.env.DISCORD_APPLICATION_ID,
+      // Discord DMs/@mentions arrive over the Gateway WebSocket. On by
+      // default; set DISCORD_GATEWAY=0 where a long-lived socket is not
+      // acceptable — HTTP interactions (slash commands, buttons) still work.
+      gateway: process.env.DISCORD_GATEWAY !== "0",
+    },
+  },
   // GitHub OAuth login for the dashboard. Disabled (no login required) unless a
   // secret + OAuth client id/secret are all set — mirrors the old Basic Auth
   // "leave empty to disable" behaviour for local dev. allowedUsers gates which

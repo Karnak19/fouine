@@ -25,6 +25,18 @@ export const SETTINGS = {
   IMPLEMENT_LABEL: "implement_label",
   DEFAULT_IMPLEMENT_PROMPT: "default_implement_prompt",
   AUTO_READY: "auto_ready",
+  // Slack/Discord channel credentials and wiring (#176). Tokens and signing
+  // secrets are dashboard-stored over env, same precedence as the model keys,
+  // and are never returned by GET /settings (see SECRET_SETTINGS_KEYS there).
+  SLACK_SIGNING_SECRET: "slack_signing_secret",
+  SLACK_BOT_TOKEN: "slack_bot_token",
+  SLACK_BOT_USER_ID: "slack_bot_user_id",
+  DISCORD_PUBLIC_KEY: "discord_public_key",
+  DISCORD_BOT_TOKEN: "discord_bot_token",
+  DISCORD_APPLICATION_ID: "discord_application_id",
+  DISCORD_GATEWAY: "discord_gateway",
+  CHANNEL_TARGETS: "channel_targets",
+  CHANNEL_HEALTH: "channel_health",
 } as const;
 
 // The label that, applied to an issue, triggers the implementer when
@@ -217,4 +229,59 @@ export function resolveImplementModel(
     settingValue(SETTINGS.IMPLEMENT_MODEL) ||
     resolveDefaultModel()
   );
+}
+
+// ── Channels (#176) ─────────────────────────────────────────────────────────
+
+export interface SlackChannelCredentials {
+  signingSecret: string;
+  botToken: string;
+  /** Optional: skips Slack's `auth.test` round-trip during adapter startup. */
+  botUserId?: string;
+}
+
+export interface DiscordChannelCredentials {
+  publicKey: string;
+  botToken: string;
+  applicationId: string;
+  /** Persistent Gateway WebSocket for DMs/@mentions. */
+  gateway: boolean;
+}
+
+export interface ChannelCredentials {
+  slack?: SlackChannelCredentials;
+  discord?: DiscordChannelCredentials;
+}
+
+// A platform is only "configured" when every credential it needs is present:
+// a half-configured adapter must not accept webhooks it cannot verify.
+export function resolveSlackChannel(): SlackChannelCredentials | null {
+  const signingSecret = settingValue(SETTINGS.SLACK_SIGNING_SECRET) || config.channels.slack.signingSecret;
+  const botToken = settingValue(SETTINGS.SLACK_BOT_TOKEN) || config.channels.slack.botToken;
+  if (!signingSecret || !botToken) return null;
+  return {
+    signingSecret,
+    botToken,
+    botUserId: settingValue(SETTINGS.SLACK_BOT_USER_ID) || config.channels.slack.botUserId || undefined,
+  };
+}
+
+export function resolveDiscordChannel(): DiscordChannelCredentials | null {
+  const publicKey = settingValue(SETTINGS.DISCORD_PUBLIC_KEY) || config.channels.discord.publicKey;
+  const botToken = settingValue(SETTINGS.DISCORD_BOT_TOKEN) || config.channels.discord.botToken;
+  const applicationId =
+    settingValue(SETTINGS.DISCORD_APPLICATION_ID) || config.channels.discord.applicationId;
+  if (!publicKey || !botToken || !applicationId) return null;
+  // "0"/"1" in the dashboard overrides the env default either way.
+  const gatewaySetting = settingValue(SETTINGS.DISCORD_GATEWAY);
+  const gateway =
+    gatewaySetting === "0" ? false : gatewaySetting === "1" ? true : config.channels.discord.gateway;
+  return { publicKey, botToken, applicationId, gateway };
+}
+
+export function resolveChannelCredentials(): ChannelCredentials {
+  return {
+    slack: resolveSlackChannel() ?? undefined,
+    discord: resolveDiscordChannel() ?? undefined,
+  };
 }
