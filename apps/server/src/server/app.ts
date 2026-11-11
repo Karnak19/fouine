@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { staticPlugin } from "@elysia/static";
+import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-auth/plugins";
 import { resolve } from "node:path";
 import { config } from "~/config";
 import { verifyAndDispatch, VerificationError } from "~/server/webhook";
@@ -9,6 +10,7 @@ import { internalRoutes } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills, reloadOpencodeConfig } from "~/skills";
 import { mastra } from "~/mastra";
+import { createMcpRoute } from "~/mastra/mcp-http";
 import { reapOrphanReviews, reapStaleArms, runImproverSweep, reconcileReviewChecks } from "~/review";
 
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
@@ -71,17 +73,69 @@ export function requiresSession(path: string): boolean {
   return true;
 }
 
+/**
+ * The session gate, split from the Elysia hook so it can be asserted directly.
+ *
+ * `enabled` and the session lookup are parameters rather than reads of `config`
+ * / `auth`: no test environment has OAuth configured, so the decision "an
+ * unauthenticated request is refused" would otherwise only be testable by
+ * booting a second better-auth instance.
+ */
+export async function isAuthorized(
+  request: Request,
+  opts: {
+    enabled: boolean;
+    getSession: (headers: Headers) => Promise<unknown | null>;
+  },
+): Promise<boolean> {
+  if (!opts.enabled) return true;
+  if (!requiresSession(pathname(request.url))) return true;
+  return !!(await opts.getSession(request.headers));
+}
+
 const startedAt = new WeakMap<Request, number>();
 
 export async function createServer() {
+  // Built once: it wraps the Mastra fetch handler in the OAuth gate.
+  const mcp = createMcpRoute();
   return new Elysia()
-    .onRequest(({ request }) => {
+    .onRequest(async ({ request }) => {
       startedAt.set(request, Date.now());
+      const p = pathname(request.url);
       // Delegate better-auth's own endpoints here, before routing — a route or
       // .mount loses to the static plugin's catch-all GET, so short-circuit
       // from onRequest instead (runs before static, all methods).
-      if (config.auth.enabled && pathname(request.url).startsWith("/api/auth/")) {
+      if (config.auth.enabled && p.startsWith("/api/auth/")) {
         return auth.handler(request);
+      }
+      // OAuth discovery for MCP clients. Both paths are public by spec (the
+      // client reads them before it has a token), and the SPA fallback below
+      // would otherwise answer them with index.html.
+      if (config.auth.enabled) {
+        if (p === "/.well-known/oauth-authorization-server") {
+          return oAuthDiscoveryMetadata(auth)(request);
+        }
+        if (
+          p === "/.well-known/oauth-protected-resource" ||
+          p.startsWith("/.well-known/oauth-protected-resource/")
+        ) {
+          return oAuthProtectedResourceMetadata(auth)(request);
+        }
+      }
+      // MCP answers from onRequest for the same reason as better-auth: its GET
+      // is a long-lived `events/stream` response that must not be parsed or
+      // shadowed by the static plugin. The handler itself owns the auth gate
+      // (`withMcpAuth`), so every method on the prefix is covered by one check.
+      if (p === "/api/mcp" || p.startsWith("/api/mcp/")) {
+        const at = Date.now();
+        const res = await mcp(request);
+        log.info("mcp request", {
+          method: request.method,
+          path: p,
+          status: res.status,
+          ms: Date.now() - at,
+        });
+        return res;
       }
       // SPA deep links, same escape hatch and same reason as better-auth above:
       // the static plugin's catch-all answers unknown GETs with a 404 *Response*
@@ -89,7 +143,6 @@ export async function createServer() {
       // every client route 404s on reload. Serve the shell from here instead.
       // "/" is left to the static plugin, which already serves index.html.
       if (request.method === "GET") {
-        const p = pathname(request.url);
         if (
           p !== "/" &&
           !p.startsWith("/api") &&
@@ -117,10 +170,11 @@ export async function createServer() {
     // itself) plus /api/auth-status must be reachable unauthenticated. Webhooks
     // and /health are not under /api and carry their own auth.
     .onBeforeHandle(async ({ request, set }) => {
-      if (!config.auth.enabled) return;
-      if (!requiresSession(pathname(request.url))) return;
-      const session = await auth.api.getSession({ headers: request.headers });
-      if (session) return;
+      const allowed = await isAuthorized(request, {
+        enabled: config.auth.enabled,
+        getSession: (headers) => auth.api.getSession({ headers }),
+      });
+      if (allowed) return;
       set.status = 401;
       return "Unauthorized";
     })

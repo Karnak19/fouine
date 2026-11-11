@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
+import { mcp } from "better-auth/plugins";
 import { config } from "~/config";
 import { db } from "~/db";
 import { log } from "~/server/log";
@@ -20,52 +21,72 @@ export function isAllowedUser(githubUsername: string | undefined, allowed: strin
 // module load and throws in production (NODE_ENV=production) if it's unset, so a
 // disabled-auth prod boot must not build it. Every call-site guards on
 // config.auth.enabled, so `null` is never dereferenced.
-export const auth = config.auth.enabled
-  ? betterAuth({
-      database: db,
-      secret: config.auth.secret,
-      baseURL: config.auth.url,
-      trustedOrigins: [config.auth.url],
+//
+// The options live in a function so `auth` keeps the instance type the plugins
+// add to `auth.api` (`getMcpSession`, `getMCPProtectedResource`, …); a bare
+// `ReturnType<typeof betterAuth>` widens to the plugin-less options and loses
+// them, which `withMcpAuth` needs.
+function createAuth() {
+  return betterAuth({
+    database: db,
+    secret: config.auth.secret,
+    baseURL: config.auth.url,
+    trustedOrigins: [config.auth.url],
+    user: {
+      additionalFields: {
+        // No `input: false` here: better-auth strips input:false fields when
+        // mapping a provider profile (parseAdditionalUserInputFromProviderProfile),
+        // so githubUsername would never reach the allowlist hook below.
+        githubUsername: { type: "string", required: false },
+      },
+    },
+    socialProviders: {
+      github: {
+        clientId: config.auth.githubClientId as string,
+        clientSecret: config.auth.githubClientSecret as string,
+        mapProfileToUser: (profile) => ({
+          githubUsername: String(profile.login ?? ""),
+          name: profile.name ?? profile.login,
+          image: profile.avatar_url,
+        }),
+      },
+    },
+    plugins: [
+      // OAuth 2.1 provider for MCP clients (Claude Code, OpenCode, …). Adds
+      // discovery metadata, dynamic client registration and the code/token
+      // endpoints under /api/auth/*, plus `getMcpSession`, which
+      // `~/mastra/mcp-http.ts` uses (via withMcpAuth) to accept a Bearer token
+      // on /api/mcp. `loginPage` is where an unauthenticated authorize request
+      // lands — the SPA root renders the login screen there.
+      mcp({ loginPage: "/", resource: `${config.auth.url}/api/mcp` }),
+    ],
+    databaseHooks: {
       user: {
-        additionalFields: {
-          // No `input: false` here: better-auth strips input:false fields when
-          // mapping a provider profile (parseAdditionalUserInputFromProviderProfile),
-          // so githubUsername would never reach the allowlist hook below.
-          githubUsername: { type: "string", required: false },
-        },
-      },
-      socialProviders: {
-        github: {
-          clientId: config.auth.githubClientId as string,
-          clientSecret: config.auth.githubClientSecret as string,
-          mapProfileToUser: (profile) => ({
-            githubUsername: String(profile.login ?? ""),
-            name: profile.name ?? profile.login,
-            image: profile.avatar_url,
-          }),
-        },
-      },
-      databaseHooks: {
-        user: {
-          create: {
-            before: async (user) => {
-              const login = (user as { githubUsername?: string }).githubUsername;
-              if (!isAllowedUser(login, config.auth.allowedUsers)) {
-                log.warn("login rejected", {
-                  login: login ?? null,
-                  allowed: config.auth.allowedUsers.length,
-                });
-                throw new APIError("FORBIDDEN", {
-                  message: "This GitHub account is not allowed to access fouine.",
-                });
-              }
-              return { data: user };
-            },
+        create: {
+          before: async (user) => {
+            const login = (user as { githubUsername?: string }).githubUsername;
+            if (!isAllowedUser(login, config.auth.allowedUsers)) {
+              log.warn("login rejected", {
+                login: login ?? null,
+                allowed: config.auth.allowedUsers.length,
+              });
+              throw new APIError("FORBIDDEN", {
+                message: "This GitHub account is not allowed to access fouine.",
+              });
+            }
+            return { data: user };
           },
         },
       },
-    })
-  : (null as unknown as ReturnType<typeof betterAuth>);
+    },
+  })
+}
+
+type Auth = ReturnType<typeof createAuth>;
+
+export const auth: Auth = config.auth.enabled
+  ? createAuth()
+  : (null as unknown as Auth);
 
 // Create better-auth's tables (user/session/account/verification) at boot,
 // matching the app's no-migration-framework, create-at-boot convention in db.ts.
