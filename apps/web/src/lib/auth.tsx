@@ -30,7 +30,16 @@ function LoginScreen() {
         disabled={pending}
         onClick={() => {
           setPending(true);
-          authClient.signIn.social({ provider: "github", callbackURL: "/" });
+          // Preserve the current URL: an MCP client's OAuth authorize request
+          // lands here with `?<oauth query>` after the 302 from
+          // /api/auth/mcp/authorize, and that query must survive the GitHub
+          // round-trip for the flow to complete (better-auth replays the
+          // callbackURL after sign-in). Plain dashboard logins keep working —
+          // their URL is just "/" or a deep link.
+          authClient.signIn.social({
+            provider: "github",
+            callbackURL: location.pathname + location.search,
+          });
         }}
       >
         {pending ? "Redirecting…" : "Sign in with GitHub"}
