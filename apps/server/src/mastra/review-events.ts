@@ -29,6 +29,14 @@ export function emitReviewCompleted(
     try {
       const row = reviews.byId.get({ $id: reviewId });
       if (!row) return;
+      // Only PR reviews emit: `DbService.complete` is shared by all five
+      // pipelines, and three are not PR reviews — improve rows carry
+      // pr_number = 0 and refine/implement rows carry an ISSUE number, so the
+      // payload's pr/url would lie (`/pull/0`, dead `/pull/<issue>` links) and
+      // the hourly improver would spam subscribers with them.
+      if (row.trigger === "improve" || row.trigger === "refine" || row.trigger === "implement") {
+        return;
+      }
       const blocking = findings
         .byReview.all({ $review: reviewId })
         .filter((f) => f.severity === "blocking").length;

@@ -59,6 +59,29 @@ test("emits review.completed with repo, PR, blocking count and URL", async () =>
   ]);
 });
 
+test("does not emit for non-PR runs (improve/refine/implement)", async () => {
+  // refine/implement store an issue number in pr_number; improve stores 0.
+  // Either way the payload's `/pull/<n>` link would lie (fouine review on #178).
+  for (const trigger of ["improve", "refine", "implement"]) {
+    const full = `mcp/event-skip-${trigger}`;
+    repos.upsert.run({ $full_name: full, $installation_id: 1, $prompt: null, $model: null });
+    const row = reviews.insert.get({
+      $repo: full,
+      $pr: 0,
+      $title: "not a PR review",
+      $session: null,
+      $status: "pending",
+      $trigger: trigger,
+      $attempt: 0,
+    })!;
+    const seen: unknown[] = [];
+    await emitReviewCompleted(row.id, async (name, data) => {
+      seen.push({ name, data });
+    });
+    expect(seen).toEqual([]);
+  }
+});
+
 test("an emit failure only logs a warning — the caller never sees it", async () => {
   const review = seedReview("mcp/event-failure", 6);
   const warn = spyOn(log, "warn").mockImplementation(() => {});
