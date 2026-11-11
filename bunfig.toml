@@ -1,4 +1,12 @@
 # Only for a bare `bun test` from the repo root, which does not see
 # apps/server/bunfig.toml. Turbo runs the per-package one.
+
+# Bun 1.4.4 changed the default install linker to "isolated"; the hoisted layout
+# this repo assumed is what keeps @elysia/static resolving its transitive
+# `fast-decode-uri-component`. Pinning the linker (rather than the Bun version)
+# fixes it for every 1.4.x and leaves `packageManager` alone.
+[install]
+linker = "hoisted"
+
 [test]
 preload = ["./apps/server/tests/setup.ts"]

@@ -203,6 +203,36 @@ export async function rerunPreviousDataset(
   return runDataset({ key: prev.key, title: prev.title, sql: prev.sql, shape, x, series }, signal);
 }
 
+/** The `add_dataset` prompt and schema, shared by the AI SDK and Mastra tools. */
+export const ADD_DATASET_DESCRIPTION =
+  "Run one read-only SQL SELECT and keep the result as a NAMED dataset the dashboard can draw. " +
+  "This is the only way to get data onto the page: the layout you write afterwards references these keys, " +
+  `never values. Call it once per thing you want to show, at most ${MAX_DATASETS} times. ` +
+  "You get back the column names and a row count, not the rows — you do not need to see them to lay them out. " +
+  "If it returns an error, read it and retry with corrected SQL.";
+
+export const addDatasetInputSchema = z.object({
+  key: z
+    .string()
+    .describe("Short snake_case name, e.g. `cost_by_day`. The layout references the dataset by this key."),
+  title: z.string().describe("A short human title for this dataset, shown in the SQL disclosure."),
+  sql: z.string().describe("A single SQLite SELECT (or WITH ... SELECT), no trailing semicolon."),
+  shape: z
+    .enum(["value", "line", "bar", "stacked_bar", "table"])
+    .describe(
+      "What this will be drawn as. `value` for a StatTile (write SQL returning ONE row), " +
+        "`line`/`bar`/`stacked_bar` for a chart, `table` for a row list. Sets the row cap.",
+    ),
+  x: z
+    .string()
+    .optional()
+    .describe("Column for the category or time axis. Required for line/bar/stacked_bar."),
+  y: z.string().optional().describe("Column holding the numeric measure. Required for line/bar/stacked_bar."),
+  series: z.string().optional().describe("Column that splits the data into series. Required for stacked_bar."),
+});
+
+export type AddDatasetInput = z.infer<typeof addDatasetInputSchema>;
+
 /**
  * Build the `add_dataset` tool for one request, plus the box its results land in.
  *
@@ -223,74 +253,57 @@ export function createDatasetStep(
   const datasets: BuildDataset[] = [...existing];
   const notes: string[] = [];
 
-  const addDataset = tool({
-    description:
-      "Run one read-only SQL SELECT and keep the result as a NAMED dataset the dashboard can draw. " +
-      "This is the only way to get data onto the page: the layout you write afterwards references these keys, " +
-      `never values. Call it once per thing you want to show, at most ${MAX_DATASETS} times. ` +
-      "You get back the column names and a row count, not the rows — you do not need to see them to lay them out. " +
-      "If it returns an error, read it and retry with corrected SQL.",
-    inputSchema: z.object({
-      key: z
-        .string()
-        .describe("Short snake_case name, e.g. `cost_by_day`. The layout references the dataset by this key."),
-      title: z.string().describe("A short human title for this dataset, shown in the SQL disclosure."),
-      sql: z.string().describe("A single SQLite SELECT (or WITH ... SELECT), no trailing semicolon."),
-      shape: z
-        .enum(["value", "line", "bar", "stacked_bar", "table"])
-        .describe(
-          "What this will be drawn as. `value` for a StatTile (write SQL returning ONE row), " +
-            "`line`/`bar`/`stacked_bar` for a chart, `table` for a row list. Sets the row cap.",
-        ),
-      x: z
-        .string()
-        .optional()
-        .describe("Column for the category or time axis. Required for line/bar/stacked_bar."),
-      y: z.string().optional().describe("Column holding the numeric measure. Required for line/bar/stacked_bar."),
-      series: z.string().optional().describe("Column that splits the data into series. Required for stacked_bar."),
-    }),
-    execute: async (input) => {
-      const { key, title, sql, shape, x, y, series } = input;
+  const execute = async (input: AddDatasetInput): Promise<string> => {
+    const { key, title, sql, shape, x, y, series } = input;
 
-      if (!DATASET_KEY_RE.test(key)) {
-        return `Rejected: "${key}" is not a valid key — use lowercase snake_case, e.g. cost_by_day.`;
-      }
-      if (datasets.some((d) => d.key === key)) {
-        return `Rejected: a dataset called "${key}" already exists. Pick another name or reuse that one.`;
-      }
-      if (datasets.length >= MAX_DATASETS) {
-        // Not an error the run should die on: the model keeps what it has and
-        // lays that out. The page says a cap was hit.
-        notes.push(
-          `This build asked for more than ${MAX_DATASETS} datasets; the extra ones were not fetched.`,
-        );
-        return `Rejected: the ${MAX_DATASETS}-dataset limit is reached. Lay out the datasets you already have.`;
-      }
-      if (shape !== "value" && shape !== "table" && (!x || !y)) {
-        return `Rejected: shape "${shape}" needs both \`x\` and \`y\`.`;
-      }
-      if (shape === "stacked_bar" && !series) {
-        return "Rejected: shape \"stacked_bar\" needs a `series` column — the thing each bar is composed OF.";
-      }
-
-      const ran = await runDataset({ key, title, sql, shape, x, y, series }, signal);
-      if (!ran.ok) return ran.error;
-      const dataset = ran.dataset;
-      const { columns } = dataset;
-      datasets.push(dataset);
-      onDataset?.(dataset);
-
-      // What goes back to the model: names and counts. Never rows.
-      return (
-        `Dataset "${key}" ready: ${dataset.rowCount} row(s), columns ${columns.join(", ")}. ` +
-        (dataset.note ? `Note: ${dataset.note}. ` : "") +
-        `Reference it in the layout as data: ${key}.`
+    if (!DATASET_KEY_RE.test(key)) {
+      return `Rejected: "${key}" is not a valid key — use lowercase snake_case, e.g. cost_by_day.`;
+    }
+    if (datasets.some((d) => d.key === key)) {
+      return `Rejected: a dataset called "${key}" already exists. Pick another name or reuse that one.`;
+    }
+    if (datasets.length >= MAX_DATASETS) {
+      // Not an error the run should die on: the model keeps what it has and
+      // lays that out. The page says a cap was hit.
+      notes.push(
+        `This build asked for more than ${MAX_DATASETS} datasets; the extra ones were not fetched.`,
       );
-    },
+      return `Rejected: the ${MAX_DATASETS}-dataset limit is reached. Lay out the datasets you already have.`;
+    }
+    if (shape !== "value" && shape !== "table" && (!x || !y)) {
+      return `Rejected: shape "${shape}" needs both \`x\` and \`y\`.`;
+    }
+    if (shape === "stacked_bar" && !series) {
+      return "Rejected: shape \"stacked_bar\" needs a `series` column — the thing each bar is composed OF.";
+    }
+
+    const ran = await runDataset({ key, title, sql, shape, x, y, series }, signal);
+    if (!ran.ok) return ran.error;
+    const dataset = ran.dataset;
+    const { columns } = dataset;
+    datasets.push(dataset);
+    onDataset?.(dataset);
+
+    // What goes back to the model: names and counts. Never rows.
+    return (
+      `Dataset "${key}" ready: ${dataset.rowCount} row(s), columns ${columns.join(", ")}. ` +
+      (dataset.note ? `Note: ${dataset.note}. ` : "") +
+      `Reference it in the layout as data: ${key}.`
+    );
+  };
+
+  // The AI SDK rendering, kept for the existing tests and any non-Mastra caller.
+  // Mastra wraps `execute` itself (see `~/mastra/build.ts`) so the prompt, the
+  // schema and the guards are not duplicated.
+  const addDataset = tool({
+    description: ADD_DATASET_DESCRIPTION,
+    inputSchema: addDatasetInputSchema,
+    execute,
   });
 
   return {
     tool: addDataset,
+    execute,
     result(): DatasetStepResult {
       return { datasets, notes: [...new Set(notes)] };
     },
