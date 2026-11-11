@@ -74,6 +74,9 @@ test("PUT /settings stores channel credentials and wiring through the existing p
   for (const key of [
     SETTINGS.SLACK_SIGNING_SECRET,
     SETTINGS.SLACK_BOT_TOKEN,
+    // Without this one the row leaks into later test files (file order differs
+    // between local and CI) and channel-config's env-fallback test sees U2.
+    SETTINGS.SLACK_BOT_USER_ID,
     SETTINGS.DISCORD_PUBLIC_KEY,
     SETTINGS.DISCORD_BOT_TOKEN,
     SETTINGS.DISCORD_APPLICATION_ID,
