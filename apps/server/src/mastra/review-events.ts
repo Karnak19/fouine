@@ -57,28 +57,22 @@ export function emitReviewCompleted(
         url: `https://github.com/${row.repo_full_name}/pull/${row.pr_number}`,
       };
 
-      // Only real PR reviews get a channel post: refine/implement/improve rows
-      // carry an ISSUE number (or 0) in pr_number, so the payload's `/pull/…`
-      // link would point at the wrong thing. The MCP event keeps its existing
-      // shape for those rows.
-      const isPrReview =
-        !row.trigger || !["improve", "refine", "implement"].includes(row.trigger);
-      if (isPrReview) {
-        // Fire-and-forget: started, never awaited. `notifyReviewCompleted`
-        // itself never rejects; the catch covers an injected notifier.
-        try {
-          void notify(payload).catch((err) =>
-            log.warn("channel review notification failed", {
-              review: reviewId,
-              error: String(err),
-            }),
-          );
-        } catch (err) {
+      // Non-PR rows (improve/refine/implement) already returned above, so every
+      // payload that reaches here is a real PR review: notify unconditionally.
+      // Fire-and-forget: started, never awaited. `notifyReviewCompleted`
+      // itself never rejects; the catch covers an injected notifier.
+      try {
+        void notify(payload).catch((err) =>
           log.warn("channel review notification failed", {
             review: reviewId,
             error: String(err),
-          });
-        }
+          }),
+        );
+      } catch (err) {
+        log.warn("channel review notification failed", {
+          review: reviewId,
+          error: String(err),
+        });
       }
 
       await emit("review.completed", payload);
