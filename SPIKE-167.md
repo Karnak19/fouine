@@ -1,233 +1,164 @@
-# SPIKE-167 — Mastra as the chat agent's runtime (phase 1, chat only)
+# #167 phase 1 — Mastra for chat and `/build`
 
 Branch: `spike/167-phase1-mastra-chat`
-Scope: the dashboard **chat** agent only. `/build` is untouched.
+Base: the chat spike (`8ea967a4`) plus this PR's `/build`, instance, storage and
+dev-verification work.
 
-## What was built
+## What shipped
 
-The integration shape is deliberately the least-risk one:
+**Route-internal agents, no Hono mount, no client or auth changes.**
+`POST /api/chat` and `POST /api/build` keep their Elysia schemas, their session
+gate, their structured request log and the static/SPA fallback. Both return the
+same AI SDK v7 UI message stream the browser already consumes. `apps/web/` is
+untouched.
 
-- **No Hono mount, no route changes, no auth changes.** `POST /api/chat` in
-  `apps/server/src/server/api.ts` is still the entry point and keeps its Elysia
-  body schema.
-- `streamChat()` in `apps/server/src/chat/index.ts` still does the trust-boundary
-  work (`textOnly`, turn slice, question-length check, API-key/mock selection).
-  It now delegates the run to `streamChatViaAgent()` in
-  `apps/server/src/mastra/chat.ts`.
-- The Mastra agent's stream is converted with `toAISdkStream(..., { version:
-  "v7" })` and wrapped in `createUIMessageStream` /
-  `createUIMessageStreamResponse`, i.e. the exact response type the previous
-  `streamText(...).toUIMessageStreamResponse()` produced.
-- `apps/web/` was not modified (`git diff --stat` shows no web changes).
+- **Chat** — `streamChat()` still owns `textOnly`, the 40-turn slice and the
+  question-length check, then delegates to `streamChatViaAgent()`
+  (`apps/server/src/mastra/chat.ts`). `query_stats` / `render_chart` are Mastra
+  tools with the same names and zod schemas, still calling `runStatsQuery` /
+  `buildChart`; the SQL guard, readonly worker, row cap and deadline are not
+  reimplemented.
+- **`/build`** — `validatePrevious()` and every bound stay in
+  `apps/server/src/build/index.ts`. The two model steps now run through one
+  `buildAgent` (`apps/server/src/mastra/build.ts`), with the data/layout prompt
+  split preserved as a per-run instruction override. `add_dataset` is wrapped
+  with `createTool()` around the existing `createDatasetStep().execute`, so the
+  cap/duplicate/axis checks and `runDataset` are unchanged. Refines still re-run
+  the previous SQL server-side before the model sees anything; dataset parts and
+  notes are written before the layout starts, and the layout stream still goes
+  through `pipeYamlRender`. `CHAT_MOCK=1` selects the same two scripted build
+  models as before.
+- **Mastra instance** — `apps/server/src/mastra/index.ts` registers
+  `{ chat, build }` and stores state in `${DATA_DIR}/mastra.db` via
+  `@mastra/libsql`. `boot()` initialises that storage before accepting requests.
+  A test imports the instance and asserts the path follows `DATA_DIR`; the test
+  preload's temp dir is the only place the suite writes.
+- **Peripheral fixes** — root `bunfig.toml` now pins `[install] linker =
+  "hoisted"` (Bun 1.4.4's isolated linker broke `@elysia/static` →
+  `fast-decode-uri-component`), and `turbo.json`'s `dev.passThroughEnv` now
+  passes `OPENCODE_API_KEY` and `LOG_LEVEL` as well as `CHAT_MOCK`.
 
-Files added:
-
-- `apps/server/src/chat/model.ts` — `OPENCODE_GO_BASE_URL` and `wireModelId`
-  moved here from `chat/index.ts` so the Mastra model resolver can use them
-  without a circular import; `buildChatModel(session)` builds the per-request
-  model (gateway or mock).
-- `apps/server/src/mastra/tools.ts` — `query_stats` and `render_chart` as
-  `createTool()` definitions. Names, descriptions and zod schemas are copied
-  verbatim from the old `tool()` definitions. They call `runStatsQuery` /
-  `buildChart` unchanged; the SQL guard, readonly worker, row cap and deadline
-  are not reimplemented.
-- `apps/server/src/mastra/chat.ts` — the singleton `chatAgent` (same
-  `CHAT_SYSTEM_PROMPT`, same two tools) and the stream adapter.
-
-## Versions (pinned exactly, as requested)
+## Versions (exact pins)
 
 | Package | Version |
 | --- | --- |
 | `@mastra/core` | `1.82.0` |
 | `@mastra/ai-sdk` | `1.11.3` |
-| `ai` (already present) | `^7.0.148` (lock resolves `7.0.148`) |
+| `@mastra/libsql` | `1.29.0` |
+| `@libsql/client` (transitive) | `^0.18.0` |
+| `ai` (already present) | `^7.0.148` (lock: `7.0.148`) |
 | `zod` (already present) | `^4.6.7` |
-| Bun | `1.4.4` |
+| Bun (environment) | `1.4.4` |
 
-`@mastra/ai-sdk@1.11.3` peers: `@mastra/core >=1.5.0-0 <2.0.0-0`, `zod ^3.25 || ^4`.
-`@mastra/core@1.82.0` vendors AI SDK provider v5/v6/v7 (`@ai-sdk/provider@4.0.35`
-for v7).
+`@mastra/libsql@1.29.0` peers `@mastra/core >=1.76.0-0 <2.0.0-0`.
 
-## The five checks
+## `OpenAICompatibleConfig`: adopted
 
-### 1. Mastra works in this Bun + Elysia app with the AI SDK v7 message stream — **PASS (with type-level drift)**
+The real gateway model is now Mastra's config object, not an AI SDK instance:
 
-`turbo run typecheck`, `bun test` (484 pass / 0 fail) and a live
-`CHAT_MOCK=1` dev-server request all succeed on Bun 1.4.4 with Elysia 1.4.29.
-The agent runs in-process; Elysia returns the `Response` from
-`createUIMessageStreamResponse` as it did before.
-
-The cost is **three type casts**, caused by Mastra shipping its own vendored
-copies of the AI SDK types (`@mastra/core/dist/_types/...`) rather than importing
-the app's `ai`:
-
-- `MastraLanguageModel` declares a *unified* `doGenerate` that returns a stream
-  result, while a stock AI SDK model returns a generate result. This is a type
-  mismatch only for `agent.stream()` (which calls `doStream`). Both the real
-  gateway model and `MockLanguageModelV4` need `as unknown as MastraLanguageModel`.
-- `stopWhen: stepCountIs(6)` from the app's `ai` does not structurally match
-  Mastra's stop-condition type (Mastra's `StepResult` has more fields). Used
-  `maxSteps: 6` instead (documented and semantically the same budget).
-- `toAISdkStream(version: "v7")` chunks type `finishReason` with one extra
-  member (`"interrupted"`) vs the app's `ai`; the write loop casts the chunk.
-
-A real phase-1 PR should either isolate these casts in one adapter module
-(as done here) or pass Mastra an `OpenAICompatibleConfig` object
-(`{ id, url, apiKey, headers }`) instead of an AI SDK model instance, which may
-avoid the model cast entirely. It should verify that `url` means base URL before
-switching.
-
-### 2. The stream still drives `@assistant-ui/react-ai-sdk` unchanged — **PASS**
-
-`apps/web/src/routes/chat.tsx` and the toolkit were not touched. A curl against
-the running server with the SPA's wire body
-(`{ id, messages: [{ id, role: "user", parts: [{ type: "text", text }] }] }`)
-returned `200`, `content-type: text/event-stream`,
-`x-vercel-ai-ui-message-stream: v1`, and this chunk inventory:
-
-```
-start, start-step, reasoning-start/delta/end, tool-input-start,
-tool-input-delta, tool-input-available, tool-output-available,
-finish-step, text-start/delta/end, finish
+```ts
+{ id: "opencode-go/deepseek-v4.1-flash",
+  url: "https://opencode.ai/zen/go/v1",
+  apiKey,
+  headers: { "x-opencode-session": session } }
 ```
 
-Two tool round-trips were present, with the names the toolkit registers:
-`toolName: "query_stats"` and `toolName: "render_chart"` (both
-`dynamic: false`), each followed by a `tool-output-available` carrying the real
-result (`1 row(s) in 19ms ...` for the SQL; a chart object for the chart).
-175 `text-delta` chunks and a final `finish` closed the run. That is the v7 UI
-message protocol `AssistantChatTransport` consumes.
+Verified against a local capture server (not committed): Mastra requested
+`/v1/chat/completions`, sent `Authorization: Bearer <key>`, sent
+`x-opencode-session`, and put the **bare** model id (`deepseek-v4.1-flash`) in
+the body — so `url` is the base URL and `wireModelId`'s rule still holds.
 
-Not proven in this spike: an actual browser render of the chart/SQL cards. The
-wire format and tool names are verified; a phase-1 PR should still click through
-the three suggestion prompts once.
+Result: the gateway model cast is gone for both agents. Three type-level
+frictions remain, all isolated:
 
-### 3. `CHAT_MOCK=1` still plugs in — **PASS**
+1. **Mock models** — `MockLanguageModelV4` comes from the app's AI SDK, Mastra
+   declares its own `LanguageModelV4`; the cast is in `~/chat/model.ts` and
+   `project buildModels()` (build has two stateful scripts, so they stay
+   instances). Upgrade path: a Mastra mock model or one shared provider type.
+2. **Stream chunks** — `toAISdkStream(version: "v7")` types `finishReason` with
+   `"interrupted"` absent from the app's `ai`; chat casts the write, build casts
+   the `pipeYamlRender` → `writer.merge` boundary. Same wire shape.
+3. **`maxSteps`, not `stopWhen`** — Mastra's stop-condition type is tied to its
+   vendored AI SDK and rejects ours. `maxSteps` is the same budget
+   (`DATA_STEPS = MAX_DATASETS + 3`, `LAYOUT_STEPS = 1`, chat `6`).
 
-`CHAT_MOCK=1` works through Mastra. The model resolver returns
-`createChatMockModel()` per request (memoised on the request context so the
-script does not restart mid-run), and the scripted stream drove the full
-three-step loop: reasoning → real `query_stats` against the real SQLite DB →
-reasoning → real `render_chart` → reasoning → long markdown answer. The dev log
-showed only `[chat] CHAT_MOCK=1 — answering with the scripted mock model, no
-upstream call`; no upstream request. `/build`'s mock is untouched.
+## Studio: omitted, with the blocker recorded
 
-The mock needed no Mastra-specific changes. It is a `MockLanguageModelV4`, i.e.
-the same AI SDK v7 stream-part script the old route used.
+Mastra 1.82 does **not** ship the Studio UI in `@mastra/core` or
+`@mastra/server`; `@mastra/server` (and the `@mastra/hono` adapter) exposes API
+routes only. Studio is served by the `mastra` CLI (`mastra dev`) as a separate
+process/port, which would need a new CLI dependency and its own bundling of
+`~/...` aliases. Mounting the Hono adapter under Elysia would add a route that
+loses to the static plugin's catch-all GET and would not produce the Studio UI
+anyway, i.e. it risks the dev SPA for no gain.
 
-### 4. `resolveChatModel` still picks the model, re-read per request — **PASS**
+Decision: no Studio mount in `app.ts` this phase. The `Mastra` instance is in
+place, so phase 2 can either add a pinned `mastra dev` script or mount the API
+adapter behind the existing auth gate. `app.ts`'s static plugin /
+`bunFullstack` / `await staticPlugin(...)` ordering is untouched.
 
-The agent's `model` is a function of the request context; it calls
-`buildChatModel()`, which calls `resolveChatModel()` and returns the gateway
-model for the current request. No module-level model is cached.
+## Gates and smoke evidence
 
-Evidence from a live server (run directly with
-`OPENCODE_API_KEY=dummy-key LOG_LEVEL=debug bun src/index.ts`, because Turbo's
-strict env mode strips those variables — see gotchas):
+| Gate | Result |
+| --- | --- |
+| `turbo run typecheck` | pass, exit 0 |
+| `turbo run test` | pass, 462 tests / 0 fail, exit 0 |
+| `turbo run build` | pass, exit 0 |
+| `CHAT_MOCK=1` smoke, `/api/chat` | 200, 18.9 kB stream |
+| `CHAT_MOCK=1` smoke, `/api/build` | 200, 7.3 kB stream |
 
-```
-PUT /api/settings {"chat_model":"opencode-go/deepseek-v4-flash"}  -> 200
-POST /api/chat ... -> chat model resolved  model:"deepseek-v4-flash"
-PUT /api/settings {"chat_model":"opencode-go/some-other-model"}    -> 200
-POST /api/chat ... -> chat model resolved  model:"some-other-model"
-```
+Chat chunk inventory: `start`, `start-step`, `reasoning-start/delta/end`,
+`tool-input-start/delta/available`, `tool-output-available` (×2),
+`text-start/delta/end`, `finish-step`, `finish` — two real tool round-trips.
 
-No restart between the two requests. The structured debug line
-(`chat model resolved`) is emitted from the resolver itself, so this is the
-model actually handed to the run, not just what the settings API stored.
+`/build` chunk inventory: `data-build-dataset` ×2 (rows included), then
+`start`, `start-step`, `text-start/end`, 47 `data-spec` patches, `finish`. The
+last dataset part precedes the first spec patch, which is the ordering the page
+depends on. A smoke run with `DATA_DIR` at a temp dir created `mastra.db` there,
+not in the repo's data dir.
 
-`x-opencode-session` is still set: the session id reaches
-`buildChatModel(session)` through the request context and is stored in the
-provider headers exactly as before.
+`/build`'s existing tests (mock full build, refine re-run, guard-dropped
+dataset, SSE ordering, 400 paths) all pass against the Mastra path.
 
-### 5. Existing limits still apply — **PASS**
+## Gotchas that remain for phase 2
 
-- `MAX_TURNS = 40`: the Elysia body schema still caps `messages` at 40, and
-  `streamChat` still slices the sanitised thread to the last 40.
-- `MAX_QUESTION_CHARS = 4_000`: still enforced twice — the route's
-  `text` `maxLength` and `streamChat`'s loop before the agent is called.
-- `MAX_PARTS_PER_MESSAGE = 64`: still the route's `parts.maxItems`.
-- The trust boundary is unchanged: `textOnly` still drops every assistant
-  message and every non-text part, so forged tool results / prior answers never
-  reach the model.
-- `messages.test.ts` (empty thread, oversized question, assistant-only thread)
-  still passes against the new `streamChat`, and the 400 path
-  (`No opencode API key configured`) still comes back as a JSON error, not a
-  stream.
-- Step budget: Mastra `maxSteps: 6`, the same budget as `stepCountIs(6)`.
-
-## Gotchas for the real phase-1 PR
-
-1. **Two AI SDK type universes.** Mastra vendors its own copies (`provider@4.0.35`
-   etc.) and its `MastraLanguageModel` is not the stock `LanguageModelV4`.
-   Expect casts at the model boundary and at the stream-chunk boundary. Keep
-   them in one adapter file and write down why, or use
-   `OpenAICompatibleConfig`.
-2. **`maxSteps`, not `stopWhen`.** Mastra's docs still show
-   `stopWhen: stepCountIs(n)`; with the app's `ai@7` it does not typecheck.
-   `maxSteps: n` is accepted and is the same budget. Confirm the step count on a
-   real multi-tool answer in phase 1.
-3. **`createTool()` needs `outputSchema` for a useful output type.** Without it,
-   `execute`'s return is effectively unconstrained/void. `query_stats` uses
-   `z.string()`, `render_chart` uses `z.unknown()` so the `ChartResult` object
-   reaches the client untouched.
-4. **Mock model is stateful per request.** If the model resolver is called more
-   than once per run (Mastra may ask per step), constructing a new mock each
-   time would replay step 0 forever. The resolver memoises the model on the
-   `RequestContext`. Any future dynamic model must do the same.
-5. **`originalMessages` is required** in `createUIMessageStream` (or the client
-   can duplicate the assistant message). The adapter passes the sanitised
-   `messages`.
-6. **Reasoning is off by default** in `toAISdkStream`; pass `sendReasoning: true`
-   to preserve the old behaviour (the mock streams reasoning blocks).
-7. **No Mastra instance, no Studio, no traces in this spike.** A standalone
-   `Agent` works, but registering it in `new Mastra({ agents })` is what gives
-   Studio and tracing. Phase 1 must add that instance (dev-only Studio) and the
-   `${DATA_DIR}/mastra.db` storage decision from #167.
-8. **Turbo strips env vars.** `turbo.json`'s `dev` task has
-   `passThroughEnv: ["CHAT_MOCK"]` and strict env mode, so
-   `OPENCODE_API_KEY=... LOG_LEVEL=debug turbo run dev` silently drops both.
-   For local verification run `bun src/index.ts` from `apps/server`, or add the
-   variables to `passThroughEnv` (dev tooling only).
-9. **Bun linker quirk in this worktree.** With Bun 1.4.4's default isolated
-   linker, `@elysia/static` resolved `fast-decode-uri-component` against the
-   global link cache and failed, which broke `events.test.ts` (and therefore the
-   whole `bun test` run) before any Mastra code ran. `bun install
-   --linker=hoisted` produced a working tree (484 pass / 0 fail). The repo pins
-   `packageManager: bun@1.4.2`; align the Bun version or the linker in CI before
-   blaming a dependency.
-10. **No auth in dev** because `BETTER_AUTH_SECRET`/OAuth vars are unset, so
-    `requiresSession` is never evaluated in `onBeforeHandle`. The curl worked
-    unauthenticated. That is the existing dev behaviour, not something this
-    spike changed.
-
-## Recommendation: route-internal agent vs Hono mount
-
-**Keep the agent route-internal, as done here.** For phase 1 it wins on every
-axis that matters:
-
-- `POST /api/chat` keeps its Elysia body validation, its existing auth gate
-  (`onBeforeHandle`), its structured request log, and the static/SPA fallback in
-  `app.ts` untouched. There is no prefix to get wrong and no second HTTP
-  framework in the request path.
-- The response is still a plain `Response`, so `AssistantChatTransport` needs
-  zero changes.
-- `/build` can be migrated on its own schedule without a route collision.
-
-Mount Mastra's Hono handler **later, only where it earns its keep**: phase 2's
-MCP endpoint, A2A, and Studio. Those are new route trees with their own
-transports, and `MCPServer`/Studio are exactly what the Hono handler provides.
-When that happens, mount it under a prefix and put fouine's auth in front of it
-(the trap #167 names is real: Mastra publishes its own routes). Do not route the
-dashboard chat through Hono to get Studio — run Studio against the same agent
-registry without putting it in the chat request path.
+1. **Two AI SDK type universes.** Keep the remaining mock/stream casts in the
+   adapter modules. If Mastra exposes a shared provider type, delete them.
+2. **Mock models are per-request state machines.** `buildModels()` builds both
+   per request; the chat resolver memoises on the request context. A new
+   dynamic model must do the same or replay step 0.
+3. **`originalMessages`** is still required in chat's `createUIMessageStream`.
+   `/build` merges a second stream into an existing writer, as before.
+4. **`sendReasoning: true`** must stay on `toAISdkStream`; reasoning is off by
+   default and the thread renders those parts.
+5. **Storage is initialised at boot.** A mounted-but-unwritable `DATA_DIR` now
+   fails at startup rather than mid-review. The libsql native dependency must be
+   present in the production image (it is installed via `@mastra/libsql`).
+6. **`/build` store writes** — Mastra has no memory in this design; the libsql
+   file currently only holds Mastra's own tables. Phase 2 decides whether traces
+   / workflow snapshots are enabled or the store stays empty.
+7. **Studio** — see above; it needs a separate decision (CLI vs API adapter).
+8. **Turbo env mode** — `OPENCODE_API_KEY` and `LOG_LEVEL` now pass through
+   `dev`; any new verification variable must be added there too.
+9. **Bun linker** — the hoisted pin is repo-wide. `bun install` (not
+   `--linker=isolated`) is the supported install in this workspace.
+10. **No auth in dev** because `BETTER_AUTH_SECRET`/OAuth vars are unset; the
+    curls were unauthenticated. That is existing behaviour, not this PR.
 
 ## Diff footprint
 
-- `apps/server/package.json`: +`@mastra/core@1.82.0`, +`@mastra/ai-sdk@1.11.3`.
-- `apps/server/src/chat/index.ts`: tool definitions and model construction moved
-  out; validation, limits and `textOnly` unchanged; delegates the run.
-- `apps/server/src/chat/model.ts` (new): gateway/mock model builder.
-- `apps/server/src/mastra/tools.ts`, `apps/server/src/mastra/chat.ts` (new).
+- `apps/server/package.json` / `bun.lock`: +`@mastra/core@1.82.0`,
+  +`@mastra/ai-sdk@1.11.3`, +`@mastra/libsql@1.29.0`.
+- `apps/server/src/chat/index.ts`: delegates the run; validation/limits unchanged.
+- `apps/server/src/chat/model.ts`: `OpenAICompatibleConfig` builder + mock cast.
+- `apps/server/src/mastra/{chat,build,index}.ts`: agents, adapter, instance.
+- `apps/server/src/mastra/tools.ts`: chat tools.
+- `apps/server/src/build/index.ts`: orchestration moved to the agent; validation
+  and constants unchanged.
+- `apps/server/src/build/datasets.ts`: schema/description/execute extracted for
+  the Mastra tool wrapper; guards unchanged.
+- `apps/server/src/server/app.ts`: boot initialises Mastra storage. Static/SPA
+  ordering untouched.
+- `apps/server/src/mastra/mastra.test.ts`: storage follows `DATA_DIR`.
+- `bunfig.toml`, `turbo.json`: linker pin + dev env pass-through.
 - `apps/web/`: **no changes**.
-- `/build`: **no changes**.

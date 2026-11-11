@@ -1,11 +1,9 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
-  streamText,
-  stepCountIs,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  type LanguageModel,
 } from "ai";
+import { RequestContext } from "@mastra/core/request-context";
+import { toAISdkStream } from "@mastra/ai-sdk";
 import { pipeYamlRender } from "@json-render/yaml";
 import {
   MAX_DATASETS,
@@ -18,9 +16,6 @@ import {
   type BuildPrevious,
   type PreviousDataset,
 } from "@fouine/shared/build-catalog";
-import { resolveApiKey, resolveChatModel } from "~/settings";
-import { OPENCODE_GO_BASE_URL, wireModelId } from "~/chat";
-import { chatMockEnabled } from "~/chat/mock-model";
 import { log } from "~/server/log";
 import { createDatasetStep, rerunPreviousDataset } from "~/build/datasets";
 import {
@@ -31,7 +26,7 @@ import {
   refineDataPrompt,
   refineLayoutPrompt,
 } from "~/build/prompt";
-import { createBuildDataMockModel, createBuildLayoutMockModel } from "~/build/mock-model";
+import { buildAgent, buildModels, datasetToolset, setBuildModel } from "~/mastra/build";
 
 /**
  * `/build`: one sentence in, a whole dashboard out.
@@ -69,23 +64,6 @@ export interface DatasetError {
   error: string;
 }
 
-function models(sessionId: string, refine: boolean): { data: LanguageModel; layout: LanguageModel } {
-  if (chatMockEnabled()) {
-    console.warn("[build] CHAT_MOCK=1 — composing with the scripted mock models, no upstream call");
-    return { data: createBuildDataMockModel(refine), layout: createBuildLayoutMockModel(refine) };
-  }
-  const apiKey = resolveApiKey();
-  if (!apiKey) throw new Error("No opencode API key configured — set one in Settings.");
-  const gateway = createOpenAICompatible({
-    name: "opencode-go",
-    baseURL: OPENCODE_GO_BASE_URL,
-    apiKey,
-    headers: { "x-opencode-session": sessionId },
-  });
-  const model = gateway(wireModelId(resolveChatModel()));
-  return { data: model, layout: model };
-}
-
 /**
  * Run both steps and stream the result as an AI SDK UI message stream.
  *
@@ -111,7 +89,8 @@ export async function streamBuild(
   const previous = previousInput == null ? undefined : validatePrevious(previousInput);
   const refine = previous !== undefined;
 
-  const { data: dataModel, layout: layoutModel } = models(id ?? crypto.randomUUID(), refine);
+  const { data: dataModel, layout: layoutModel } = buildModels(id ?? crypto.randomUUID(), refine);
+  const requestContext = new RequestContext();
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -151,12 +130,14 @@ export async function streamBuild(
 
       const step = createDatasetStep(signal, publish, datasets);
 
-      const data = streamText({
-        model: dataModel,
-        system: previous ? DATA_REFINE_PROMPT : DATA_SYSTEM_PROMPT,
-        prompt: previous ? refineDataPrompt(question, previous) : question,
-        tools: { add_dataset: step.tool },
-        stopWhen: stepCountIs(DATA_STEPS),
+      setBuildModel(requestContext, dataModel);
+      const data = await buildAgent.stream(previous ? refineDataPrompt(question, previous) : question, {
+        // The split between the two prompts is the safety property: the data
+        // step has the schema and the tool, the layout step has neither.
+        instructions: previous ? DATA_REFINE_PROMPT : DATA_SYSTEM_PROMPT,
+        toolsets: { build: datasetToolset(step) },
+        maxSteps: DATA_STEPS,
+        requestContext,
         abortSignal: signal,
       });
       // The prose of this step is thrown away on purpose — its only product is
@@ -172,24 +153,31 @@ export async function streamBuild(
       }
       if (notes.length) writer.write({ type: NOTE_PART, data: { notes } });
 
-      const layout = streamText({
-        model: layoutModel,
-        system: layoutSystemPrompt(),
-        // The layout model gets the spec on a refine and the dataset briefing
-        // either way — keys, columns and counts. Rows are on the wire above,
-        // never in this prompt.
-        prompt: previous
+      setBuildModel(requestContext, layoutModel);
+      const layout = await buildAgent.stream(
+        previous
           ? refineLayoutPrompt(question, previous, datasets)
           : `${question}\n\n${datasetBriefing(datasets)}`,
-        stopWhen: stepCountIs(LAYOUT_STEPS),
-        abortSignal: signal,
-      });
+        {
+          instructions: layoutSystemPrompt(),
+          // One YAML document; the layout model never needs a second turn.
+          maxSteps: LAYOUT_STEPS,
+          requestContext,
+          abortSignal: signal,
+        },
+      );
 
       // The documented AI SDK integration for @json-render/yaml: the transform
       // turns the model's ```yaml-spec fence into spec patches as it streams,
       // so the layout paints top-down instead of appearing all at once when the
-      // last brace lands.
-      writer.merge(pipeYamlRender(layout.toUIMessageStream()));
+      // last brace lands. Mastra's chunk types come from its vendored AI SDK
+      // copy, so the stream is cast once at the merge boundary (same drift as
+      // chat's `interrupted` finish reason, same wire shape).
+      writer.merge(
+        pipeYamlRender(
+          toAISdkStream(layout, { from: "agent", version: "v7", sendReasoning: true }),
+        ) as unknown as Parameters<typeof writer.merge>[0],
+      );
     },
     onError: (error) => (error instanceof Error ? error.message : String(error)),
   });

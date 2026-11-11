@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import type { MastraLanguageModel } from "@mastra/core/agent";
+import type { MastraModelConfig } from "@mastra/core/llm";
 import { RequestContext } from "@mastra/core/request-context";
 import {
   createUIMessageStream,
@@ -35,13 +35,18 @@ export const chatAgent = new Agent({
   name: "fouine chat",
   instructions: CHAT_SYSTEM_PROMPT,
   model: ({ requestContext }) => {
-    const cached = requestContext.getRaw(MODEL_KEY) as MastraLanguageModel | undefined;
+    const cached = requestContext.getRaw(MODEL_KEY) as MastraModelConfig | undefined;
     if (cached) return cached;
     const model = buildChatModel(String(requestContext.getRaw(SESSION_KEY) ?? ""));
     // The spike's evidence for check #4: this line is re-emitted per request,
-    // with the model id `resolveChatModel()` returned for THIS request.
+    // with the model id `resolveChatModel()` returned for THIS request. The
+    // gateway path is a config object, so its router id is the thing to log;
+    // the mock is an instance and carries `modelId`.
     log.debug("chat model resolved", {
-      model: (model as { modelId?: string }).modelId ?? "unknown",
+      model:
+        (model as { id?: string }).id ??
+        (model as { modelId?: string }).modelId ??
+        "unknown",
     });
     requestContext.setRaw(MODEL_KEY, model);
     return model;

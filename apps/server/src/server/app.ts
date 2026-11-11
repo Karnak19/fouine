@@ -8,6 +8,7 @@ import { auth, migrateAuth } from "~/server/auth";
 import { internalRoutes } from "~/server/internal";
 import { errName, log } from "~/server/log";
 import { seedOpencodeConfig, reconcileSkills, reloadOpencodeConfig } from "~/skills";
+import { mastra } from "~/mastra";
 import { reapOrphanReviews, reapStaleArms, runImproverSweep, reconcileReviewChecks } from "~/review";
 
 // Resolved from import.meta.dir, not cwd: turbo runs tasks with cwd = the
@@ -199,6 +200,9 @@ export async function createServer() {
 
 export async function boot(): Promise<void> {
   await migrateAuth();
+  // Mastra's own storage shares `DATA_DIR`. Initialise it before accepting
+  // requests so a bad or unwritable volume fails once at boot instead of mid-run.
+  await mastra.getStorage()?.init();
   // Point opencode at a fouine-owned config dir and materialise enabled skills
   // before we accept requests, so the first review already sees them. Order
   // matters: seed creates the skills/ dir the reconcile writes into.
