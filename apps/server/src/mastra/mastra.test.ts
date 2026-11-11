@@ -17,5 +17,6 @@ test("Mastra storage follows DATA_DIR", () => {
 test("the Mastra instance registers both agents and its storage", () => {
   expect(mastra.getAgent("chat")).toBeDefined();
   expect(mastra.getAgent("build")).toBeDefined();
+  expect(mastra.getAgent("channel")).toBeDefined();
   expect(mastra.getStorage()).toBeDefined();
 });

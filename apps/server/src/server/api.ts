@@ -69,6 +69,10 @@ const SECRET_SETTINGS_KEYS = new Set<string>([
   SETTINGS.API_KEY,
   SETTINGS.ZAI_API_KEY,
   SETTINGS.COMMANDCODE_API_KEY,
+  // Channel credentials (#176): the same rule as the model keys — write-only.
+  SETTINGS.SLACK_SIGNING_SECRET,
+  SETTINGS.SLACK_BOT_TOKEN,
+  SETTINGS.DISCORD_BOT_TOKEN,
 ]);
 
 function settingsSnapshot() {
@@ -821,6 +825,18 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
       setKey(SETTINGS.PROMPT, body.default_prompt);
+      // Channels (#176). Tokens/secrets follow the key rule above (blank keeps
+      // the stored value, "" deletes back to env); the wiring rows are plain
+      // JSON strings and blank clears them.
+      setKey(SETTINGS.SLACK_SIGNING_SECRET, body.slack_signing_secret);
+      setKey(SETTINGS.SLACK_BOT_TOKEN, body.slack_bot_token);
+      setKey(SETTINGS.SLACK_BOT_USER_ID, body.slack_bot_user_id);
+      setKey(SETTINGS.DISCORD_PUBLIC_KEY, body.discord_public_key);
+      setKey(SETTINGS.DISCORD_BOT_TOKEN, body.discord_bot_token);
+      setKey(SETTINGS.DISCORD_APPLICATION_ID, body.discord_application_id);
+      setKey(SETTINGS.DISCORD_GATEWAY, body.discord_gateway);
+      setKey(SETTINGS.CHANNEL_TARGETS, body.channel_targets);
+      setKey(SETTINGS.CHANNEL_HEALTH, body.channel_health);
       return settingsSnapshot();
     },
     {
@@ -845,6 +861,16 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         merge_method: t.Optional(
           t.Union([t.Literal("merge"), t.Literal("squash"), t.Literal("rebase"), t.Null()]),
         ),
+        // Channels (#176). Secrets are write-only, like the provider keys.
+        slack_signing_secret: t.Optional(t.String()),
+        slack_bot_token: t.Optional(t.String()),
+        slack_bot_user_id: t.Optional(t.String()),
+        discord_public_key: t.Optional(t.String()),
+        discord_bot_token: t.Optional(t.String()),
+        discord_application_id: t.Optional(t.String()),
+        discord_gateway: t.Optional(t.String()),
+        channel_targets: t.Optional(t.String()),
+        channel_health: t.Optional(t.String()),
       }),
     },
   )
