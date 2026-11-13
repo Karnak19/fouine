@@ -42,7 +42,12 @@ export default defineConfig({
         },
         {
           text: "Features",
-          items: [{ text: "Merger", link: "/guide/merger" }],
+          items: [
+            { text: "Merger", link: "/guide/merger" },
+            { text: "Chat and /build", link: "/guide/chat" },
+            { text: "MCP server", link: "/guide/mcp" },
+            { text: "Slack and Discord", link: "/guide/channels" },
+          ],
         },
       ],
       "/architecture/": [

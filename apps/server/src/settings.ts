@@ -118,7 +118,7 @@ export function resolveDefaultModel(): string {
 }
 
 // Chat (and /build, which reuses it) model — global, chat is not scoped to a
-// repo. Dashboard setting, then OPENCODE_CHAT_MODEL, then the repo default.
+// repo. Dashboard setting, then OPENCODE_CHAT_MODEL, then the built-in default.
 // Deliberately NOT chained to the review model: chat is a cheap, high-volume
 // workload that must also be OpenAI-compatible on the gateway.
 export function resolveChatModel(): string {

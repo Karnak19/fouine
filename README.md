@@ -16,7 +16,7 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
                                                (per-PR checkout)
 ```
 
-1. **GitHub App** receives `pull_request` webhooks (opened, synchronize, reopened)
+1. **GitHub App** receives `pull_request` webhooks (opened, synchronize, reopened), plus `issue_comment` (`/fouine` commands) and `issues` webhooks for the refiner and implementer
 2. **Elysia** server processes the event
 3. **Bare repo + worktree** — first PR from a repo triggers a `git clone --bare`, cached on disk. Each review gets a lightweight `git worktree add` at the PR ref, removed after review
 4. **OpenCode agent** runs programmatically on the worktree, with a configurable review prompt. The agent sees the full codebase, reads the diff, explores context as needed
@@ -26,10 +26,18 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 
 - **Full codebase access** via worktree, not just diff. The agent decides what context matters
 - **GitHub App** over personal tokens — clean per-repo install, no token juggling
-- **One LLM call** — models today are smart enough to produce a thorough review in one pass
+- **One agent pass** — one agent session per review: it reads the diff, explores the code and posts the review, with no multi-stage pipeline
 - **Agent posts comments directly** — simpler than having the server parse structured output and post them itself
 - **Configurable prompt** via dashboard — review style, focus areas, language, strictness
 - **Check run per review** — fouine opens a `fouine` check (in_progress → completed) on each PR head SHA, so reviews show up in the PR checks panel and can be required as a merge status. Needs the `checks:write` App permission
+
+## Chat, MCP & channels
+
+Besides reviews, fouine answers questions about its own review data. These run on Mastra with a cheap OpenAI-compatible model, are read-only, and can't start a review, post or merge.
+
+- [Chat and /build](https://karnak19.github.io/fouine/guide/chat) — ask the dashboard questions, or build a dashboard from one sentence
+- [MCP server](https://karnak19.github.io/fouine/guide/mcp) — connect Claude Code or OpenCode to `/api/mcp` (needs dashboard login)
+- [Slack and Discord](https://karnak19.github.io/fouine/guide/channels) — Q&A in a channel, and a message when a review finishes
 
 ## Review behaviour
 
@@ -50,7 +58,8 @@ Self-hosted AI code reviewer. GitHub App + configurable agent. Runs on your serv
 |---|---|
 | Runtime | Bun |
 | Server | Elysia |
-| Code agent | OpenCode (programmatic) |
+| Code agent | OpenCode (programmatic) — reviews, refine, implement, improve |
+| Chat agents | Mastra — dashboard chat, `/build`, MCP server, Slack/Discord |
 | GitHub | GitHub App + octokit |
 | Dashboard | React + TanStack Router/Query (served by Elysia) |
 | Self-hosting | Docker |
@@ -161,7 +170,7 @@ Two things worth knowing before you enable this:
 opencode lets the model choose its own `bash` timeout and, on expiry, invites it
 to retry with a bigger one — so a single wedged command can escalate until it
 consumes the whole review budget. fouine ships a small opencode plugin
-(`apps/server/opencode-config/plugin/cap-bash-timeout.ts`) that caps the model's value at
+(`apps/server/opencode-config/plugins/cap-bash-timeout.ts`) that caps the model's value at
 `OPENCODE_BASH_TIMEOUT_MAX_MS` (default `120000`). Raise it only if real reviews
 legitimately need longer single commands.
 

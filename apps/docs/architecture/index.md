@@ -35,6 +35,28 @@ git worktree remove
 Update review status (completed/failed)
 ```
 
+## Two agent runtimes
+
+fouine runs two kinds of agent, and they are built differently on purpose.
+
+**OpenCode** does the work that needs a repository: reviews, the refiner, the implementer and the improver. One long-lived OpenCode server (spawned by fouine, or a sidecar) runs one session per job. A session gets a worktree of the code, a bash tool, the review tools, and a minimal environment with no GitHub token. That is what lets it read the code around a diff. It is also slow and costly, so it is only used where that power is needed.
+
+**Mastra** does the work that needs no repository: dashboard chat, `/build`, the read-only MCP server, and the Slack/Discord channel agents. These only answer questions about fouine's own data, so they call the model directly through an OpenAI-compatible config. The model is the same cheap one for all four, picked by `resolveChatModel`: the dashboard's **Chat model**, then `OPENCODE_CHAT_MODEL`, then the built-in default. They do not go through OpenCode.
+
+| | OpenCode | Mastra |
+|---|---|---|
+| Runs | reviews, refiner, implementer, improver | chat, `/build`, MCP, Slack/Discord |
+| Model | review model (per repo, per agent) | chat model, OpenAI-compatible only |
+| Sees | the repo worktree, the diff, bash | fouine's own SQLite data, read-only `SELECT` |
+| Can change things | posts reviews and comments, opens PRs (through fouine's loopback proxy) | nothing: no tool can start, post, merge or edit a setting |
+| State | sessions in the OpenCode server; the session id is stored in `fouine.db` | `${DATA_DIR}/mastra.db` (libsql), mostly Slack/Discord thread memory |
+
+The split keeps the dangerous capabilities (code access, shell, GitHub writes) away from the high-volume, cheap path. A question typed into Slack can never start a review, because no tool for it exists on the Mastra side. Chat and `/build` keep no server-side history: the conversation lives in the browser.
+
+There is no Mastra Studio mount. Mastra's own storage sits under `DATA_DIR` like everything else, so the Docker volume carries it.
+
+See [Chat and /build](/guide/chat), [MCP server](/guide/mcp) and [Slack and Discord](/guide/channels).
+
 ## Bare repo caching
 
 The first review from a repository triggers a `git clone --bare`. This bare clone is cached on disk at `${DATA_DIR}/repos/github.com/{owner}/{repo}.git`.
@@ -96,6 +118,8 @@ The Elysia server handles:
 - **`/webhook/github`** — webhook receiver (HMAC verification + event dispatch)
 - **`/api/*`** — REST API for the dashboard
 - **`/api/events`** — SSE live-event stream (see below)
+- **`/api/mcp`** — read-only MCP server, behind its own OAuth bearer check (see [MCP server](/guide/mcp))
+- **`/webhook/channels/{slack|discord}`** — Slack and Discord webhooks, each verified by the platform signature (see [Slack and Discord](/guide/channels))
 - **Static assets** — the React SPA. In development it is served straight from `apps/web/src` with Bun transpiling on the fly; in production (`NODE_ENV=production`) from the Vite build in `apps/web/dist`. Either way there is no second dev server
 - **`/health`** — health check endpoint
 - **GitHub OAuth** — optional, protects `/api/*` (webhook, `/health` and the SPA shell exempt). Uses better-auth with the GitHub App's own OAuth credentials; enabled when `BETTER_AUTH_SECRET`, `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are all set, and gated by `ALLOWED_GITHUB_USERS`

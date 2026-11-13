@@ -1,6 +1,6 @@
 # REST API
 
-All dashboard endpoints are prefixed with `/api`. Three endpoints live outside that prefix: `/health`, `/webhook/github` and `/internal/reviews/:id/findings`.
+All dashboard endpoints are prefixed with `/api`. Four endpoints live outside that prefix: `/health`, `/webhook/github`, `/webhook/channels/{slack|discord}` and `/internal/reviews/:id/findings`. The OAuth discovery paths under `/.well-known/` are outside it too.
 
 ## Authentication
 
@@ -8,6 +8,8 @@ When GitHub OAuth is configured (`BETTER_AUTH_SECRET`, `GITHUB_APP_CLIENT_ID` an
 
 - `/api/auth/*` — better-auth's own endpoints
 - `/api/auth-status`
+
+`/api/mcp` is also under `/api` but is not checked by the cookie gate. It has its own bearer-token check (see [MCP server](#mcp-server)).
 
 An unauthenticated request to any other `/api` path gets `401` with the plain-text body `Unauthorized`. When OAuth is not configured the gate is off and the whole API is open — see [Architecture](/architecture/).
 
@@ -335,18 +337,21 @@ to rebuild it. If models.dev is unreachable, the snapshot bundled in that packag
 GET /api/settings
 ```
 
-`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard are `opencode_api_key`, `zai_api_key`, `commandcode_api_key`, `opencode_model`, `refine_model`, `implement_model`, `default_prompt` and `improver_model`. A key that has never been set is absent from the object.
+`200 →` a flat key-value object of every stored setting, values as strings. Keys written by the dashboard include `opencode_model`, `refine_model`, `implement_model`, `improver_model`, `chat_model`, `default_prompt` and the channel wiring below. A key that has never been set is absent from the object.
+
+The provider keys and the Slack and Discord secrets are never returned. Instead you get `opencode_key_source`, `zai_key_source` and `commandcode_key_source`, which say where each key comes from.
+
+Channel fields that do come back: `slack_bot_user_id`, `discord_public_key`, `discord_application_id`, `channel_targets` and `channel_health` (both JSON strings), and `discord_gateway` (`"1"` or `"0"`, the effective value even when only the env var decides).
 
 ```json
 {
-  "opencode_api_key": "sk-...",
-  "zai_api_key": "sk-...",
   "opencode_model": "opencode-go/deepseek-v4-flash",
-  "default_prompt": "Review this PR..."
+  "chat_model": "opencode-go/deepseek-v4.1-flash",
+  "default_prompt": "Review this PR...",
+  "opencode_key_source": "dashboard",
+  "discord_gateway": "1"
 }
 ```
-
-The API key is returned as stored, unredacted.
 
 ### Update settings
 
@@ -362,9 +367,14 @@ Content-Type: application/json
   "default_prompt": "Review this PR...",
   "refine_model": "opencode-go/deepseek-v4-flash",
   "implement_model": "opencode-go/deepseek-v4-flash",
-  "improver_model": "opencode-go/deepseek-v4-flash"
+  "improver_model": "opencode-go/deepseek-v4-flash",
+  "chat_model": "opencode-go/deepseek-v4.1-flash"
 }
 ```
+
+`chat_model` is the model for Chat, `/build`, MCP and the Slack/Discord agents. It does not take part in the cascade below.
+
+Slack and Discord fields, all optional strings: `slack_signing_secret`, `slack_bot_token`, `slack_bot_user_id`, `discord_public_key`, `discord_bot_token`, `discord_application_id`, `discord_gateway` (`"1"` or `"0"`), `channel_targets` (JSON, see [Slack and Discord](/guide/channels#review-done-notifications)) and `channel_health` (JSON; send `""` to clear the auto-disable warnings). Same rule as every field: `""` deletes the stored row. For the three secrets that means falling back to the environment.
 
 Model fields follow a most-specific-first cascade: a repo's own override, then the repo's review model, then the global agent default (`refine_model` / `implement_model`), then the global review default (`opencode_model`). Sending an empty string deletes the stored row, falling back down the cascade.
 
@@ -459,7 +469,7 @@ Extra keys on a part are accepted and ignored.
 Behaviour worth knowing before scripting against it:
 
 - Only `user` messages with `text` parts survive server-side. Assistant and system turns sent by the client are discarded, and the model never sees its own prior replies — every answer is recomputed from a fresh query.
-- The model has exactly one tool: a read-only SQLite `SELECT` against fouine's own database. It runs at most 6 steps per turn.
+- The model has two tools, both read-only SQLite `SELECT` queries against fouine's own database: one returns rows, one draws a chart. It runs at most 6 steps per turn.
 - Aborting the request aborts the upstream model run.
 - Nothing is persisted. The thread lives entirely in the client.
 
@@ -470,6 +480,49 @@ Statuses:
 - `422` if the body violates the schema above.
 
 Model errors and rejected SQL are not statuses: they arrive inside the stream as text.
+
+## Build
+
+```
+POST /api/build
+Content-Type: application/json
+
+{ "prompt": "cost per repo by day, plus the top five PRs" }
+```
+
+Composes a dashboard from one sentence. Same transport as Chat: an AI SDK UI message stream, behind the same session gate. The stream carries the fetched datasets first, then the layout.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | optional, ≤ 128 chars |
+| `prompt` | string | required, non-empty |
+| `previous` | object | optional. A follow-up: the current `spec`, its `datasets` and earlier `prompts`. Re-validated server-side, and every SQL is run through the guard again |
+
+Statuses: `200` with a stream; `400 → { "error": "..." }` for a config problem or a body outside the limits (one readable sentence); `413` if a refinement body is too large.
+
+## MCP server
+
+```
+POST /api/mcp
+GET  /api/mcp
+DELETE /api/mcp
+Authorization: Bearer <token>
+```
+
+A read-only MCP server over streamable HTTP. See the [MCP guide](/guide/mcp) for connecting a client. Tools: `query_stats`, `render_chart`, `list_repos`, `ask_chat`. Event: `review.completed`.
+
+It is authenticated with an OAuth bearer token, never a browser cookie, and it is always protected: with dashboard login not configured it answers `401` with a plain-text reason.
+
+The OAuth side is served by better-auth. These public paths exist only when login is configured:
+
+| Path | Purpose |
+|---|---|
+| `GET /.well-known/oauth-authorization-server` | Authorization server metadata |
+| `GET /.well-known/oauth-protected-resource` | Protected resource metadata for `/api/mcp` |
+| `/api/auth/mcp/register` | Dynamic client registration |
+| `/api/auth/mcp/authorize` | Start the authorization (sends the user to GitHub login) |
+| `/api/auth/mcp/token` | Exchange the code for a token |
+| `/api/auth/mcp/get-session` | Look up the session behind a token |
 
 ## Live events
 
@@ -521,6 +574,15 @@ X-GitHub-Delivery: <uuid>
 The GitHub App's webhook receiver. The raw body is HMAC-verified against the configured webhook secret before anything is dispatched.
 
 `200 → { "ok": true }` once the delivery has been verified and dispatched. `401 → { "error": "invalid signature" }` if verification fails. Not behind the OAuth gate — the signature is its authentication.
+
+### Channel webhooks
+
+```
+POST /webhook/channels/slack
+POST /webhook/channels/discord
+```
+
+Receivers for Slack and Discord. Each request is verified by the adapter with the platform's own signature (Slack signing secret, Discord Ed25519 public key). `401` for a bad signature, `404` for any other platform name, `503` when that platform has no credentials set. Not behind the OAuth gate. See [Slack and Discord](/guide/channels).
 
 ### Internal findings write-back
 

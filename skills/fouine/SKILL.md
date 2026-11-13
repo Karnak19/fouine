@@ -107,6 +107,22 @@ It doesn't let a bot-opened PR merge on fouine's approval alone. That still need
 1. **Wait for the review of your head commit.** Pushing, opening, reopening or marking
    ready for review all start a review on their own. Drafts are skipped. Match on the
    head SHA, not on how many reviews there are.
+
+   Don't poll the PR for new comments in a loop. Wait on the `fouine` check instead:
+
+   ```bash
+   # The check appears a few seconds after the push; --watch exits at once if it isn't there yet.
+   until gh pr checks <n> --json name -q '.[].name' | grep -qx fouine; do sleep 10; done
+   gh pr checks <n> --watch --interval 30
+   ```
+
+   Run it in the background if your harness can (it then tells you when it exits)
+   instead of blocking on it. `--watch` waits for *every* check on the PR, not only
+   `fouine`, and exits non-zero if any of them failed, so a red exit doesn't mean
+   fouine broke: look at `gh pr checks <n>` to see which one. Once `fouine` is done,
+   fetch the review whose `commit_id` is your head SHA. On OpenCode,
+   [Skulk](https://github.com/kitlangton/skulk) can wake the session on the same
+   check instead.
 2. **Check every finding against the code first.** fouine can be wrong. If a finding is
    wrong, reply with the evidence (the real line, the caller it missed) and leave the
    code alone.
