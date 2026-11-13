@@ -61,7 +61,7 @@ The dashboard (accessible at your server URL) allows setting:
 - **GLM Coding Plan API key** — overrides `ZAI_API_KEY`
 - **Command Code API key** — overrides `COMMANDCODE_API_KEY`
 - **Default model** — overrides `OPENCODE_MODEL` (reviews only)
-- **Chat model** — overrides `OPENCODE_CHAT_MODEL` for Chat, `/build`, MCP and the Slack/Discord agents; empty falls back to the env var, then the repo default
+- **Chat model** — overrides `OPENCODE_CHAT_MODEL` for Chat, `/build`, MCP and the Slack/Discord agents; empty falls back to the env var, then the built-in default `opencode-go/deepseek-v4.1-flash`
 - **Slack and Discord** — credentials, the Discord Gateway switch and the per-repo channel list. See [Slack and Discord](/guide/channels).
 - **Default prompt** — the base review prompt used for all repos without a custom prompt
 - **Auto-merge** — on/off, default off. See the [merger guide](/guide/merger).

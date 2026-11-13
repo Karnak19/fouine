@@ -71,7 +71,7 @@ Requirements in both modes:
 
 ## Config precedence
 
-Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-repo prompt/model override global. Always resolve via helpers in `apps/server/src/settings.ts` (`resolveApiKey`, `resolveDefaultModel`, `resolvePrompt`) rather than reading `process.env` directly. Chat (and `/build`, which reuses it) has its own knob rather than inheriting `opencode_model`: the dashboard's `chat_model` setting, then `OPENCODE_CHAT_MODEL`, then the repo default — always via `resolveChatModel`. It is a cheaper, high-volume workload and must be an OpenAI-compatible model. `apps/server/src/config.ts` un-escapes literal `\n` in `GITHUB_APP_PRIVATE_KEY`.
+Dashboard-stored settings (SQLite `settings` table) **override** env vars; per-repo prompt/model override global. Always resolve via helpers in `apps/server/src/settings.ts` (`resolveApiKey`, `resolveDefaultModel`, `resolvePrompt`) rather than reading `process.env` directly. Chat (and `/build`, which reuses it) has its own knob rather than inheriting `opencode_model`: the dashboard's `chat_model` setting, then `OPENCODE_CHAT_MODEL`, then the built-in default (`config.chat.model`) — chat is not scoped to a repo — always via `resolveChatModel`. It is a cheaper, high-volume workload and must be an OpenAI-compatible model. `apps/server/src/config.ts` un-escapes literal `\n` in `GITHUB_APP_PRIVATE_KEY`.
 
 ## Conventions
 
