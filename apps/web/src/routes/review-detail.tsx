@@ -643,7 +643,8 @@ function PartView({ p }: { p: Part }) {
         </details>
       );
     // A failed assistant turn (finish:"error") — provider auth, rate limit,
-    // etc. Rendered as a small red line instead of an empty "Assistant"
+    // etc. — or, on OpenCode 2.4, a failed idle row from a run that never
+    // reached the model (provider.no-route). Rendered as a small red line instead of an empty "Assistant"
     // bubble, which is what this looked like before (see task A/D notes in
     // apps/server/src/review/opencode.ts's assessTurnOutcome).
     case "error":
