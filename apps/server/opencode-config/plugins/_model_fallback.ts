@@ -62,7 +62,7 @@ export interface FallbackHost {
   // The parent session of a subagent session, or undefined for a top-level one.
   parentOf(sessionID: string): Promise<string | undefined>;
   listModels(): Promise<readonly AvailableModel[]>;
-  log(message: string, data: Record<string, unknown>): void;
+  log(message: string, data: Record<string, unknown>, level?: "info" | "warn"): void;
 }
 
 // What fouine writes (apps/server/src/review/fallback.ts): one chain of
@@ -104,20 +104,28 @@ export function isLimitError(type: string): boolean {
 //  - opencode is giving up on it (`decision.retry` false);
 //  - the wait is long: the provider's retry-after, or opencode's own delay
 //    (which already honours retry-after), is over a minute;
-//  - or it keeps failing: `attempt` is 2 on the step's first retry, so 3 means
-//    the step has hit the limit twice in a row.
+//  - or it keeps failing: the current model has hit the limit twice in a row.
+//    opencode numbers `attempt` per step (2 on the first retry) and keeps
+//    counting across a switch, so "twice" is counted from the attempt the
+//    plugin last switched at, not from 1: a fallback reached at attempt 3
+//    gets the same patience as the main model (`since`).
 // Every other limit type (quota, budget and plan caps) will not clear by
 // waiting, so it switches at once.
 export const RATE_LIMIT_LONG_WAIT_MS = 60_000;
-export const RATE_LIMIT_SWITCH_ATTEMPT = 3;
+export const RATE_LIMIT_SWITCH_FAILURES = 2;
 
-export function shouldSwitch(event: Pick<RetryEvent, "error" | "attempt" | "decision">): boolean {
+// `since` is the attempt the current model started at within this step: 1, or
+// the attempt of the plugin's last switch in this step.
+export function shouldSwitch(
+  event: Pick<RetryEvent, "error" | "attempt" | "decision">,
+  since = 1,
+): boolean {
   if (!isLimitError(event.error.type)) return false;
   if (event.error.type !== RATE_LIMIT_ERROR) return true;
   if (!event.decision.retry) return true;
   if (event.decision.delay > RATE_LIMIT_LONG_WAIT_MS) return true;
   if ((event.error.retryAfterMs ?? 0) > RATE_LIMIT_LONG_WAIT_MS) return true;
-  return event.attempt >= RATE_LIMIT_SWITCH_ATTEMPT;
+  return event.attempt - since >= RATE_LIMIT_SWITCH_FAILURES;
 }
 
 // "provider/model", split on the first slash only: model ids may contain
@@ -163,6 +171,18 @@ async function chainFor(
   return undefined;
 }
 
+// Errors that mean a model is unusable rather than busy: a missing or wrong key
+// (provider.auth) or a model opencode can't route to (provider.no-route,
+// "Model unavailable", the 2.4.2 type for an unknown or unregistered model).
+// They move on to the next fallback only when the failing model is one the
+// plugin switched to: a misconfigured fallback must not end a run that later
+// fallbacks could finish. The run's own model never gets this — a bad main key
+// has to surface as a bad key, not be papered over by another model.
+export const BROKEN_FALLBACK_ERROR_TYPES: ReadonlySet<string> = new Set([
+  "provider.auth",
+  "provider.no-route",
+]);
+
 // The next model to try: the first one in the chain this session has not
 // tried yet, so each fallback is tried at most once. `tried` holds every model
 // that already failed in this session and every model the plugin switched it
@@ -185,29 +205,52 @@ export function nextModel(
   );
 }
 
-// Per-session memory of the models already tried. In memory, so an opencode
-// restart forgets it; the worst that does is retry a fallback once more, and
-// opencode's 10-retries-per-step cap still bounds it.
-// ponytail: no session-end hook to clean up on, so the map is capped and the
-// oldest sessions dropped; a real session.deleted listener would replace this.
+// Per-session memory: the models already tried (failed, or switched to), the
+// ones the plugin switched to, and the attempt of its last switch. In memory,
+// so an opencode restart forgets it; the worst that does is retry a fallback
+// once more, and opencode's 10-retries-per-step cap still bounds it.
+// ponytail: no session-end hook to clean up on, so the map is capped at 500 and
+// evicts the least recently used session (each access moves a session to the
+// back), so a long-running live session keeps its record; a real
+// session.deleted listener would replace this.
 const MAX_TRACKED_SESSIONS = 500;
 
+interface SessionState {
+  readonly tried: Set<string>;
+  readonly switchedTo: Set<string>;
+  lastSwitchAttempt?: number;
+}
+
 export async function setupModelFallback(host: FallbackHost, read: FallbackReader): Promise<void> {
-  const triedBySession = new Map<string, Set<string>>();
-  const triedFor = (sessionID: string) => {
-    let tried = triedBySession.get(sessionID);
-    if (!tried) {
-      tried = new Set();
-      triedBySession.set(sessionID, tried);
-      if (triedBySession.size > MAX_TRACKED_SESSIONS) {
-        triedBySession.delete(triedBySession.keys().next().value!);
-      }
+  const sessions = new Map<string, SessionState>();
+  const stateFor = (sessionID: string): SessionState => {
+    let state = sessions.get(sessionID);
+    if (state) {
+      sessions.delete(sessionID);
+    } else {
+      state = { tried: new Set(), switchedTo: new Set() };
     }
-    return tried;
+    sessions.set(sessionID, state);
+    if (sessions.size > MAX_TRACKED_SESSIONS) {
+      sessions.delete(sessions.keys().next().value!);
+    }
+    return state;
   };
 
   await host.onRetry(async (event) => {
-    if (!shouldSwitch(event)) return;
+    const failed = { providerID: String(event.model.providerID), id: String(event.model.id) };
+    const failedSpec = format(failed);
+    // Only peek here: most retries are not ours to handle, and they shouldn't
+    // create or refresh a session's record.
+    const known = sessions.get(event.sessionID);
+    // A lower attempt than the last switch means opencode is on a new step,
+    // which counts from 1 again.
+    const last = known?.lastSwitchAttempt;
+    const since = last !== undefined && event.attempt > last ? last : 1;
+    const brokenFallback =
+      BROKEN_FALLBACK_ERROR_TYPES.has(event.error.type) &&
+      known?.switchedTo.has(failedSpec) === true;
+    if (!brokenFallback && !shouldSwitch(event, since)) return;
     const file = read();
     if (!file) return;
     const specs = await chainFor(host, file, event.sessionID);
@@ -223,15 +266,30 @@ export async function setupModelFallback(host: FallbackHost, read: FallbackReade
       available = undefined;
     }
 
-    const failed = { providerID: String(event.model.providerID), id: String(event.model.id) };
-    const tried = triedFor(event.sessionID);
-    tried.add(format(failed));
+    const state = stateFor(event.sessionID);
+    const tried = state.tried;
+    tried.add(failedSpec);
+    if (brokenFallback) {
+      // Loud on purpose: this is a configuration problem (a fallback without
+      // its provider's key, a model that isn't registered) someone should fix.
+      host.log(
+        "fallback model is unusable, moving on",
+        {
+          session: event.sessionID,
+          model: failedSpec,
+          error: event.error.type,
+          detail: event.error.message,
+          status: event.error.status,
+        },
+        "warn",
+      );
+    }
     const next = nextModel(chain, failed, available, tried);
     // Chain exhausted: leave opencode's own decision alone.
     if (!next) {
       host.log("fallback chain exhausted", {
         session: event.sessionID,
-        failed: format(failed),
+        failed: failedSpec,
         error: event.error.type,
       });
       return;
@@ -248,10 +306,12 @@ export async function setupModelFallback(host: FallbackHost, read: FallbackReade
       return;
     }
     tried.add(format(next));
+    state.switchedTo.add(format(next));
+    state.lastSwitchAttempt = event.attempt;
     event.decision = { retry: true, delay: 0 };
     host.log("switched to fallback model", {
       session: event.sessionID,
-      from: format(failed),
+      from: failedSpec,
       to: format(next),
       error: event.error.type,
       detail: event.error.message,

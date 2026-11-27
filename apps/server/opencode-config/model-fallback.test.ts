@@ -32,7 +32,7 @@ function fakeHost(opts: {
 }) {
   const hooks: Array<(event: RetryEvent) => Promise<void>> = [];
   const switches: Array<{ sessionID: string; model: ModelRef }> = [];
-  const logs: Array<{ message: string; data: Record<string, unknown> }> = [];
+  const logs: Array<{ message: string; data: Record<string, unknown>; level?: string }> = [];
   const host: FallbackHost = {
     onRetry: async (callback) => {
       hooks.push(callback);
@@ -44,7 +44,7 @@ function fakeHost(opts: {
     parentOf: async (sessionID) => opts.parents?.[sessionID],
     listModels: async () =>
       typeof opts.models === "function" ? opts.models() : (opts.models ?? []),
-    log: (message, data) => logs.push({ message, data }),
+    log: (message, data, level) => logs.push({ message, data, ...(level ? { level } : {}) }),
   };
   return { host, hooks, switches, logs };
 }
@@ -172,6 +172,145 @@ test("a 429 opencode is giving up on switches", async () => {
   );
   expect(event.decision).toEqual({ retry: true, delay: 0 });
   expect(h.switches).toHaveLength(1);
+});
+
+// opencode keeps counting `attempt` across a switch within a step (confirmed
+// on a real 2.4.2 server), so a fallback's patience counts from the switch.
+test("a fallback reached at attempt 3 gets its own two 429s before moving on", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  const main = { providerID: "z", id: "main" };
+  const step = (attempt: number, model: ModelRef) => {
+    const e = rateLimit(attempt, { retry: true, delay: 4000 });
+    return { ...e, model };
+  };
+  const e2 = step(2, main);
+  await hook(e2);
+  expect(e2.decision).toEqual({ retry: true, delay: 4000 });
+  const e3 = step(3, main);
+  await hook(e3);
+  expect(e3.decision).toEqual({ retry: true, delay: 0 });
+  expect(h.switches.map((s) => s.model.id)).toEqual(["one"]);
+  // a/one's first 429, at attempt 4: wait.
+  const e4 = step(4, { providerID: "a", id: "one" });
+  await hook(e4);
+  expect(e4.decision).toEqual({ retry: true, delay: 4000 });
+  expect(h.switches).toHaveLength(1);
+  // Its second in a row, at attempt 5: move on.
+  const e5 = step(5, { providerID: "a", id: "one" });
+  await hook(e5);
+  expect(e5.decision).toEqual({ retry: true, delay: 0 });
+  expect(h.switches.map((s) => s.model.id)).toEqual(["one", "two"]);
+});
+
+test("a new step counts its 429s from 1 again", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  // Switched at attempt 4 of one step...
+  await hook(retryEvent({ attempt: 4 }));
+  expect(h.switches).toHaveLength(1);
+  // ...then a later step on a/one: attempt 2 waits, attempt 3 switches.
+  const e2 = { ...rateLimit(2, { retry: true, delay: 2000 }), model: { providerID: "a", id: "one" } };
+  await hook(e2);
+  expect(e2.decision).toEqual({ retry: true, delay: 2000 });
+  const e3 = { ...rateLimit(3, { retry: true, delay: 4000 }), model: { providerID: "a", id: "one" } };
+  await hook(e3);
+  expect(e3.decision).toEqual({ retry: true, delay: 0 });
+  expect(h.switches.map((s) => s.model.id)).toEqual(["one", "two"]);
+});
+
+const authError = { type: "provider.auth", message: "Invalid API key", status: 401 };
+
+test("a fallback that fails on a bad key moves on to the next one, loudly", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent());
+  const broken = retryEvent({
+    model: { providerID: "a", id: "one" },
+    error: authError,
+    attempt: 3,
+    decision: { retry: false },
+  });
+  await hook(broken);
+  expect(broken.decision).toEqual({ retry: true, delay: 0 });
+  expect(h.switches.map((s) => s.model.id)).toEqual(["one", "two"]);
+  const warn = h.logs.find((l) => l.level === "warn");
+  expect(warn?.message).toBe("fallback model is unusable, moving on");
+  expect(warn?.data).toMatchObject({ model: "a/one", error: "provider.auth", status: 401 });
+});
+
+test("a fallback the server can't route to moves on too", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent());
+  const broken = retryEvent({
+    model: { providerID: "a", id: "one" },
+    error: { type: "provider.no-route", message: "Model unavailable: a/one" },
+    attempt: 3,
+  });
+  await hook(broken);
+  expect(h.switches.map((s) => s.model.id)).toEqual(["one", "two"]);
+});
+
+test("a bad key on the run's own model never switches", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  const own = retryEvent({ error: authError, decision: { retry: false } });
+  await hook(own);
+  expect(own.decision).toEqual({ retry: false });
+  expect(h.switches).toEqual([]);
+  expect(h.logs).toEqual([]);
+});
+
+test("a bad key on a fallback with nothing after it leaves opencode's decision", async () => {
+  const h = fakeHost({ models: available("a/one") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one"] }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent());
+  const broken = retryEvent({
+    model: { providerID: "a", id: "one" },
+    error: authError,
+    attempt: 3,
+    decision: { retry: false },
+  });
+  await hook(broken);
+  expect(broken.decision).toEqual({ retry: false });
+  expect(h.logs.map((l) => l.message)).toEqual([
+    "switched to fallback model",
+    "fallback model is unusable, moving on",
+    "fallback chain exhausted",
+  ]);
+});
+
+test("the session record is evicted least-recently-used, so a live session keeps it", async () => {
+  const sessions: Record<string, string[]> = { live: ["a/one", "b/two", "c/three"] };
+  for (let i = 0; i < 500; i++) sessions[`ses_${i}`] = ["a/one"];
+  const h = fakeHost({ models: available("a/one", "b/two", "c/three") });
+  await setupModelFallback(h.host, () => ({ sessions }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent({ sessionID: "live", attempt: 2 }));
+  for (let i = 0; i < 499; i++) await hook(retryEvent({ sessionID: `ses_${i}` }));
+  // 500 tracked; touching `live` moves it to the back.
+  await hook(retryEvent({ sessionID: "live", model: { providerID: "a", id: "one" }, attempt: 3 }));
+  // The 501st session evicts the least recently used one: ses_0, not `live`.
+  await hook(retryEvent({ sessionID: "ses_499" }));
+  // `live` still knows it switched at attempt 3: a first 429 on b/two waits.
+  const e = {
+    ...rateLimit(4, { retry: true, delay: 4000 }),
+    sessionID: "live",
+    model: { providerID: "b", id: "two" },
+  };
+  await hook(e);
+  expect(e.decision).toEqual({ retry: true, delay: 4000 });
+  expect(h.switches.filter((s) => s.sessionID === "live").map((s) => s.model.id)).toEqual([
+    "one",
+    "two",
+  ]);
 });
 
 test("quota and plan caps switch on the first attempt, whatever the delay", () => {

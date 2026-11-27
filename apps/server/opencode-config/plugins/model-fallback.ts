@@ -39,8 +39,10 @@ export default {
         // One JSON line on stderr. fouine forwards the child's stderr into its
         // own logs (review/opencode.ts pumpChildOutput), so the switch shows up
         // there in child mode; in sidecar mode it is in the sidecar's logs.
-        log: (message, data) =>
-          console.error(JSON.stringify({ plugin: "fouine.model_fallback", message, ...data })),
+        log: (message, data, level = "info") =>
+          console.error(
+            JSON.stringify({ plugin: "fouine.model_fallback", level, message, ...data }),
+          ),
       },
       readFallbackFile,
     );
