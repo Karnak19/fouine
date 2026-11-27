@@ -134,15 +134,24 @@ List one or more models under **Fallback models** in the settings (or on a repo
 page, to give that repo its own list). When the current model hits a rate limit
 or a quota, the run carries on **in the same session** with the next model in
 the list, and stays on it for the rest of the run unless that one runs out too. Other errors (a bad key, an invalid
-request, a content filter) never switch models.
+request, a content filter, a context-length limit) never switch models.
+
+- A quota or a plan cap (budget, free tier, Go usage) switches at once: waiting
+  won't bring it back.
+- A plain rate limit (a 429) is usually a short burst, so opencode first backs
+  off and retries on the same model. fouine switches only when the limit looks
+  lasting: the provider asks to wait more than a minute, the same step hits the
+  limit a second time in a row, or opencode gives up on it.
 
 - Order matters: fouine tries the list from the top, skipping the model that
   just failed, any model the run already tried, and any model opencode doesn't
   list as available.
 - Each model's provider needs its key (the OpenCode, GLM or Command Code key),
   or the switch just trades a quota error for an auth error.
-- Each switch uses one of opencode's 10 retries for that step, so about 9
-  fallbacks at most. The new model starts with a cold prompt cache.
+- Every retry uses one of opencode's 10 retries for that step, the switches
+  and the rate-limit retries on the current model alike, so a step gets about
+  9 fallbacks at most, a little fewer after a rate limit was waited out. The
+  new model starts with a cold prompt cache.
 - The review page shows **finished on fallback** with the model that took over.
   The stats keep counting the run under its configured model.
 - It applies to every agent that works on a repo: reviewer, refiner,

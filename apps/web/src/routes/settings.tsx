@@ -802,7 +802,7 @@ export default function SettingsPage() {
 
         <Section
           title="Fallback models"
-          description="When a run's model hits a rate limit or runs out of quota, the run carries on in the same session with the next model below, in order. Applies to reviews and to the refiner, implementer and improver; not to Chat, /build, MCP, Slack or Discord, or the Test button. A repo can set its own list, which replaces this one."
+          description="When a run's model runs out of quota, or hits a rate limit that lasts (a wait of over a minute, or a second 429 in a row), the run carries on in the same session with the next model below, in order. A short 429 is left to opencode's own retries. Applies to reviews and to the refiner, implementer and improver; not to Chat, /build, MCP, Slack or Discord, or the Test button. A repo can set its own list, which replaces this one."
         >
           <FallbackModelsInput
             id="fallback_models"

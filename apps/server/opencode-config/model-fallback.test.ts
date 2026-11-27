@@ -5,6 +5,7 @@ import {
   nextModel,
   parseFallbackFile,
   setupModelFallback,
+  shouldSwitch,
   type AvailableModel,
   type FallbackFile,
   type FallbackHost,
@@ -98,28 +99,111 @@ test("on a quota error, switches the session to the first fallback and retries a
   });
 });
 
-test("a plain 429 overrides opencode's own backoff too", async () => {
+const rateLimit = (
+  attempt: number,
+  decision: RetryEvent["decision"],
+  retryAfterMs?: number,
+): RetryEvent =>
+  retryEvent({
+    error: {
+      type: "provider.rate-limit",
+      message: "Too many requests",
+      status: 429,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    },
+    attempt,
+    decision,
+  });
+
+test("a first short 429 is left to opencode's own backoff", async () => {
   const h = fakeHost({ models: available("opencode-go/deepseek-v4-flash") });
   const event = await fire(
     h,
     file({ ses_1: ["opencode-go/deepseek-v4-flash"] }),
-    retryEvent({
-      error: { type: "provider.rate-limit", message: "Too many requests", status: 429 },
-      decision: { retry: true, delay: 8000 },
-    }),
+    rateLimit(2, { retry: true, delay: 8000 }),
+  );
+  expect(event.decision).toEqual({ retry: true, delay: 8000 });
+  expect(h.switches).toEqual([]);
+  expect(h.logs).toEqual([]);
+});
+
+test("a 429 that keeps coming (third attempt) switches and retries at once", async () => {
+  const h = fakeHost({ models: available("opencode-go/deepseek-v4-flash") });
+  const event = await fire(
+    h,
+    file({ ses_1: ["opencode-go/deepseek-v4-flash"] }),
+    rateLimit(3, { retry: true, delay: 4000 }),
   );
   expect(event.decision).toEqual({ retry: true, delay: 0 });
   expect(h.switches).toHaveLength(1);
 });
 
-test("only rate-limit and quota errors switch models", () => {
+test("a 429 with a long wait switches on the first attempt", async () => {
+  for (const event of [
+    // opencode's own delay, which already honours retry-after
+    rateLimit(2, { retry: true, delay: 90_000 }),
+    // the provider's retry-after on the error
+    rateLimit(2, { retry: true, delay: 2000 }, 120_000),
+  ]) {
+    const h = fakeHost({ models: available("opencode-go/deepseek-v4-flash") });
+    await fire(h, file({ ses_1: ["opencode-go/deepseek-v4-flash"] }), event);
+    expect(event.decision).toEqual({ retry: true, delay: 0 });
+    expect(h.switches).toHaveLength(1);
+  }
+});
+
+test("a 429 at exactly a minute still waits", async () => {
+  const h = fakeHost({ models: available("opencode-go/deepseek-v4-flash") });
+  const event = await fire(
+    h,
+    file({ ses_1: ["opencode-go/deepseek-v4-flash"] }),
+    rateLimit(2, { retry: true, delay: 60_000 }, 60_000),
+  );
+  expect(event.decision).toEqual({ retry: true, delay: 60_000 });
+  expect(h.switches).toEqual([]);
+});
+
+test("a 429 opencode is giving up on switches", async () => {
+  const h = fakeHost({ models: available("opencode-go/deepseek-v4-flash") });
+  const event = await fire(
+    h,
+    file({ ses_1: ["opencode-go/deepseek-v4-flash"] }),
+    rateLimit(2, { retry: false }),
+  );
+  expect(event.decision).toEqual({ retry: true, delay: 0 });
+  expect(h.switches).toHaveLength(1);
+});
+
+test("quota and plan caps switch on the first attempt, whatever the delay", () => {
+  for (const type of [
+    "provider.quota",
+    "provider.budget-limit",
+    "provider.model-budget-limit",
+    "provider.free-limit",
+    "provider.go-limit",
+    "provider.chatgpt-limit",
+    "provider.chatgpt-workspace-limit",
+  ]) {
+    expect(
+      shouldSwitch({
+        error: { type, message: "used up" },
+        attempt: 2,
+        decision: { retry: true, delay: 2000 },
+      }),
+    ).toBe(true);
+  }
+});
+
+test("only the limit types opencode 2.4.2 emits switch models", () => {
   for (const type of [
     "provider.rate-limit",
     "provider.quota",
     "provider.budget-limit",
+    "provider.model-budget-limit",
     "provider.free-limit",
     "provider.go-limit",
-    "provider.model-budget-limit",
+    "provider.chatgpt-limit",
+    "provider.chatgpt-workspace-limit",
   ]) {
     expect(isLimitError(type)).toBe(true);
   }
@@ -132,8 +216,20 @@ test("only rate-limit and quota errors switch models", () => {
     "provider.transport",
     "provider.unknown",
     "provider.no-route",
+    // Look like limits but another model would not fix them: never a switch,
+    // even if a later opencode adds them.
+    "provider.context-limit",
+    "provider.output-limit",
+    "provider.token-limit",
   ]) {
     expect(isLimitError(type)).toBe(false);
+    expect(
+      shouldSwitch({
+        error: { type, message: "x" },
+        attempt: 5,
+        decision: { retry: false },
+      }),
+    ).toBe(false);
   }
 });
 

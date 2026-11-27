@@ -456,10 +456,11 @@ test("assessTurnOutcome surfaces a provider auth error from the assistant row", 
 // Captured from a real opencode 2.4.2 server (#185 review): the run started on a
 // model the mock provider answers with a 429 `insufficient_quota` (classified
 // provider.quota), after one successful tool step, and the fallback plugin
-// switched it. The failed attempt leaves NO assistant row behind: the turn is
-// user → assistant (tool step, old model) → model-switched → assistant (new
-// model) → idle succeeded. So a rescued run must read as a success, and there
-// is no stale limit error for assessTurnOutcome to skip. Ids and times trimmed.
+// switched it. The error came before any output, so the failed attempt leaves
+// NO assistant row behind: the turn is user → assistant (tool step, old model)
+// → model-switched → assistant (new model) → idle succeeded. (An error after
+// output started does leave one; see the mid-stream test below.) Ids and times
+// trimmed.
 test("assessTurnOutcome reads a run rescued by a fallback switch as a success", () => {
   const msgs = [
     { id: "msg_u", type: "user", text: "say hello" },
@@ -488,6 +489,86 @@ test("assessTurnOutcome reads a run rescued by a fallback switch as a success", 
     { id: "msg_i", type: "idle", outcome: "succeeded" },
   ] as unknown as Row[];
   expect(assessTurnOutcome(msgs)).toEqual({});
+});
+
+// Also captured from a real 2.4.2 server: the mock streamed two text chunks,
+// then an `insufficient_quota` error in the stream (opencode: provider.quota).
+// Because output had started, opencode kept that assistant row with the error
+// (finish "error", plus a `retry` record) and the retry on the fallback model
+// wrote a fresh row after it. The run succeeded and must read as such.
+const quotaError = {
+  type: "provider.quota",
+  message: "You exceeded your current quota, please check your plan and billing details.",
+  status: 200,
+  response: {
+    body: '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}',
+  },
+};
+const midStreamRescue = [
+  { id: "msg_u", type: "user", text: "say hello" },
+  {
+    id: "msg_a1",
+    type: "assistant",
+    agent: "build",
+    model: { id: "stream", providerID: "mock", variant: "default" },
+    content: [{ type: "text", text: "partial answer more tokens " }],
+    finish: "error",
+    error: quotaError,
+    retry: { attempt: 2, at: 1795805561156, error: quotaError },
+  },
+  {
+    id: "msg_s",
+    type: "model-switched",
+    model: { id: "good", providerID: "mock" },
+    previous: { id: "stream", providerID: "mock", variant: "default" },
+  },
+  {
+    id: "msg_a2",
+    type: "assistant",
+    agent: "build",
+    model: { id: "good", providerID: "mock", variant: "default" },
+    content: [{ type: "text", text: "hello from good" }],
+    finish: "stop",
+  },
+  { id: "msg_i", type: "idle", outcome: "succeeded" },
+] as unknown as Row[];
+
+test("assessTurnOutcome ignores a mid-stream limit error the run recovered from", () => {
+  expect(assessTurnOutcome(midStreamRescue)).toEqual({});
+});
+
+test("assessTurnOutcome still fails on a limit error with no clean row after it", () => {
+  // The fallback chain ran out: the limit error is the last word.
+  const msgs = [
+    { id: "msg_u", type: "user" },
+    { id: "msg_a0", type: "assistant", finish: "tool-calls" },
+    { id: "msg_a1", type: "assistant", finish: "error", error: quotaError },
+    { id: "msg_i", type: "idle", outcome: "failed" },
+  ] as unknown as Row[];
+  expect(assessTurnOutcome(msgs).error).toContain("provider.quota");
+});
+
+test("assessTurnOutcome still fails on a non-limit error even when a later row is clean", () => {
+  const msgs = [
+    { id: "msg_u", type: "user" },
+    {
+      id: "msg_a1",
+      type: "assistant",
+      finish: "error",
+      error: { type: "provider.auth", message: "bad key", status: 401 },
+    },
+    { id: "msg_a2", type: "assistant", finish: "stop" },
+    { id: "msg_i", type: "idle", outcome: "succeeded" },
+  ] as unknown as Row[];
+  expect(assessTurnOutcome(msgs).error).toBe("opencode run failed: provider.auth 401 bad key");
+  // A limit-looking type outside the plugin's list is not skipped either.
+  const ctx = [
+    msgs[0],
+    { ...msgs[1], error: { type: "provider.context-limit", message: "too long" } },
+    msgs[2],
+    msgs[3],
+  ] as unknown as Row[];
+  expect(assessTurnOutcome(ctx).error).toContain("provider.context-limit");
 });
 
 test("assessTurnOutcome falls back to a generic message when only idle:failed is seen", () => {

@@ -2,6 +2,7 @@ import { ClientError, OpenCode } from "@opencode/client";
 import type { PermissionRuleset } from "@opencode/client";
 import { resolveDefaultModel } from "~/settings";
 import { COMMANDCODE_PROVIDER, toConfigKey } from "~/review/commandcode";
+import { isLimitError } from "../../opencode-config/plugins/_model_fallback";
 import { log } from "~/server/log";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
@@ -374,6 +375,9 @@ export function assessTurnOutcome(
   let finishWarning: string | undefined;
   const describe = (e: { type: string; status?: number; message: string }) =>
     `${e.type} ${e.status ?? ""} ${e.message}`.replace(/\s+/g, " ").trim();
+  // Walking backward, so this means "a later assistant row in this turn
+  // finished cleanly".
+  let laterClean = false;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]!;
     if (m.type === "user") break;
@@ -382,6 +386,14 @@ export function assessTurnOutcome(
       if (m.error) idleError = describe(m.error);
     }
     if (m.type === "assistant") {
+      if (!m.error) laterClean = true;
+      // A step that hit a rate limit or quota after it had started streaming
+      // keeps its assistant row, error and all, and the retry (on a fallback
+      // model, #185) writes a fresh row after it — verified against a real
+      // 2.4.2 server. When a later row finished cleanly the run recovered, so
+      // that limit error is history, not the outcome. Same limit rule as the
+      // fallback plugin; any other error still fails the run.
+      if (m.error && laterClean && isLimitError(m.error.type)) continue;
       if (m.error && !assistantError) {
         assistantError = describe(m.error);
       } else if (!m.error && (m.finish === "length" || m.finish === "content-filter") && !finishWarning) {

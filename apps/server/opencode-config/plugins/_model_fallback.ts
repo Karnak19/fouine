@@ -11,7 +11,10 @@
 //    and each repo keeps its own list on the shared server);
 //  - only rate-limit and quota errors switch models. The retry hook fires for
 //    every failed step, auth errors and bad requests included, and switching
-//    there would hide a real problem behind another model.
+//    there would hide a real problem behind another model;
+//  - a quota or plan cap switches at once, but a plain rate limit only once it
+//    looks lasting (see shouldSwitch): a short 429 burst is left to opencode's
+//    own backoff instead of moving the run off its main model for good.
 //
 // How it works in opencode 2.4.2 (packages/core/src/session/runner/retry.ts):
 // the hook gets `{ sessionID, agent, model, error, attempt, decision }` and may
@@ -19,8 +22,10 @@
 // (a quota error arrives with `decision: { retry: false }`). With
 // `{ retry: true, delay: 0 }` the same step runs again at once, and the step
 // resolves the session's model again, so after `session.switchModel` it runs on
-// the new model and stays on it for the rest of the session. Each switch uses
-// one of opencode's 10 retries per step, so about 9 fallbacks at most.
+// the new model and stays on it for the rest of the session. Each retry uses
+// one of opencode's 10 retries per step, the switches and the rate-limit
+// retries the plugin lets opencode run on the current model alike, so a step
+// gets about 9 fallbacks at most, fewer when a rate limit was waited out first.
 
 export interface ModelRef {
   providerID: string;
@@ -32,7 +37,13 @@ export interface ModelRef {
 export interface RetryEvent {
   readonly sessionID: string;
   readonly model: { readonly providerID: string; readonly id: string; readonly variant?: string };
-  readonly error: { readonly type: string; readonly message: string; readonly status?: number };
+  readonly error: {
+    readonly type: string;
+    readonly message: string;
+    readonly status?: number;
+    // The provider's retry-after, when it sent one (Session.StructuredError).
+    readonly retryAfterMs?: number;
+  };
   readonly attempt: number;
   decision: { retry: false } | { retry: true; delay: number };
 }
@@ -63,13 +74,50 @@ export interface FallbackFile {
 // Returns the file's content, or undefined when it is missing or unreadable.
 export type FallbackReader = () => FallbackFile | undefined;
 
-// Rate-limit and quota errors, the only ones worth another model. opencode
-// 2.4.2 names them `provider.rate-limit` and `provider.quota`, plus a family of
-// `provider.*-limit` types for spend and plan caps (budget-limit, free-limit,
-// go-limit, …). Everything else — auth, invalid request, content filter,
-// timeouts — is left to opencode.
+// Rate-limit and quota errors, the only ones worth another model: the exact
+// limit types the opencode 2.4.2 binary emits. An explicit list rather than a
+// `provider.*-limit` pattern, so a future type such as a context or output
+// limit (which another model would not fix any better) never switches.
+// Everything else — auth, invalid request, content filter, timeouts — is left
+// to opencode. Shared with fouine's own run assessment (review/opencode.ts
+// assessTurnOutcome), so the two sides agree on what a limit error is.
+export const RATE_LIMIT_ERROR = "provider.rate-limit";
+export const LIMIT_ERROR_TYPES: ReadonlySet<string> = new Set([
+  RATE_LIMIT_ERROR,
+  "provider.quota",
+  "provider.budget-limit",
+  "provider.model-budget-limit",
+  "provider.free-limit",
+  "provider.go-limit",
+  "provider.chatgpt-limit",
+  "provider.chatgpt-workspace-limit",
+]);
+
 export function isLimitError(type: string): boolean {
-  return type === "provider.quota" || /^provider\.[a-z-]*-limit$/.test(type);
+  return LIMIT_ERROR_TYPES.has(type);
+}
+
+// A plain rate limit is usually a burst that clears in seconds, and opencode
+// already backs off for it (2s, 4s, 8s, then 10s gaps). Switching on the first
+// 429 would move the run off its main model for the rest of the session over
+// a hiccup, so a rate limit switches only when it looks lasting:
+//  - opencode is giving up on it (`decision.retry` false);
+//  - the wait is long: the provider's retry-after, or opencode's own delay
+//    (which already honours retry-after), is over a minute;
+//  - or it keeps failing: `attempt` is 2 on the step's first retry, so 3 means
+//    the step has hit the limit twice in a row.
+// Every other limit type (quota, budget and plan caps) will not clear by
+// waiting, so it switches at once.
+export const RATE_LIMIT_LONG_WAIT_MS = 60_000;
+export const RATE_LIMIT_SWITCH_ATTEMPT = 3;
+
+export function shouldSwitch(event: Pick<RetryEvent, "error" | "attempt" | "decision">): boolean {
+  if (!isLimitError(event.error.type)) return false;
+  if (event.error.type !== RATE_LIMIT_ERROR) return true;
+  if (!event.decision.retry) return true;
+  if (event.decision.delay > RATE_LIMIT_LONG_WAIT_MS) return true;
+  if ((event.error.retryAfterMs ?? 0) > RATE_LIMIT_LONG_WAIT_MS) return true;
+  return event.attempt >= RATE_LIMIT_SWITCH_ATTEMPT;
 }
 
 // "provider/model", split on the first slash only: model ids may contain
@@ -159,7 +207,7 @@ export async function setupModelFallback(host: FallbackHost, read: FallbackReade
   };
 
   await host.onRetry(async (event) => {
-    if (!isLimitError(event.error.type)) return;
+    if (!shouldSwitch(event)) return;
     const file = read();
     if (!file) return;
     const specs = await chainFor(host, file, event.sessionID);

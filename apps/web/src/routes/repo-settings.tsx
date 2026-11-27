@@ -829,7 +829,7 @@ export default function RepoSettingsPage() {
 
         <Section
           title="Fallback models"
-          description="When a run's model hits a rate limit or runs out of quota, the run carries on with the next model below, in order. A list here replaces the global one for this repo."
+          description="When a run's model runs out of quota, or hits a rate limit that lasts, the run carries on with the next model below, in order. A list here replaces the global one for this repo."
         >
           <FallbackModelsInput
             id="repo_fallback_models"
