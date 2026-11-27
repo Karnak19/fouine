@@ -30,7 +30,8 @@ import { internalBaseUrl } from "~/server/internal";
 //    lane) rather than in the child's env, so concurrent reviews no longer need
 //    per-spawn isolation (#23 is structurally impossible now).
 //  - session.create carries model/agent/location; session.prompt({sessionID,
-//    text}) only admits the message; session.wait blocks until the run goes idle.
+//    text}) only admits the message; experimental.session.wait blocks until the
+//    run goes idle.
 
 export type OpencodeClient = ReturnType<typeof OpenCode.make>;
 
@@ -326,9 +327,11 @@ export type SessionMessages = Awaited<ReturnType<OpencodeClient["message"]["list
 //  - the run died before any request (model not registered at the run's
 //    location — opencode's `provider.no-route` "Model unavailable" — or any
 //    other pre-request failure): NO assistant row, just `idle` with
-//    `outcome:"failed"`. The reason is not on the message rows at all; opencode
-//    only publishes it as a `session.execution.failed` event (see
-//    executionFailure below), which the caller passes in as `executionError`.
+//    `outcome:"failed"`. Since 2.4 that idle row carries the reason itself
+//    (`error:{type,message,status?}`, verified against a real 2.4.2 server).
+//    2.0.x only published it as a `session.execution.failed` event (see
+//    executionFailure below), which the caller passes in as `executionError`;
+//    that stays as the fallback for an idle row without one.
 //    (A missing key is NOT this shape: the request goes out and comes back as
 //    an assistant row carrying `provider.auth` 401.)
 // Walk backward from the end (message.list is called with order:"asc", so the
@@ -344,17 +347,21 @@ export function assessTurnOutcome(
   executionError?: string,
 ): { error?: string; warning?: string } {
   let idleOutcome: string | undefined;
+  let idleError: string | undefined;
   let assistantError: string | undefined;
   let finishWarning: string | undefined;
+  const describe = (e: { type: string; status?: number; message: string }) =>
+    `${e.type} ${e.status ?? ""} ${e.message}`.replace(/\s+/g, " ").trim();
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]!;
     if (m.type === "user") break;
-    if (m.type === "idle" && idleOutcome === undefined) idleOutcome = m.outcome;
+    if (m.type === "idle" && idleOutcome === undefined) {
+      idleOutcome = m.outcome;
+      if (m.error) idleError = describe(m.error);
+    }
     if (m.type === "assistant") {
       if (m.error && !assistantError) {
-        assistantError = `${m.error.type} ${m.error.status ?? ""} ${m.error.message}`
-          .replace(/\s+/g, " ")
-          .trim();
+        assistantError = describe(m.error);
       } else if (!m.error && (m.finish === "length" || m.finish === "content-filter") && !finishWarning) {
         finishWarning = `assistant turn ended with finish:${m.finish}`;
       }
@@ -362,6 +369,7 @@ export function assessTurnOutcome(
   }
   if (assistantError) return { error: `opencode run failed: ${assistantError}` };
   if (idleOutcome === "failed") {
+    if (idleError) return { error: `opencode run failed: ${idleError}` };
     if (executionError) return { error: `opencode run failed: ${executionError}` };
     return { error: NO_REASON_ERROR };
   }
@@ -369,13 +377,15 @@ export function assessTurnOutcome(
   return {};
 }
 
-// The reason a run died before reaching the model lives only on opencode's
+// The reason a run died before reaching the model also rides opencode's
 // `session.execution.failed` event (`data.error: {type, message, status?}`) —
-// verified against a real 2.0.11 server: an unregistered model yields
-// `{type:"provider.no-route", message:"Model unavailable: commandcode/x"}`
-// while message.list shows nothing but `idle outcome:"failed"`. The manager's
-// event pump records these per session (effect/opencode.ts) so runReview can
-// name the real cause instead of guessing.
+// first seen on 2.0.11, re-verified against a real 2.4.2 server: an
+// unregistered model yields
+// `{type:"provider.no-route", message:"Model unavailable: commandcode/x"}`.
+// On 2.0.x message.list showed nothing but `idle outcome:"failed"`, so this
+// event was the only source; 2.4 also puts it on the idle row, which
+// assessTurnOutcome now reads first. The manager's event pump still records
+// these per session (effect/opencode.ts) as the fallback.
 export function executionFailure(event: unknown): { sessionID: string; error: string } | undefined {
   const ev = event as {
     type?: unknown;
@@ -522,10 +532,12 @@ export async function runReview(
     await client.session.prompt({ sessionID: session.id, text });
     // wait is a plain long-blocking POST that returns when the session goes
     // idle, so re-issuing it simply waits again — safe, and the fix for the
-    // timed-out-wait case.
+    // timed-out-wait case. Since 2.4 it lives under `experimental.session`
+    // (same endpoint); the `session.wait` alias is deprecated and removed in
+    // the next minor.
     await withTransportRetry(
       "session.wait",
-      () => client.session.wait({ sessionID: session.id }),
+      () => client.experimental.session.wait({ sessionID: session.id }),
       opts.isTornDown,
     );
   };
@@ -615,9 +627,12 @@ export async function runReview(
 // The heartbeat is opencode's SSE event stream (`client.event.subscribe()`),
 // now fanned out to every live session by the manager's single pump. v2 events
 // are typed envelopes: `{ type, data: { sessionID, ... } }`. Tool lifecycle
-// rides `session.message.content.updated`, which re-publishes the WHOLE content
-// array of a message on every change — each tool part carrying `state.status`
-// walking streaming → running → completed | error.
+// rides one event per step, keyed by the call id at `data.id` (verified against
+// a real 2.4.2 server): `session.tool.input.started` (carries `name`) →
+// `session.tool.called` (carries the resolved `input`) → `session.tool.success`
+// | `session.tool.failed`. This used to read `session.message.content.updated`,
+// but opencode marks that event replay-only (already so in 2.0.11) and never
+// publishes it live, so the in-flight tool tracking below was silently empty.
 //
 // Any event counts as activity, deliberately: a model can reason for minutes
 // without touching a tool, and restricting the heartbeat to tool events would
@@ -648,11 +663,14 @@ export interface ActivityState {
   // behaviour) instead of killing.
   armed: boolean;
   inFlight: Map<string, InFlightTool>;
+  // call id -> tool name, from `session.tool.input.started` until the call
+  // settles (the later events don't repeat the name).
+  toolNames: Map<string, string>;
   lastTool?: string;
 }
 
 export function newActivityState(now: number): ActivityState {
-  return { startedAt: now, lastActivity: now, armed: false, inFlight: new Map() };
+  return { startedAt: now, lastActivity: now, armed: false, inFlight: new Map(), toolNames: new Map() };
 }
 
 // ponytail: 500 chars of raw JSON, no per-tool formatting. It keeps the whole
@@ -681,12 +699,11 @@ export function eventSessionId(event: unknown): string | undefined {
   return typeof data?.sessionID === "string" ? data.sessionID : undefined;
 }
 
-/** The subset of a v2 content part the watchdog fold needs. */
-interface ToolPartLike {
-  type?: string;
-  id?: string;
-  name?: string;
-  state?: { status?: string; input?: unknown };
+/** The subset of a v2 `session.tool.*` event's data the watchdog fold needs. */
+interface ToolEventData {
+  id?: unknown;
+  name?: unknown;
+  input?: unknown;
 }
 
 /**
@@ -706,36 +723,43 @@ export function observeEvent(
   state.armed = true;
   state.lastActivity = now;
 
-  const ev = event as { type?: string; data?: { content?: ToolPartLike[] } };
-  if (ev.type !== "session.message.content.updated") return;
-  for (const part of ev.data?.content ?? []) {
-    if (part.type !== "tool" || !part.id) continue;
-
-    const status = part.state?.status;
-    if (status === "running") {
-      // `running` is the first state carrying the resolved arguments
-      // (`streaming` arrives with the raw input string while the model is
-      // still emitting them), so that is where we snapshot the command.
-      // Guard on has() because opencode re-publishes `running` on every
-      // output chunk of a bash command.
-      if (state.inFlight.has(part.id)) continue;
-      const input = summarizeInput(part.state?.input);
-      const tool = part.name ?? "unknown";
-      state.inFlight.set(part.id, { tool, input, startedAt: now });
+  const ev = event as { type?: string; data?: ToolEventData };
+  const id = ev.data?.id;
+  if (typeof id !== "string") return;
+  switch (ev.type) {
+    case "session.tool.input.started": {
+      // Only this event names the tool; `called` and the outcomes carry just
+      // the call id, so remember the name until the call settles.
+      if (typeof ev.data?.name === "string") state.toolNames.set(id, ev.data.name);
+      return;
+    }
+    case "session.tool.called": {
+      // `called` is the first event carrying the resolved arguments (the
+      // input.* events stream the raw string while the model is still
+      // emitting them), so that is where we snapshot the command. has() keeps
+      // the original start time if opencode ever re-publishes it.
+      if (state.inFlight.has(id)) return;
+      const input = summarizeInput(ev.data?.input);
+      const tool = state.toolNames.get(id) ?? "unknown";
+      state.inFlight.set(id, { tool, input, startedAt: now });
       state.lastTool = tool;
       log.info("tool call started", { session: sessionId, tool, input });
-      continue;
+      return;
     }
-    if (status === "completed" || status === "error") {
-      const call = state.inFlight.get(part.id);
-      state.inFlight.delete(part.id);
+    case "session.tool.success":
+    case "session.tool.failed": {
+      const call = state.inFlight.get(id);
+      state.inFlight.delete(id);
+      const tool = call?.tool ?? state.toolNames.get(id) ?? "unknown";
+      state.toolNames.delete(id);
       log.info("tool call finished", {
         session: sessionId,
-        tool: part.name ?? "unknown",
-        status,
+        tool,
+        status: ev.type === "session.tool.success" ? "completed" : "error",
         durationMs: call ? now - call.startedAt : undefined,
-        input: call?.input ?? summarizeInput(part.state?.input),
+        input: call?.input,
       });
+      return;
     }
   }
 }

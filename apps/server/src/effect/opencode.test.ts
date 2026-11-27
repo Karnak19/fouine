@@ -162,8 +162,8 @@ test("pushes the default provider key once at init and re-pushes a rotated key",
 });
 
 // A fresh opencode server 404s connect.key for a provider the catalog does
-// carry until something has warmed it (verified locally against a real
-// opencode 2.0.11 server — see the ponytail in ensureProviderKey). provider.get
+// carry until something has warmed it (verified locally against real
+// opencode 2.0.11 and 2.4.2 servers — see ensureProviderKey). provider.get
 // must run before the key push, for exactly the provider being pushed.
 test("warms the provider catalog before pushing its key", async () => {
   const { serve, pushed, providerGetCalls } = fakeServe();
@@ -193,8 +193,8 @@ test("still pushes the key when the provider warm-up call fails", async () => {
   manager.stop();
 });
 
-// Reproduces the real bug: on a genuinely fresh server, verified against a
-// real opencode 2.0.11 boot, the FIRST connect.key call can still 404 with
+// Reproduces the real bug: on a genuinely fresh server, verified against
+// real opencode 2.0.11 and 2.4.2 boots, the FIRST connect.key call can 404 with
 // IntegrationNotFoundError even after provider.get resolved, but a second
 // attempt a beat later always succeeds. ensureProviderKey must retry rather
 // than give up (or, worse, silently report success) after one failed attempt.

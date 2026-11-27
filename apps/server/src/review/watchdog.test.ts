@@ -11,24 +11,35 @@ const IDLE = 60_000;
 const CEILING = 600_000;
 
 // Only shapes the watchdog reads. v2 envelopes carry their payload under
-// `data`, with the session id at `data.sessionID`, and tool lifecycle rides the
-// whole-content-array republish. Names verified against @opencode/client 2.0.11
-// (SessionMessage.AssistantTool).
-const toolEvent = (sessionID: string, callID: string, status: string, input: unknown) => ({
-  type: "session.message.content.updated",
-  data: {
-    sessionID,
-    messageID: "msg",
-    content: [
-      {
-        type: "tool",
-        id: callID,
-        name: "bash",
-        state: { status, input },
-      },
-    ],
-  },
-});
+// `data`, with the session id at `data.sessionID`. Tool lifecycle rides one
+// event per step keyed by the call id at `data.id`: input.started names the
+// tool, called carries the resolved input, success/failed settle it. Names and
+// shapes verified against a real opencode 2.4.2 event stream.
+const toolEvents = (sessionID: string, callID: string, status: string, input: unknown) => {
+  const base = { sessionID, assistantMessageID: "msg", id: callID };
+  if (status === "running") {
+    return [
+      { type: "session.tool.input.started", data: { ...base, name: "bash" } },
+      { type: "session.tool.called", data: { ...base, input, executed: true } },
+    ];
+  }
+  if (status === "completed") {
+    return [{ type: "session.tool.success", data: { ...base, content: [{ type: "text", text: "ok" }], executed: true } }];
+  }
+  return [{ type: "session.tool.failed", data: { ...base, error: { type: "tool", message: "boom" }, executed: true } }];
+};
+const toolEvent = (sessionID: string, callID: string, status: string, input: unknown) =>
+  toolEvents(sessionID, callID, status, input).at(-1)!;
+const observeTool = (
+  state: ReturnType<typeof newActivityState>,
+  sessionID: string,
+  callID: string,
+  status: string,
+  input: unknown,
+  now: number,
+) => {
+  for (const ev of toolEvents(sessionID, callID, status, input)) observeEvent(state, ev, sessionID, now);
+};
 
 const statusEvent = (sessionID: string) => ({
   type: "session.execution.started",
@@ -96,8 +107,7 @@ test("steady activity never trips the idle rule", () => {
 test("a silent gap trips the idle rule and names the hanging command", () => {
   const state = newActivityState(0);
   state.armed = true;
-  const running = toolEvent("s1", "c1", "running", { command: "rg -r /root/.bun" });
-  observeEvent(state, running, "s1", 1_000);
+  observeTool(state, "s1", "c1", "running", { command: "rg -r /root/.bun" }, 1_000);
 
   expect(watchdogVerdict(state, 60_000, IDLE, CEILING)).toBeNull();
   expect(watchdogVerdict(state, 90_000, IDLE, CEILING)).toBe(
@@ -130,8 +140,8 @@ test("events for other sessions are not activity", () => {
 test("a completed tool call clears the in-flight entry", () => {
   const state = newActivityState(0);
   state.armed = true;
-  observeEvent(state, toolEvent("s1", "c1", "running", { command: "ls" }), "s1", 1_000);
-  observeEvent(state, toolEvent("s1", "c1", "completed", { command: "ls" }), "s1", 2_000);
+  observeTool(state, "s1", "c1", "running", { command: "ls" }, 1_000);
+  observeTool(state, "s1", "c1", "completed", { command: "ls" }, 2_000);
   expect(stalledTool(state)).toBeUndefined();
   expect(watchdogVerdict(state, 90_000, IDLE, CEILING)).toBe(
     "no activity for 88s (no tool in flight, last tool: bash)",
@@ -141,9 +151,35 @@ test("a completed tool call clears the in-flight entry", () => {
 test("re-published running states keep the original start time", () => {
   const state = newActivityState(0);
   state.armed = true;
-  // opencode re-emits `running` on every bash output chunk; the wedge duration
-  // must be measured from the first one, not the last.
-  observeEvent(state, toolEvent("s1", "c1", "running", { command: "sleep 999" }), "s1", 1_000);
-  observeEvent(state, toolEvent("s1", "c1", "running", { command: "sleep 999" }), "s1", 40_000);
+  // A re-published `called` (or progress chatter) must not reset the wedge
+  // duration: it is measured from the first one, not the last.
+  observeTool(state, "s1", "c1", "running", { command: "sleep 999" }, 1_000);
+  observeTool(state, "s1", "c1", "running", { command: "sleep 999" }, 40_000);
   expect(stalledTool(state)?.startedAt).toBe(1_000);
+});
+
+test("a failed tool call clears the in-flight entry too", () => {
+  const state = newActivityState(0);
+  state.armed = true;
+  observeTool(state, "s1", "c1", "running", { command: "false" }, 1_000);
+  observeTool(state, "s1", "c1", "error", { command: "false" }, 2_000);
+  expect(stalledTool(state)).toBeUndefined();
+  expect(state.toolNames.size).toBe(0);
+});
+
+test("the replay-only whole-content republish is not read for tool state", () => {
+  // opencode never publishes session.message.content.updated live; it must
+  // still count as activity but cannot start a tool call.
+  const state = newActivityState(0);
+  observeEvent(
+    state,
+    {
+      type: "session.message.content.updated",
+      data: { sessionID: "s1", messageID: "m", content: [{ type: "tool", id: "c1", name: "bash", state: { status: "running" } }] },
+    },
+    "s1",
+    1_000,
+  );
+  expect(state.armed).toBe(true);
+  expect(stalledTool(state)).toBeUndefined();
 });

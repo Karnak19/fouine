@@ -29,7 +29,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # ponytail: keep in sync with @opencode/client in package.json
-ARG OPENCODE_VERSION=2.0.11
+ARG OPENCODE_VERSION=2.4.2
 # The v2 installer (opencode.ai/v2/install) fetches @opencode/cli-* from npm;
 # the v1 script URL would put a 1.x binary here and the client would fail to
 # talk to it.

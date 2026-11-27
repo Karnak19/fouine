@@ -27,8 +27,8 @@ import { setupCommandcode, type CommandcodeCatalog } from "./_commandcode";
 // must exist — opencode resolves the credential through it.
 //
 // This file must export nothing but the plugin (opencode loads every export),
-// and it must not import anything from @opencode/* at runtime — the runtime
-// config dir has no node_modules (see _commandcode.ts). Hence a plain object
+// and it imports nothing from @opencode/* at runtime — the runtime config dir
+// has no node_modules, which broke 2.0.x (see _commandcode.ts). Hence a plain object
 // with the Plugin.define shape instead of calling Plugin.define.
 const CATALOG = "commandcode-models.json";
 const catalogUrl = new URL(`./${CATALOG}`, import.meta.url);

@@ -7,10 +7,13 @@
 // beside it.
 //
 // No runtime import from @opencode/*: the runtime config dir has no
-// node_modules, so `import { Provider } from "@opencode/plugin"` fails to
-// resolve there (verified against a real 2.0.11 server: "Cannot find package
-// '@opencode/plugin'") and the whole plugin fails to load. The values below are
-// therefore spelled out as plain objects matching Provider.Info.empty /
+// node_modules, so on 2.0.x `import { Provider } from "@opencode/plugin"`
+// failed to resolve there (verified against a real 2.0.11 server: "Cannot find
+// package '@opencode/plugin'") and the whole plugin failed to load. Since 2.4
+// the host resolves @opencode/plugin (and effect) for config-dir plugins itself
+// (verified: the same import loads on a real 2.4.2 server), but these values
+// stay plain objects so the tests can run them outside opencode and a
+// mismatched sidecar image can't break the load. They match Provider.Info.empty /
 // Model.Info.default — and the tests decode every one of them with opencode's
 // own schema, so a drift in shape fails there instead of silently here.
 export const COMMANDCODE_ID = "commandcode";
