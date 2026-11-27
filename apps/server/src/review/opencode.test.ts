@@ -34,9 +34,11 @@ function makeClient(prompts: string[]) {
         prompts.push(req.text);
         return { id: `msg-${prompts.length}`, sessionID: req.sessionID, type: "user" };
       },
-      wait: async () => undefined,
       get: async () => ({ id: "sess" }),
     },
+    // 2.4 moved wait under experimental (same endpoint; the old
+    // `session.wait` alias is deprecated and goes away in the next minor).
+    experimental: { session: { wait: async () => undefined } },
     message: {
       list: async () => ({
         data: prompts.map((_, i) => ({
@@ -50,6 +52,11 @@ function makeClient(prompts: string[]) {
       }),
     },
   } as unknown as OpencodeClient;
+}
+
+// The stub's wait, for tests that swap in their own.
+function waitOf(client: OpencodeClient): { wait: () => Promise<void> } {
+  return client.experimental.session as unknown as { wait: () => Promise<void> };
 }
 
 // The spawned opencode child must inherit ONLY this allowlist. The old spawn
@@ -186,7 +193,7 @@ test("skips the nudge when teardown lands during the first wait", async () => {
   const prompts: string[] = [];
   let torn = false;
   const client = makeClient(prompts);
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     torn = true;
   };
   await expect(
@@ -256,7 +263,7 @@ test("retries a transport failure on session.wait", async () => {
   const prompts: string[] = [];
   const client = makeClient(prompts);
   let waits = 0;
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     waits++;
     if (waits === 1) throw new ClientError("Transport");
   };
@@ -291,7 +298,7 @@ test("gives up after the transport retry budget", async () => {
   const prompts: string[] = [];
   const client = makeClient(prompts);
   let waits = 0;
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     waits++;
     throw new ClientError("Transport");
   };
@@ -321,7 +328,7 @@ test("does not retry a non-transport client failure", async () => {
   const prompts: string[] = [];
   const client = makeClient(prompts);
   let waits = 0;
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     waits++;
     throw new ClientError("UnexpectedStatus");
   };
@@ -336,7 +343,7 @@ test("does not retry a non-ClientError shaped object", async () => {
   const client = makeClient(prompts);
   let waits = 0;
   const shaped = { name: "ServiceUnavailableError", reason: "Transport", message: "nope" };
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     waits++;
     throw shaped;
   };
@@ -351,7 +358,7 @@ test("stops retrying once torn down between attempts", async () => {
   const client = makeClient(prompts);
   let torn = false;
   let waits = 0;
-  (client.session as unknown as { wait: () => Promise<void> }).wait = async () => {
+  waitOf(client).wait = async () => {
     waits++;
     torn = true;
     throw new ClientError("Transport");
@@ -438,8 +445,25 @@ test("assessTurnOutcome names the execution failure when the pump recorded one",
   });
 });
 
+test("assessTurnOutcome reads the reason off a 2.4 idle row before asking the pump", () => {
+  // Shape captured from a real opencode 2.4.2 server: an unregistered model
+  // leaves no assistant row, and the idle row itself now carries the error.
+  const msgs: Row[] = [
+    { id: "u1", type: "user" } as Row,
+    {
+      id: "i1",
+      type: "idle",
+      outcome: "failed",
+      error: { type: "provider.no-route", message: "Model unavailable: commandcode/x" },
+    } as Row,
+  ];
+  const expected = { error: "opencode run failed: provider.no-route Model unavailable: commandcode/x" };
+  expect(assessTurnOutcome(msgs)).toEqual(expected);
+  expect(assessTurnOutcome(msgs, "something the pump saw")).toEqual(expected);
+});
+
 test("executionFailure reads session.execution.failed and ignores everything else", () => {
-  // Shape captured from a real opencode 2.0.11 event stream.
+  // Shape captured from a real opencode event stream (2.0.11, unchanged on 2.4.2).
   expect(
     executionFailure({
       type: "session.execution.failed",
@@ -507,8 +531,8 @@ test("runReview throws on a failed turn and never sends the nudge", async () => 
         prompts.push(req.text);
         return {};
       },
-      wait: async () => undefined,
     },
+    experimental: { session: { wait: async () => undefined } },
     message: {
       list: async () => ({
         data: [
@@ -539,16 +563,17 @@ test("runReview throws on a failed turn and never sends the nudge", async () => 
 });
 
 test("runReview reports the execution failure the pump recorded when no assistant row exists", async () => {
-  // The production shape: the model is not registered at the run's location,
-  // so message.list only has user + idle:failed and the reason exists solely on
-  // the session.execution.failed event.
+  // The 2.0.x production shape: the model is not registered at the run's
+  // location, so message.list only has user + idle:failed and the reason exists
+  // solely on the session.execution.failed event. (2.4 also puts it on the idle
+  // row; an idle row without one still falls back to the pump.)
   const asked: string[] = [];
   const client = {
     session: {
       create: async () => ({ id: "sess" }),
       prompt: async () => ({}),
-      wait: async () => undefined,
     },
+    experimental: { session: { wait: async () => undefined } },
     message: {
       list: async () => ({
         data: [

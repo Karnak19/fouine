@@ -8,5 +8,5 @@
 #
 # Pin the tag to the @opencode/client version in package.json — same discipline as
 # the CLI pin in the root Dockerfile (mismatched client/server drifts the API).
-FROM ghcr.io/anomalyco/opencode:2.0.11
+FROM ghcr.io/anomalyco/opencode:2.4.2
 RUN apk add --no-cache git

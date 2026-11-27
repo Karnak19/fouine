@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { dayEpoch, percentile, statsFilter } from "~/server/api";
+import { dayEpoch, percentile, statsFilter, toTranscript } from "~/server/api";
 
 const DAY = 86400;
 // 2026-08-14T00:00:00Z
@@ -57,4 +57,35 @@ test("percentile is null on an empty window, never NaN", () => {
   expect(percentile(ten, 0.95)).toBe(10);
   // p95 must never index past the end.
   expect(percentile([1, 2], 0.99)).toBe(2);
+});
+
+type Row = Parameters<typeof toTranscript>[0][number];
+
+test("toTranscript shows a failed idle row's error and still drops successful idle rows", () => {
+  // OpenCode 2.4: a run that dies before reaching the model (unregistered
+  // model → provider.no-route) leaves no assistant row; the reason sits only
+  // on the idle row. Dropping it left the review page with just the prompt.
+  const failed = toTranscript([
+    { id: "u1", type: "user" } as Row,
+    {
+      id: "i1",
+      type: "idle",
+      outcome: "failed",
+      error: { type: "provider.no-route", message: "Model unavailable: commandcode/x" },
+    } as Row,
+  ]);
+  expect(failed).toHaveLength(2);
+  expect(failed[1]!.parts).toEqual([
+    { id: "i1:error", type: "error", text: "provider.no-route Model unavailable: commandcode/x" },
+  ]);
+
+  // A successful run's idle marker, and a failed one with no reason, render
+  // nothing worth a turn — they stay out of the transcript.
+  const quiet = toTranscript([
+    { id: "u1", type: "user" } as Row,
+    { id: "a1", type: "assistant", content: [{ type: "text", text: "LGTM" }] } as Row,
+    { id: "i1", type: "idle", outcome: "succeeded" } as Row,
+    { id: "i2", type: "idle", outcome: "failed" } as Row,
+  ]);
+  expect(quiet.map((m) => m.info.id)).toEqual(["u1", "a1"]);
 });

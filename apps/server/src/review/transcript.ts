@@ -5,6 +5,14 @@
 // one-server-per-process client. So instead we forward the interesting events
 // off the pump that already exists for the watchdog.
 //
+// KNOWN GAP: the part fold below reads `session.message.content.updated`, which
+// opencode marks replay-only and never publishes live (checked on real 2.0.11
+// and 2.4.2 servers). Only the `session.step.started` message shells get
+// through; parts only appear when the dashboard refetches the REST snapshot.
+// Porting the fold to the per-step `session.text.*` / `session.reasoning.*` /
+// `session.tool.*` events (as the watchdog in review/opencode.ts now does) is
+// its own change.
+//
 // Two things make "just forward the event" wrong:
 //
 //  1. Size. opencode v2 re-publishes a message's WHOLE content array on every

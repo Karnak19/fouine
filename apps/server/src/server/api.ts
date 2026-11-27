@@ -22,6 +22,7 @@ import { config } from "~/config";
 import { getInstallationOctokit, fetchPRInfo } from "~/github";
 import { runReviewForPR, abortReview, runImproverForRepo, runRefine, runImplement } from "~/review";
 import { withOpencode, runReview, parseModel, describeOpencodeError } from "~/review/opencode";
+import type { SessionMessages } from "~/review/opencode";
 import { openCodeManager } from "~/effect/opencode";
 import { listModels, searchModels, configuredProviders } from "~/review/models";
 import { installSkill, setSkillEnabled, removeSkill, listSkills } from "~/skills";
@@ -114,10 +115,13 @@ function toUiMessage(m: {
   id: string;
   type: string;
   model?: { id?: string; providerID?: string };
-  // Set on an assistant row whose run errored (finish:"error") — a provider
-  // auth failure, rate limit, etc. v2's session.wait resolves normally even
-  // then, so this is the only place the failure shows up (see
-  // review/opencode.ts's assessTurnOutcome for the server-side counterpart).
+  // The run's failure reason. Two rows carry it: an assistant row whose run
+  // errored (finish:"error" — provider auth, rate limit, etc.), and, since
+  // OpenCode 2.4, a failed `idle` row when the run died before reaching the
+  // model (e.g. provider.no-route), with no assistant row at all. v2's
+  // session.wait resolves normally either way, so these rows are the only
+  // place the failure shows up (see review/opencode.ts's assessTurnOutcome
+  // for the server-side counterpart).
   error?: { type?: string; message?: string; status?: number };
   content?: Array<{
     type?: string;
@@ -163,6 +167,17 @@ function toUiMessage(m: {
     info: { id: m.id, role: m.type, modelID: m.model?.id },
     parts,
   };
+}
+
+// The /reviews/:id/session transcript: every message through toUiMessage,
+// except `idle` rows, which are a run-outcome marker rather than a message and
+// would render as an empty turn. A failed idle row that carries an error is
+// kept, since a pre-model failure leaves nothing else to show; it comes out as
+// a turn holding just the error part.
+export function toTranscript(msgs: SessionMessages) {
+  return msgs
+    .filter((m) => m.type !== "idle" || (m.outcome === "failed" && m.error))
+    .map(toUiMessage);
 }
 
 // A YYYY-MM-DD picker value as a UTC epoch, or null for anything that isn't one.
@@ -710,10 +725,9 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       return await withOpencode(async (client) => {
         const info = await client.session.get({ sessionID: sessionId });
         // order:"asc" so the transcript renders oldest-first (v2 defaults to
-        // newest-first); "idle" rows are a run-outcome marker, not a message,
-        // so they're dropped here rather than rendered as an empty turn.
+        // newest-first); toTranscript drops the idle rows except failed ones.
         const msgs = (await client.message.list({ sessionID: sessionId, order: "asc" })).data;
-        return { info, messages: msgs.filter((m) => m.type !== "idle").map(toUiMessage) };
+        return { info, messages: toTranscript(msgs) };
       });
     } catch (err) {
       set.status = 503;

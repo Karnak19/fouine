@@ -12,8 +12,9 @@ import { commandcodeModelCatalog } from "~/review/commandcode";
 // filesystem.
 //
 // Relies on opencode v2 reading opencode.json from OPENCODE_CONFIG_DIR
-// (verified against 2.0.11 via `opencode debug config`) and normalizing the
-// native `update` and `skills` fields.
+// (verified against 2.0.11 via `opencode debug config`, and on 2.4.2 via the
+// server's config.get: `autoupdate:false` reads back as `update:"disable"`,
+// `permission` as a `permissions` rule list, `skills` kept as given).
 export function buildOpencodeConfig(skillsDir?: string): Record<string, unknown> {
   const bash: Record<string, string> = { "*": "allow" };
   return {

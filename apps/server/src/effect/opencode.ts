@@ -80,11 +80,12 @@ export interface ManagerDeps {
   serverLossGraceMs: number;
   serverLossPollMs: number;
   // Backoff (ms) between retries of the real key push in ensureProviderKey,
-  // after the first attempt. Verified against a real opencode 2.0.11 server
-  // that the provider.get warm-up call is NOT enough by itself on a genuinely
-  // fresh server: the first connect.key call can still 404 with
-  // IntegrationNotFoundError even right after provider.get resolves, but a
-  // second attempt a beat later always succeeds — so this is a real,
+  // after the first attempt. Verified against a real opencode 2.0.11 server,
+  // and again on 2.4.2, that the provider.get warm-up call is NOT enough by
+  // itself on a genuinely fresh server: the first connect.key call can still
+  // 404 with IntegrationNotFoundError (on 2.4.2 provider.get itself also
+  // answered ProviderNotFoundError on that first try), but a second attempt
+  // 500ms later succeeded — so this is a real,
   // reproducible race in opencode's own catalog load, not a fluke. Empty
   // array = no retries (tests only).
   keyPushRetryMs: number[];
@@ -347,7 +348,9 @@ export class OpenCodeServerManager {
     // IntegrationNotFoundError even for a provider the catalog does carry.
     // provider.get warms that load for just this provider, but — verified
     // against a real opencode 2.0.11 server booted through this exact
-    // manager, not just a hand-rolled client — the warm-up call ALONE is not
+    // manager, not just a hand-rolled client, and re-checked on a fresh 2.4.2
+    // server (same 404 on the first push, success on the retry) — the
+    // warm-up call ALONE is not
     // reliably enough: the first real push right after acquire() can still
     // 404 even though provider.get itself resolved, while a second attempt a
     // beat later always succeeds. So this retries the whole warm-up+push a

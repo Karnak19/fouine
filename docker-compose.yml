@@ -95,7 +95,7 @@ services:
     command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
     healthcheck:
       # /api/info requires Basic auth once OPENCODE_SERVER_PASSWORD is set
-      # (verified against 2.0.11), and the image has busybox wget + base64 but no
+      # (re-verified against 2.4.2: 401 without it), and the image has busybox wget + base64 but no
       # curl, so the header is built by hand. `$$` lets the container's shell —
       # not Compose — expand the password.
       test:
