@@ -56,10 +56,17 @@ export function buildPrompt(
     // Worded as a rule, not a fact: the install is best-effort and skipped for
     // repos with no package.json, so "deps are installed" isn't always true —
     // but "don't install, don't wander" always is.
+    // The second half caps how deep it digs once it's in node_modules: told only
+    // "read library sources there", weaker models page through bundled
+    // dist/*.js with sed to settle a usage question the .d.ts answers, and burn
+    // most of the review on it. A `question` to the author is the cheap exit.
     `Dependencies have already been installed for you, with install scripts disabled. ` +
-      `Do NOT run any package install command — it is blocked. Read library sources from ` +
-      `\`node_modules\` inside this checkout; never go looking for package sources elsewhere ` +
-      `on the filesystem.`,
+      `Do NOT run any package install command — it is blocked. Never go looking for package ` +
+      `sources outside this checkout.`,
+    `To check how a library is used, read its type definitions (\`.d.ts\`) in \`node_modules\`, ` +
+      `and its README if needed. Do NOT read bundled output (\`dist/*.js\` and the like) page by ` +
+      `page; one targeted \`grep\` at most. If a finding hinges on library behaviour the types ` +
+      `don't settle, raise it as a \`question\` for the author instead of investigating further.`,
     // Same reasoning as the install line: cheaper to tell the agent up front
     // than to let it discover the denial through a permission error mid-review.
     ...(denyTestCommands
