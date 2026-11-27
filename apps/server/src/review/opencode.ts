@@ -2,6 +2,7 @@ import { ClientError, OpenCode } from "@opencode/client";
 import type { PermissionRuleset } from "@opencode/client";
 import { resolveDefaultModel } from "~/settings";
 import { COMMANDCODE_PROVIDER, toConfigKey } from "~/review/commandcode";
+import { isLimitError } from "../../opencode-config/plugins/_model_fallback";
 import { log } from "~/server/log";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
@@ -68,6 +69,20 @@ export function parseModel(spec: string): { providerID: string; modelID: string 
   // old shape keeps resolving instead of failing at spawn.
   if (providerID === COMMANDCODE_PROVIDER) return { providerID, modelID: toConfigKey(modelID) };
   return { providerID, modelID };
+}
+
+// A spec in the form opencode addresses the model by, through the same rewrite
+// as parseModel (the old Command Code shape becomes `commandcode/<key>`). Used
+// for the fallback chain (#185): the plugin compares those entries with the
+// model opencode reports, so an un-normalised old-shape entry would never
+// match. A malformed spec comes back unchanged; the plugin skips it anyway.
+export function normalizeModelSpec(spec: string): string {
+  try {
+    const { providerID, modelID } = parseModel(spec);
+    return `${providerID}/${modelID}`;
+  } catch {
+    return spec;
+  }
 }
 
 export interface OpencodeServe {
@@ -297,6 +312,10 @@ export interface RunOptions {
   // setting, overridable per repo). Translated into `permissions` by the
   // manager via reviewOpencodeConfig in review/permissions.
   denyTestCommands?: boolean;
+  // Models to switch to, in order, if `model` hits a rate limit or a quota
+  // (#185, resolveFallbackModels). The manager hands them to the fallback
+  // plugin under this run's session id once the session exists.
+  fallbackModels?: readonly string[];
 }
 
 export interface RunHooks {
@@ -314,6 +333,10 @@ export interface RunResult {
   text: string;
   cost: number;
   tokens: number;
+  // Set only when a fallback model finished the run (#185): the
+  // "provider/model" of the last assistant message, when it isn't the model
+  // the run was started on. Undefined for the usual run that stays on its model.
+  finishedModel?: string;
 }
 
 export type SessionMessages = Awaited<ReturnType<OpencodeClient["message"]["list"]>>["data"];
@@ -352,6 +375,9 @@ export function assessTurnOutcome(
   let finishWarning: string | undefined;
   const describe = (e: { type: string; status?: number; message: string }) =>
     `${e.type} ${e.status ?? ""} ${e.message}`.replace(/\s+/g, " ").trim();
+  // Walking backward, so this means "a later assistant row in this turn
+  // finished cleanly".
+  let laterClean = false;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]!;
     if (m.type === "user") break;
@@ -360,6 +386,14 @@ export function assessTurnOutcome(
       if (m.error) idleError = describe(m.error);
     }
     if (m.type === "assistant") {
+      if (!m.error) laterClean = true;
+      // A step that hit a rate limit or quota after it had started streaming
+      // keeps its assistant row, error and all, and the retry (on a fallback
+      // model, #185) writes a fresh row after it — verified against a real
+      // 2.4.2 server. When a later row finished cleanly the run recovered, so
+      // that limit error is history, not the outcome. Same limit rule as the
+      // fallback plugin; any other error still fails the run.
+      if (m.error && laterClean && isLimitError(m.error.type)) continue;
       if (m.error && !assistantError) {
         assistantError = describe(m.error);
       } else if (!m.error && (m.finish === "length" || m.finish === "content-filter") && !finishWarning) {
@@ -407,8 +441,12 @@ function summarizeMessages(msgs: SessionMessages) {
   let cost = 0;
   let tokens = 0;
   const texts: string[] = [];
+  let finishedModel: string | undefined;
   for (const m of msgs) {
     if (m.type !== "assistant") continue;
+    // Every assistant message records the model that produced it, so the last
+    // one is the model the run ended on — after a fallback switch, the new one.
+    if (m.model) finishedModel = `${m.model.providerID}/${m.model.id}`;
     cost += m.cost ?? 0;
     const t = m.tokens;
     if (t) tokens += t.input + t.output + t.reasoning;
@@ -416,7 +454,7 @@ function summarizeMessages(msgs: SessionMessages) {
       if (c.type === "text" && c.text) texts.push(c.text);
     }
   }
-  return { cost, tokens, text: texts.join("\n") };
+  return { cost, tokens, text: texts.join("\n"), finishedModel };
 }
 
 // The v2 client does no retries by contract ("callers own transport selection,
@@ -603,9 +641,26 @@ export async function runReview(
     await assessAndThrow(msgs);
   }
 
-  const { cost, tokens, text } = summarizeMessages(msgs);
+  const { cost, tokens, text, finishedModel } = summarizeMessages(msgs);
+  // Compared with the parsed model, not the raw spec, so an old-shape spec
+  // that parseModel rewrites (Command Code) is not mistaken for a switch.
+  const requested = `${model.providerID}/${model.modelID}`;
+  const switched = finishedModel !== undefined && finishedModel !== requested;
+  if (switched) {
+    log.info("run finished on a fallback model", {
+      session: session.id,
+      requested,
+      finished: finishedModel,
+    });
+  }
 
-  return { sessionId: session.id, text, cost, tokens };
+  return {
+    sessionId: session.id,
+    text,
+    cost,
+    tokens,
+    ...(switched ? { finishedModel } : {}),
+  };
 }
 
 // ─── idle watchdog ──────────────────────────────────────────────────────────

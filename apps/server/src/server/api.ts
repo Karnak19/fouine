@@ -35,6 +35,7 @@ import {
   MAX_PREVIOUS_SPEC_BYTES,
   MAX_SQL_CHARS,
 } from "@fouine/shared/build-catalog";
+import { normalizeModelList } from "@fouine/shared/model-list";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -524,6 +525,16 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
           body.implement_model === undefined ? existing.implement_model : body.implement_model,
         $auto_ready: body.auto_ready === undefined ? existing.auto_ready : body.auto_ready,
       });
+      // The fallback chain (#185): absent keeps it, null or an empty list goes
+      // back to inheriting the global list. Normalised so the stored JSON is
+      // always a clean list of "provider/model" specs.
+      if (body.fallback_models !== undefined) {
+        const list = normalizeModelList(body.fallback_models);
+        repos.setFallbackModels.run({
+          $full_name: full,
+          $fallback_models: list.length ? JSON.stringify(list) : null,
+        });
+      }
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
       return row;
@@ -546,6 +557,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         refine_model: t.Optional(t.Union([t.String(), t.Null()])),
         implement_model: t.Optional(t.Union([t.String(), t.Null()])),
         auto_ready: t.Optional(t.Union([t.Number(), t.Null()])),
+        fallback_models: t.Optional(t.Union([t.Array(t.String()), t.Null()])),
       }),
     },
   )
@@ -809,7 +821,28 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .put(
     "/settings",
-    ({ body }) => {
+    ({ body, status }) => {
+      // The fallback list (#185) is checked before anything is written, so a
+      // bad value fails the whole save instead of half-applying it. Only a
+      // JSON array is a list; "" or "[]" clears it. Anything else used to parse
+      // as "no list" and silently wipe the stored one.
+      let fallbackModels: string[] | undefined;
+      if (body.fallback_models !== undefined && body.fallback_models !== "") {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body.fallback_models);
+        } catch {
+          parsed = undefined;
+        }
+        if (!Array.isArray(parsed)) {
+          return status(400, {
+            error: 'fallback_models must be a JSON array of "provider/model" strings',
+          });
+        }
+        fallbackModels = normalizeModelList(parsed);
+      } else if (body.fallback_models === "") {
+        fallbackModels = [];
+      }
       // Keys: an absent field keeps the stored value, an explicit "" (or, for
       // merge_method, null) deletes the row. Without the delete the row would
       // shadow the env var forever, so a rotated OPENCODE_API_KEY/ZAI_API_KEY/
@@ -843,6 +876,14 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
+      // A JSON array of model specs (#185), validated above. Re-serialised from
+      // the normalised list; an empty list deletes the row.
+      if (fallbackModels !== undefined) {
+        setKey(
+          SETTINGS.FALLBACK_MODELS,
+          fallbackModels.length ? JSON.stringify(fallbackModels) : "",
+        );
+      }
       setKey(SETTINGS.PROMPT, body.default_prompt);
       // Channels (#176). Tokens/secrets follow the key rule above (blank keeps
       // the stored value, "" deletes back to env); the wiring rows are plain
@@ -869,6 +910,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         refine_model: t.Optional(t.String()),
         implement_model: t.Optional(t.String()),
         chat_model: t.Optional(t.String()),
+        fallback_models: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),

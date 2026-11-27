@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ModelInput } from "@/components/model-input";
+import { FallbackModelsInput } from "@/components/fallback-models-input";
+import { normalizeModelList, parseModelList } from "@fouine/shared/model-list";
 import {
   Dialog,
   DialogContent,
@@ -143,6 +145,8 @@ export default function RepoSettingsPage() {
   const [implementModel, setImplementModel] = useState("");
   // null = inherit; 1 = on; 0 = explicitly off.
   const [autoReady, setAutoReady] = useState<number | null>(null);
+  // Empty list = inherit the global fallback list.
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const leaving = useRef(false);
   const [baseline, setBaseline] = useState({
     model: "",
@@ -159,6 +163,7 @@ export default function RepoSettingsPage() {
     implementPrompt: "",
     implementModel: "",
     autoReady: null as number | null,
+    fallbackModels: [] as string[],
   });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
@@ -170,6 +175,8 @@ export default function RepoSettingsPage() {
   // Only to show which way "inherit" currently resolves. Same query key as the
   // settings page, so it's usually already cached.
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+
+  const globalFallbacks = parseModelList(settings?.fallback_models);
 
   const globals = {
     auto_merge: settings?.auto_merge === "1",
@@ -211,6 +218,7 @@ export default function RepoSettingsPage() {
       const ip = repo.implement_prompt ?? "";
       const im = repo.implement_model ?? "";
       const ar = repo.auto_ready ?? null;
+      const fm = parseModelList(repo.fallback_models);
       setModel(m);
       setPrompt(p);
       setEnabled(e);
@@ -225,6 +233,7 @@ export default function RepoSettingsPage() {
       setImplementPrompt(ip);
       setImplementModel(im);
       setAutoReady(ar);
+      setFallbackModels(fm);
       setBaseline({
         model: m,
         prompt: p,
@@ -240,6 +249,7 @@ export default function RepoSettingsPage() {
         implementPrompt: ip,
         implementModel: im,
         autoReady: ar,
+        fallbackModels: fm,
       });
     }
   }, [repo]);
@@ -258,7 +268,8 @@ export default function RepoSettingsPage() {
     implementLabel !== baseline.implementLabel ||
     implementPrompt !== baseline.implementPrompt ||
     implementModel !== baseline.implementModel ||
-    autoReady !== baseline.autoReady;
+    autoReady !== baseline.autoReady ||
+    JSON.stringify(fallbackModels) !== JSON.stringify(baseline.fallbackModels);
 
   const resetForm = () => {
     setModel(baseline.model);
@@ -275,6 +286,7 @@ export default function RepoSettingsPage() {
     setImplementPrompt(baseline.implementPrompt);
     setImplementModel(baseline.implementModel);
     setAutoReady(baseline.autoReady);
+    setFallbackModels(baseline.fallbackModels);
   };
 
   // Effective auto-merge resolves inherit against the global default, using
@@ -332,6 +344,8 @@ export default function RepoSettingsPage() {
         implement_prompt: implementPrompt.trim() || undefined,
         implement_model: implementModel.trim() || null,
         auto_ready: autoReady,
+        // Always sent: an empty list clears the override (back to the global list).
+        fallback_models: normalizeModelList(fallbackModels),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repos", owner, name] });
@@ -350,7 +364,10 @@ export default function RepoSettingsPage() {
         implementPrompt,
         implementModel,
         autoReady,
+        fallbackModels: normalizeModelList(fallbackModels),
       });
+      // Blank and duplicate rows were dropped on save; show what was stored.
+      setFallbackModels(normalizeModelList(fallbackModels));
       toast.success("Configuration saved");
     },
     onError: (e: Error) => toast.error("Couldn't save configuration", { description: e.message }),
@@ -808,6 +825,22 @@ export default function RepoSettingsPage() {
               </div>
             </AgentRow>
           </div>
+        </Section>
+
+        <Section
+          title="Fallback models"
+          description="When a run's model runs out of quota, or hits a rate limit that lasts, the run carries on with the next model below, in order. A list here replaces the global one for this repo."
+        >
+          <FallbackModelsInput
+            id="repo_fallback_models"
+            value={fallbackModels}
+            onChange={setFallbackModels}
+            emptyHint={
+              globalFallbacks.length
+                ? `Using the global list: ${globalFallbacks.join(" → ")}.`
+                : "No list here or in the global settings: no fallback."
+            }
+          />
         </Section>
       </form>
 

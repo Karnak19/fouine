@@ -161,6 +161,9 @@ export interface Settings {
   implement_model?: string;
   // Chat + /build model. Empty string deletes the row -> OPENCODE_CHAT_MODEL.
   chat_model?: string;
+  // Fallback models (#185): a JSON array of "provider/model" specs, in order.
+  // "[]" or "" deletes the row (no fallback).
+  fallback_models?: string;
   // "1" = on, "" = delete the row (off). See SETTINGS.DENY_TEST_COMMANDS.
   deny_test_commands?: string;
   // "1" = on, "" = delete the row (off). Default off.
@@ -230,6 +233,8 @@ export const api = {
         // null = inherit the review model override (then the global default). Absent leaves it unchanged.
         refine_model?: string | null;
         implement_model?: string | null;
+        // Fallback models (#185). null or [] = inherit the global list. Absent leaves it unchanged.
+        fallback_models?: string[] | null;
       },
     ) => unwrap<RepoRow>(await c.repos({ owner })({ name }).put(data)),
     delete: async (owner: string, name: string) =>

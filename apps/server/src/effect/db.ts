@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { findings, repos, reviews, type RepoRow, type ReviewRow } from "~/db";
+import { db, findings, repos, reviews, type RepoRow, type ReviewRow } from "~/db";
 import { DatabaseError } from "~/effect/errors";
 import { publishReviewEvent } from "~/server/events";
 import { emitReviewCompleted } from "~/mastra/review-events";
@@ -87,15 +87,21 @@ export class DbService extends Effect.Service<DbService>()("app/DbService", {
       tokens: number,
       model: string,
       patchId: string | null,
+      // The fallback model that finished the run, when the fallback plugin
+      // switched away from `model` mid-run (RunResult.finishedModel, #185).
+      finishedModel: string | null = null,
     ): Effect.Effect<void, DatabaseError> =>
       attempt("reviews.complete", () => {
-        reviews.complete.run({
-          $id: id,
-          $cost: cost,
-          $tokens: tokens,
-          $model: model,
-          $patch: patchId,
-        });
+        db.transaction(() => {
+          reviews.complete.run({
+            $id: id,
+            $cost: cost,
+            $tokens: tokens,
+            $model: model,
+            $patch: patchId,
+          });
+          reviews.setFinishedModel.run({ $id: id, $finished: finishedModel });
+        })();
         publishReviewEvent("updated", id);
         // MCP events are experimental and fire-and-forget: this promise is
         // never awaited and never rejects, so a client bug cannot fail a review.

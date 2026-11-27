@@ -1,6 +1,7 @@
 import { config } from "~/config";
 import { settingValue } from "~/db";
 import type { RepoRow } from "@fouine/shared";
+import { parseModelList } from "@fouine/shared/model-list";
 import { DEFAULT_PROMPT } from "~/review/prompt";
 import { DEFAULT_REFINE_PROMPT } from "~/review/refine-prompt";
 import { DEFAULT_IMPLEMENT_PROMPT } from "~/review/implement-prompt";
@@ -16,6 +17,8 @@ export const SETTINGS = {
   REFINE_MODEL: "refine_model",
   IMPLEMENT_MODEL: "implement_model",
   CHAT_MODEL: "chat_model",
+  // Ordered fallback models (#185), a JSON array of "provider/model" specs.
+  FALLBACK_MODELS: "fallback_models",
   DENY_TEST_COMMANDS: "deny_test_commands",
   AUTO_MERGE: "auto_merge",
   MERGE_METHOD: "merge_method",
@@ -229,6 +232,19 @@ export function resolveImplementModel(
     settingValue(SETTINGS.IMPLEMENT_MODEL) ||
     resolveDefaultModel()
   );
+}
+
+// The models a run falls back to, in order, when its model hits a rate limit
+// or a quota (#185; the plugin in opencode-config/plugins/model-fallback.ts
+// does the switching). A repo's own list replaces the global one rather than
+// adding to it, so a repo can pin a short chain of its own. An empty or unset
+// repo list inherits the global one. No env var: this is a dashboard setting.
+export function resolveFallbackModels(
+  repo: Pick<RepoRow, "fallback_models"> | null | undefined,
+): string[] {
+  const own = parseModelList(repo?.fallback_models);
+  if (own.length > 0) return own;
+  return parseModelList(settingValue(SETTINGS.FALLBACK_MODELS));
 }
 
 // ── Channels (#176) ─────────────────────────────────────────────────────────

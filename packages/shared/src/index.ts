@@ -43,6 +43,10 @@ export interface RepoRow {
   implement_prompt: string | null;
   // Per-repo refiner/implementer model override. NULL = inherit the review model override, else the global default.
   implement_model: string | null;
+  // Per-repo fallback models (#185), a JSON array of "provider/model" specs
+  // (read it with parseModelList from @fouine/shared/model-list). NULL =
+  // inherit the global list; a set list replaces it, it is never merged.
+  fallback_models: string | null;
   created_at: number;
 }
 
@@ -60,6 +64,9 @@ export interface ReviewRow {
   cost: number | null;
   tokens: number | null;
   model: string | null;
+  // Set only when a fallback model finished the run (#185): a rate limit or
+  // quota made it switch away from `model`. "provider/model". Null otherwise.
+  finished_model: string | null;
   check_run_id: number | null;
   patch_id: string | null;
   created_at: number;

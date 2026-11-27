@@ -20,6 +20,7 @@ function row(partial: { id: number } & Partial<ReviewRow>): ReviewRow {
     cost: null,
     tokens: null,
     model: null,
+    finished_model: null,
     check_run_id: 77,
     patch_id: null,
     attempt: 0,
