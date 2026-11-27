@@ -362,8 +362,10 @@ test("abort during session.create interrupts the late session and registers noth
       create: () => Promise<{ id: string }>;
       interrupt: (req: { sessionID: string; resume?: boolean }) => Promise<unknown>;
       prompt: () => Promise<unknown>;
-      wait: () => Promise<void>;
     };
+    // runReview waits through experimental.session.wait since 2.4 — a stub on
+    // the deprecated session.wait would never be called.
+    experimental: { session: { wait: () => Promise<void> } };
     message: { list: () => Promise<{ data: []; cursor: object }> };
   };
   client.session.create = () => created;
@@ -374,7 +376,7 @@ test("abort during session.create interrupts the late session and registers noth
   // Stubs so the run continues harmlessly after teardown instead of rejecting
   // unhandled once the late session id arrives.
   client.session.prompt = async () => ({});
-  client.session.wait = async () => undefined;
+  client.experimental = { session: { wait: async () => undefined } };
   client.message = { list: async () => ({ data: [], cursor: {} }) };
 
   const singleton = openCodeManager as unknown as { serve?: OpencodeServe };
@@ -436,8 +438,10 @@ test("abort during session.create sends no prompt once the late session arrives"
       create: () => Promise<{ id: string }>;
       interrupt: (req: { sessionID: string }) => Promise<unknown>;
       prompt: (req: { sessionID: string; text: string }) => Promise<unknown>;
-      wait: () => Promise<void>;
     };
+    // runReview waits through experimental.session.wait since 2.4 — a stub on
+    // the deprecated session.wait would never be called.
+    experimental: { session: { wait: () => Promise<void> } };
     message: { list: () => Promise<{ data: []; cursor: object }> };
   };
   client.session.create = () => created;
@@ -449,7 +453,7 @@ test("abort during session.create sends no prompt once the late session arrives"
     prompts.push(req.text);
     return {};
   };
-  client.session.wait = async () => undefined;
+  client.experimental = { session: { wait: async () => undefined } };
   client.message = { list: async () => ({ data: [], cursor: {} }) };
 
   const singleton = openCodeManager as unknown as { serve?: OpencodeServe };
@@ -500,8 +504,10 @@ test("abort mid-run does not start the nudge prompt", async () => {
       create: () => Promise<{ id: string }>;
       interrupt: (req: { sessionID: string }) => Promise<unknown>;
       prompt: (req: { sessionID: string; text: string }) => Promise<unknown>;
-      wait: () => Promise<void>;
     };
+    // runReview waits through experimental.session.wait since 2.4 — a stub on
+    // the deprecated session.wait would never be called.
+    experimental: { session: { wait: () => Promise<void> } };
     message: { list: () => Promise<{ data: []; cursor: object }> };
   };
   client.session.create = async () => ({ id: "ses_1" });
@@ -511,7 +517,7 @@ test("abort mid-run does not start the nudge prompt", async () => {
   };
   // The first wait blocks until the abort's interrupt releases it, exactly like
   // a real interrupt ends the in-flight run.
-  client.session.wait = () => waiting;
+  client.experimental = { session: { wait: () => waiting } };
   client.session.interrupt = async () => {
     releaseWait();
     return { interrupted: true };
