@@ -32,7 +32,7 @@ function seedReview(full: string, pr: number) {
 test("delivers a typed event to subscribers", () => {
   const got: ServerEvent[] = [];
   const unsub = subscribeEvents(null, (e) => got.push(e));
-  publishEvent({ type: "repo:updated", repo: "a/b", row: { full_name: "a/b", installation_id: 1, prompt: null, model: null, enabled: 1, deny_test_commands: null, auto_merge: null, merge_method: null, refine_enabled: null, refine_prompt: null, implement_enabled: null, implement_label: null, implement_prompt: null, refine_model: null, implement_model: null, auto_ready: null, created_at: 0 } });
+  publishEvent({ type: "repo:updated", repo: "a/b", row: { full_name: "a/b", installation_id: 1, prompt: null, model: null, enabled: 1, deny_test_commands: null, auto_merge: null, merge_method: null, refine_enabled: null, refine_prompt: null, implement_enabled: null, implement_label: null, implement_prompt: null, refine_model: null, implement_model: null, auto_ready: null, fallback_models: null, created_at: 0 } });
   unsub();
   expect(got).toHaveLength(1);
   expect(got[0].type).toBe("repo:updated");

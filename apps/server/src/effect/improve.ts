@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, readRepoNotes, writeFailure } from "~/effect/review";
-import { resolveDenyTestCommands, resolveImproverModel } from "~/settings";
+import { resolveDenyTestCommands, resolveFallbackModels, resolveImproverModel } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { DbService } from "~/effect/db";
@@ -133,6 +133,7 @@ export function improvePipeline(
             // detail page is transcript-only — so it streams the same way.
             transcript: { reviewId: id, repo: target.repoFullName },
             denyTestCommands,
+            fallbackModels: resolveFallbackModels(repoRow),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
@@ -147,7 +148,7 @@ export function improvePipeline(
         });
         // No patch-id: an improver run reviews no diff, so it can never be a
         // skip baseline (lastReviewedPatch also filters it out by pr_number > 0).
-        yield* db.complete(id, result.cost, result.tokens, model, null);
+        yield* db.complete(id, result.cost, result.tokens, model, null, result.finishedModel ?? null);
       });
 
     // Same shape as reviewPipeline: the worktree path lives inside the guarded

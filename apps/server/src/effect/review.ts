@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import type { Octokit } from "octokit";
 import type { PullRequestInfo } from "~/review/types";
 import { buildPrompt } from "~/review/prompt";
-import { resolveDefaultModel, resolveDenyTestCommands, resolvePrompt } from "~/settings";
+import {
+  resolveDefaultModel,
+  resolveDenyTestCommands,
+  resolveFallbackModels,
+  resolvePrompt,
+} from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { DbService } from "~/effect/db";
@@ -253,6 +258,7 @@ export function reviewPipeline(
             // session (which the shared server serves, no per-request spawn).
             transcript: { reviewId: id, repo: pr.repoFullName },
             denyTestCommands,
+            fallbackModels: resolveFallbackModels(repo),
             // Sync SQLite read, same runSync bridge as setSession below. On a DB
             // error assume posted — better to miss a nudge than nudge a review
             // that's already on GitHub.
@@ -277,7 +283,14 @@ export function reviewPipeline(
         });
         // `patch` is the baseline a future rebase-only push will match against —
         // null when the patch-id was unavailable, which just means no skipping.
-        yield* db.complete(id, result.cost, result.tokens, model, patch ?? null);
+        yield* db.complete(
+          id,
+          result.cost,
+          result.tokens,
+          model,
+          patch ?? null,
+          result.finishedModel ?? null,
+        );
         // finishCheck swallows its own API errors, so its *return value* — not
         // the fact that it returned — is the only signal the run was closed.
         const closed = yield* gh.finishCheck(

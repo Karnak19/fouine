@@ -371,6 +371,13 @@ export default function ReviewDetailPage() {
               model: <span className="text-zinc-300">{session.info.model.id}</span>
             </span>
           )}
+          {/* #185: the run hit a rate limit or quota and a fallback model finished it. */}
+          {review.finished_model && (
+            <span title={review.model ? `Started on ${review.model}` : undefined}>
+              finished on fallback:{" "}
+              <span className="font-mono text-zinc-300">{review.finished_model}</span>
+            </span>
+          )}
           {session.info.cost != null && (
             <span>
               cost: <span className="text-zinc-300">${session.info.cost.toFixed(4)}</span>

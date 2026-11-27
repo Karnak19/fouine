@@ -402,6 +402,36 @@ test("describeOpencodeError falls back to String() for anything else", () => {
   expect(describeOpencodeError(42)).toBe("42");
 });
 
+// #185: the fallback plugin switches the session's model mid-run, and every
+// assistant message records the model that wrote it — so the last one names
+// the model that finished the run.
+test("reports the model of the last assistant message as the finishing model", async () => {
+  const client = makeClient([]);
+  (client.message as unknown as { list: () => Promise<unknown> }).list = async () => ({
+    data: [
+      { id: "a-0", type: "assistant", model: { providerID: "zai-coding-plan", id: "glm-5.2" }, content: [] },
+      { id: "a-1", type: "assistant", model: { providerID: "opencode-go", id: "kimi-k3" }, content: [] },
+    ],
+    cursor: {},
+  });
+  const result = await runReview(client, {
+    directory: "/tmp",
+    prompt: "go",
+    model: "zai-coding-plan/glm-5.2",
+  });
+  expect(result.finishedModel).toBe("opencode-go/kimi-k3");
+});
+
+test("leaves the finishing model unset when the run stayed on its own model", async () => {
+  const client = makeClient([]);
+  (client.message as unknown as { list: () => Promise<unknown> }).list = async () => ({
+    data: [{ id: "a-0", type: "assistant", model: { providerID: "zen", id: "kimi-k3" }, content: [] }],
+    cursor: {},
+  });
+  const result = await runReview(client, { directory: "/tmp", prompt: "go", model: "zen/kimi-k3" });
+  expect(result.finishedModel).toBeUndefined();
+});
+
 // ── Silent run-failure detection (v2's session.wait resolves even when the
 // model run itself errored — the failure only shows up on the message rows) ──
 

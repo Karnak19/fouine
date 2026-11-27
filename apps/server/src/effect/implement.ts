@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import { resolveImplementModel, resolveImplementPrompt } from "~/settings";
+import { resolveFallbackModels, resolveImplementModel, resolveImplementPrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { DbService } from "~/effect/db";
@@ -120,6 +120,7 @@ export function implementPipeline(
             model,
             agent: "fouine-implementer",
             transcript: { reviewId: id, repo: target.repoFullName },
+            fallbackModels: resolveFallbackModels(repoRow),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
@@ -144,7 +145,7 @@ export function implementPipeline(
             target.issueNumber,
             `🦡 I didn't change anything for this issue.\n\n${summary}`,
           );
-          yield* db.complete(id, result.cost, result.tokens, model, null);
+          yield* db.complete(id, result.cost, result.tokens, model, null, result.finishedModel ?? null);
           return;
         }
 
@@ -207,7 +208,7 @@ export function implementPipeline(
           `🦡 Opened ${url}`,
         );
         log.info("implementer opened PR", { repo: target.repoFullName, review: id, url });
-        yield* db.complete(id, result.cost, result.tokens, model, null);
+        yield* db.complete(id, result.cost, result.tokens, model, null, result.finishedModel ?? null);
       });
 
     const guarded = Effect.suspend(() => {

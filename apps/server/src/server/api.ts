@@ -35,6 +35,7 @@ import {
   MAX_PREVIOUS_SPEC_BYTES,
   MAX_SQL_CHARS,
 } from "@fouine/shared/build-catalog";
+import { normalizeModelList, parseModelList } from "@fouine/shared/model-list";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -524,6 +525,16 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
           body.implement_model === undefined ? existing.implement_model : body.implement_model,
         $auto_ready: body.auto_ready === undefined ? existing.auto_ready : body.auto_ready,
       });
+      // The fallback chain (#185): absent keeps it, null or an empty list goes
+      // back to inheriting the global list. Normalised so the stored JSON is
+      // always a clean list of "provider/model" specs.
+      if (body.fallback_models !== undefined) {
+        const list = normalizeModelList(body.fallback_models);
+        repos.setFallbackModels.run({
+          $full_name: full,
+          $fallback_models: list.length ? JSON.stringify(list) : null,
+        });
+      }
       const row = repos.get.get({ $full_name: full })!;
       publishRepoUpdated(row);
       return row;
@@ -546,6 +557,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         refine_model: t.Optional(t.Union([t.String(), t.Null()])),
         implement_model: t.Optional(t.Union([t.String(), t.Null()])),
         auto_ready: t.Optional(t.Union([t.Number(), t.Null()])),
+        fallback_models: t.Optional(t.Union([t.Array(t.String()), t.Null()])),
       }),
     },
   )
@@ -843,6 +855,12 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
+      // A JSON array of model specs (#185). Re-serialised from the parsed list
+      // so a malformed value can never be stored; an empty list deletes the row.
+      if (body.fallback_models !== undefined) {
+        const list = parseModelList(body.fallback_models);
+        setKey(SETTINGS.FALLBACK_MODELS, list.length ? JSON.stringify(list) : "");
+      }
       setKey(SETTINGS.PROMPT, body.default_prompt);
       // Channels (#176). Tokens/secrets follow the key rule above (blank keeps
       // the stored value, "" deletes back to env); the wiring rows are plain
@@ -869,6 +887,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
         refine_model: t.Optional(t.String()),
         implement_model: t.Optional(t.String()),
         chat_model: t.Optional(t.String()),
+        fallback_models: t.Optional(t.String()),
         deny_test_commands: t.Optional(t.String()),
         auto_merge: t.Optional(t.String()),
         refine_enabled: t.Optional(t.String()),

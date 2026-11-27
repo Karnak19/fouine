@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { resolve } from "node:path";
 import { cloneUrl, failureMessage, writeFailure } from "~/effect/review";
-import { resolveRefineModel, resolveRefinePrompt } from "~/settings";
+import { resolveFallbackModels, resolveRefineModel, resolveRefinePrompt } from "~/settings";
 import { log } from "~/server/log";
 import { config } from "~/config";
 import { DbService } from "~/effect/db";
@@ -94,6 +94,7 @@ export function refinePipeline(
             model,
             agent: "fouine-refiner",
             transcript: { reviewId: id, repo: target.repoFullName },
+            fallbackModels: resolveFallbackModels(repoRow),
           },
           (sessionId) =>
             Effect.runSync(db.setSession(id, sessionId).pipe(Effect.catchAll(() => Effect.void))),
@@ -108,7 +109,7 @@ export function refinePipeline(
         });
         // No patch-id: a refine run looks at no diff, so it can never be a skip
         // baseline.
-        yield* db.complete(id, result.cost, result.tokens, model, null);
+        yield* db.complete(id, result.cost, result.tokens, model, null, result.finishedModel ?? null);
       });
 
     const guarded = Effect.suspend(() => {

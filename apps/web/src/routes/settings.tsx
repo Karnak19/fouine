@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ModelInput } from "@/components/model-input";
+import { FallbackModelsInput } from "@/components/fallback-models-input";
+import { normalizeModelList, parseModelList } from "@fouine/shared/model-list";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +73,7 @@ export default function SettingsPage() {
   const [implementModel, setImplementModel] = useState("");
   const [improverModel, setImproverModel] = useState("");
   const [chatModel, setChatModel] = useState("");
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [denyTestCommands, setDenyTestCommands] = useState(false);
   const [refineEnabled, setRefineEnabled] = useState(false);
@@ -100,6 +103,7 @@ export default function SettingsPage() {
     implementModel: "",
     improverModel: "",
     chatModel: "",
+    fallbackModels: [] as string[],
     prompt: "",
     denyTestCommands: false,
     refineEnabled: false,
@@ -129,6 +133,7 @@ export default function SettingsPage() {
       const im = settings.implement_model ?? "";
       const ivm = settings.improver_model ?? "";
       const cm = settings.chat_model ?? "";
+      const fm = parseModelList(settings.fallback_models);
       const p = settings.default_prompt ?? "";
       const d = settings.deny_test_commands === "1";
       const re = settings.refine_enabled === "1";
@@ -149,6 +154,7 @@ export default function SettingsPage() {
       setImplementModel(im);
       setImproverModel(ivm);
       setChatModel(cm);
+      setFallbackModels(fm);
       setPrompt(p);
       setDenyTestCommands(d);
       setRefineEnabled(re);
@@ -170,6 +176,7 @@ export default function SettingsPage() {
         implementModel: im,
         improverModel: ivm,
         chatModel: cm,
+        fallbackModels: fm,
         prompt: p,
         denyTestCommands: d,
         refineEnabled: re,
@@ -198,6 +205,7 @@ export default function SettingsPage() {
     implementModel !== baseline.implementModel ||
     improverModel !== baseline.improverModel ||
     chatModel !== baseline.chatModel ||
+    JSON.stringify(fallbackModels) !== JSON.stringify(baseline.fallbackModels) ||
     prompt !== baseline.prompt ||
     denyTestCommands !== baseline.denyTestCommands ||
     refineEnabled !== baseline.refineEnabled ||
@@ -226,6 +234,7 @@ export default function SettingsPage() {
     setImplementModel(baseline.implementModel);
     setImproverModel(baseline.improverModel);
     setChatModel(baseline.chatModel);
+    setFallbackModels(baseline.fallbackModels);
     setPrompt(baseline.prompt);
     setDenyTestCommands(baseline.denyTestCommands);
     setRefineEnabled(baseline.refineEnabled);
@@ -273,6 +282,9 @@ export default function SettingsPage() {
       data.implement_model = implementModel.trim();
       data.improver_model = improverModel.trim();
       data.chat_model = chatModel.trim();
+      // Always sent, like the models: an empty list deletes the row. Blank and
+      // duplicate rows are dropped here and again on the server.
+      data.fallback_models = JSON.stringify(normalizeModelList(fallbackModels));
       data.default_prompt = prompt.trim();
       // Empty string deletes the row, i.e. off — so always send it, unlike the
       // text fields above where blank means "keep what's there".
@@ -312,12 +324,16 @@ export default function SettingsPage() {
       setSlackSigningSecret("");
       setSlackBotToken("");
       setDiscordBotToken("");
+      // What was saved is the cleaned-up list, so show that.
+      const savedFallbacks = normalizeModelList(fallbackModels);
+      setFallbackModels(savedFallbacks);
       setBaseline({
         model,
         refineModel,
         implementModel,
         improverModel,
         chatModel,
+        fallbackModels: savedFallbacks,
         prompt,
         denyTestCommands,
         refineEnabled,
@@ -782,6 +798,22 @@ export default function SettingsPage() {
               </div>
             </AgentRow>
           </div>
+        </Section>
+
+        <Section
+          title="Fallback models"
+          description="When a run's model hits a rate limit or runs out of quota, the run carries on in the same session with the next model below, in order. Applies to every agent. A repo can set its own list, which replaces this one."
+        >
+          <FallbackModelsInput
+            id="fallback_models"
+            value={fallbackModels}
+            onChange={setFallbackModels}
+            emptyHint="No fallback: a rate limit or quota error is handled by opencode's own retries, and the run fails if they run out."
+          />
+          <p className="text-xs text-zinc-500">
+            Each switch uses one of opencode's 10 retries for that step, so about 9 fallbacks at
+            most. Models opencode doesn&apos;t list as available are skipped.
+          </p>
         </Section>
 
         <Section

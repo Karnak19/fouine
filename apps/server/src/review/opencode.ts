@@ -297,6 +297,10 @@ export interface RunOptions {
   // setting, overridable per repo). Translated into `permissions` by the
   // manager via reviewOpencodeConfig in review/permissions.
   denyTestCommands?: boolean;
+  // Models to switch to, in order, if `model` hits a rate limit or a quota
+  // (#185, resolveFallbackModels). The manager hands them to the fallback
+  // plugin under this run's session id once the session exists.
+  fallbackModels?: readonly string[];
 }
 
 export interface RunHooks {
@@ -314,6 +318,10 @@ export interface RunResult {
   text: string;
   cost: number;
   tokens: number;
+  // Set only when a fallback model finished the run (#185): the
+  // "provider/model" of the last assistant message, when it isn't the model
+  // the run was started on. Undefined for the usual run that stays on its model.
+  finishedModel?: string;
 }
 
 export type SessionMessages = Awaited<ReturnType<OpencodeClient["message"]["list"]>>["data"];
@@ -407,8 +415,12 @@ function summarizeMessages(msgs: SessionMessages) {
   let cost = 0;
   let tokens = 0;
   const texts: string[] = [];
+  let finishedModel: string | undefined;
   for (const m of msgs) {
     if (m.type !== "assistant") continue;
+    // Every assistant message records the model that produced it, so the last
+    // one is the model the run ended on — after a fallback switch, the new one.
+    if (m.model) finishedModel = `${m.model.providerID}/${m.model.id}`;
     cost += m.cost ?? 0;
     const t = m.tokens;
     if (t) tokens += t.input + t.output + t.reasoning;
@@ -416,7 +428,7 @@ function summarizeMessages(msgs: SessionMessages) {
       if (c.type === "text" && c.text) texts.push(c.text);
     }
   }
-  return { cost, tokens, text: texts.join("\n") };
+  return { cost, tokens, text: texts.join("\n"), finishedModel };
 }
 
 // The v2 client does no retries by contract ("callers own transport selection,
@@ -603,9 +615,26 @@ export async function runReview(
     await assessAndThrow(msgs);
   }
 
-  const { cost, tokens, text } = summarizeMessages(msgs);
+  const { cost, tokens, text, finishedModel } = summarizeMessages(msgs);
+  // Compared with the parsed model, not the raw spec, so an old-shape spec
+  // that parseModel rewrites (Command Code) is not mistaken for a switch.
+  const requested = `${model.providerID}/${model.modelID}`;
+  const switched = finishedModel !== undefined && finishedModel !== requested;
+  if (switched) {
+    log.info("run finished on a fallback model", {
+      session: session.id,
+      requested,
+      finished: finishedModel,
+    });
+  }
 
-  return { sessionId: session.id, text, cost, tokens };
+  return {
+    sessionId: session.id,
+    text,
+    cost,
+    tokens,
+    ...(switched ? { finishedModel } : {}),
+  };
 }
 
 // ─── idle watchdog ──────────────────────────────────────────────────────────

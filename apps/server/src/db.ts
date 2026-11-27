@@ -150,6 +150,12 @@ const addColumn = (table: "reviews" | "repos", def: string) => {
 // attempt is 0 for a first run and 1 for the single automatic retry the runner
 // fires after a failure (see src/review/runner.ts) — the retry guard, so a
 // failing retry never retries again. Pre-column rows default to 0.
+// finished_model is set only when a fallback model finished the run (#185):
+// a rate limit or quota made the model-fallback plugin switch away from `model`,
+// and this is the model the session's last assistant message came from
+// ("provider/model"). Null for runs that stayed on their model, for failures,
+// and for rows from before the column existed. `model` keeps the configured
+// model, so the stats by model are unchanged.
 for (const def of [
   "title TEXT",
   "error TEXT",
@@ -160,6 +166,7 @@ for (const def of [
   "check_run_id INTEGER",
   "patch_id TEXT",
   "attempt INTEGER NOT NULL DEFAULT 0",
+  "finished_model TEXT",
 ])
   addColumn("reviews", def);
 // repos.enabled is opt-in: a repo the GitHub App can see is auto-inserted
@@ -188,6 +195,9 @@ for (const def of [
 // ready itself (via mark_issue_ready), same NULL-means-inherit shape. It only
 // lets the refiner ADD the label; a human adding it always works, and
 // implement_enabled still gates the implementer — auto_ready alone just labels.
+// repos.fallback_models is the per-repo fallback chain (#185), a JSON array of
+// model specs. NULL = inherit the global `fallback_models` setting; a set list
+// replaces the global one (see resolveFallbackModels).
 for (const def of [
   "enabled INTEGER NOT NULL DEFAULT 0",
   "deny_test_commands INTEGER",
@@ -201,6 +211,7 @@ for (const def of [
   "refine_model TEXT",
   "implement_model TEXT",
   "auto_ready INTEGER",
+  "fallback_models TEXT",
 ])
   addColumn("repos", def);
 
@@ -321,6 +332,12 @@ export const repos = {
        auto_ready = $auto_ready
      WHERE full_name = $full_name`,
   ),
+  // Its own statement rather than another column on `update`: the fallback
+  // chain is edited as a list (#185), and keeping it out of `update` leaves
+  // every existing caller of that statement untouched.
+  setFallbackModels: db.prepare<null, { $full_name: string; $fallback_models: string | null }>(
+    "UPDATE repos SET fallback_models = $fallback_models WHERE full_name = $full_name",
+  ),
   remove: db.prepare<null, { $full_name: string }>(
     "DELETE FROM repos WHERE full_name = $full_name",
   ),
@@ -359,6 +376,11 @@ export const reviews = {
   >(
     `UPDATE reviews SET status = 'completed', completed_at = unixepoch(),
        cost = $cost, tokens = $tokens, model = $model, patch_id = $patch WHERE id = $id`,
+  ),
+  // The fallback model that finished the run, if any (#185). Written by
+  // db.complete in the same transaction as `complete` above.
+  setFinishedModel: db.prepare<null, { $id: number; $finished: string | null }>(
+    "UPDATE reviews SET finished_model = $finished WHERE id = $id",
   ),
   // A push whose diff is byte-identical to an already-reviewed one. Terminal,
   // and carries the patch_id so the skip is auditable against the row it matched.

@@ -27,6 +27,7 @@ import {
   type TranscriptStream,
 } from "~/review/transcript";
 import { reviewOpencodeConfig } from "~/review/permissions";
+import { forgetFallbackChain, registerFallbackChain } from "~/review/fallback";
 import { OpenCodeError } from "~/effect/errors";
 import { publishTranscript } from "~/server/events";
 import { log } from "~/server/log";
@@ -496,13 +497,30 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
           // still surfaces as the run's own provider.auth error — but it must
           // not vanish silently either (the production incident this whole fix
           // set is about), so log it.
-          const keyPush = openCodeManager
-            .ensureProviderKey(parseModel(opts.model ?? resolveDefaultModel()).providerID)
-            .catch((cause) => {
-              log.warn("could not push provider key before review", {
-                cause: describeOpencodeError(cause),
-              });
-            });
+          //
+          // The fallback models (#185) need their provider's key on the server
+          // too, or a switch to a model on another provider would only trade a
+          // quota error for an auth error. One push per distinct provider.
+          const fallbackModels = opts.fallbackModels ?? [];
+          const providers = new Set<string>();
+          for (const spec of [opts.model ?? resolveDefaultModel(), ...fallbackModels]) {
+            try {
+              providers.add(parseModel(spec).providerID);
+            } catch {
+              // A malformed fallback spec just gets no key; the plugin skips
+              // models the server doesn't list anyway.
+            }
+          }
+          const keyPush = Promise.all(
+            [...providers].map((providerID) =>
+              openCodeManager.ensureProviderKey(providerID).catch((cause) => {
+                log.warn("could not push provider key before review", {
+                  provider: providerID,
+                  cause: describeOpencodeError(cause),
+                });
+              }),
+            ),
+          );
 
           return Effect.tryPromise({
             try: () =>
@@ -524,6 +542,9 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
                           return;
                         }
                         openCodeManager.register(id, sink);
+                        // Before the first prompt, so the chain is on disk
+                        // before any retry could ask for it.
+                        registerFallbackChain(id, fallbackModels);
                         onSession(id);
                       },
                       executionError: (id) => openCodeManager.executionError(id),
@@ -559,6 +580,7 @@ export class OpenCodeService extends Effect.Service<OpenCodeService>()("app/Open
             if (onAbort) signal.removeEventListener("abort", onAbort);
             if (!sessionId) return;
             openCodeManager.deregister(sessionId);
+            forgetFallbackChain(sessionId);
             void serve.client.session
               .interrupt({ sessionID: sessionId, resume: false })
               .catch(() => undefined);
