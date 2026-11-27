@@ -35,7 +35,7 @@ import {
   MAX_PREVIOUS_SPEC_BYTES,
   MAX_SQL_CHARS,
 } from "@fouine/shared/build-catalog";
-import { normalizeModelList, parseModelList } from "@fouine/shared/model-list";
+import { normalizeModelList } from "@fouine/shared/model-list";
 import type { UIMessage } from "ai";
 
 // SSE event ids — monotonically increasing per boot, so reconnects can resume
@@ -821,7 +821,28 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
 
   .put(
     "/settings",
-    ({ body }) => {
+    ({ body, status }) => {
+      // The fallback list (#185) is checked before anything is written, so a
+      // bad value fails the whole save instead of half-applying it. Only a
+      // JSON array is a list; "" or "[]" clears it. Anything else used to parse
+      // as "no list" and silently wipe the stored one.
+      let fallbackModels: string[] | undefined;
+      if (body.fallback_models !== undefined && body.fallback_models !== "") {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body.fallback_models);
+        } catch {
+          parsed = undefined;
+        }
+        if (!Array.isArray(parsed)) {
+          return status(400, {
+            error: 'fallback_models must be a JSON array of "provider/model" strings',
+          });
+        }
+        fallbackModels = normalizeModelList(parsed);
+      } else if (body.fallback_models === "") {
+        fallbackModels = [];
+      }
       // Keys: an absent field keeps the stored value, an explicit "" (or, for
       // merge_method, null) deletes the row. Without the delete the row would
       // shadow the env var forever, so a rotated OPENCODE_API_KEY/ZAI_API_KEY/
@@ -855,11 +876,13 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
       setKey(SETTINGS.REFINE_MODEL, body.refine_model);
       setKey(SETTINGS.IMPLEMENT_MODEL, body.implement_model);
       setKey(SETTINGS.CHAT_MODEL, body.chat_model);
-      // A JSON array of model specs (#185). Re-serialised from the parsed list
-      // so a malformed value can never be stored; an empty list deletes the row.
-      if (body.fallback_models !== undefined) {
-        const list = parseModelList(body.fallback_models);
-        setKey(SETTINGS.FALLBACK_MODELS, list.length ? JSON.stringify(list) : "");
+      // A JSON array of model specs (#185), validated above. Re-serialised from
+      // the normalised list; an empty list deletes the row.
+      if (fallbackModels !== undefined) {
+        setKey(
+          SETTINGS.FALLBACK_MODELS,
+          fallbackModels.length ? JSON.stringify(fallbackModels) : "",
+        );
       }
       setKey(SETTINGS.PROMPT, body.default_prompt);
       // Channels (#176). Tokens/secrets follow the key rule above (blank keeps

@@ -137,7 +137,8 @@ the list, and stays on it for the rest of the run unless that one runs out too. 
 request, a content filter) never switch models.
 
 - Order matters: fouine tries the list from the top, skipping the model that
-  just failed and any model opencode doesn't list as available.
+  just failed, any model the run already tried, and any model opencode doesn't
+  list as available.
 - Each model's provider needs its key (the OpenCode, GLM or Command Code key),
   or the switch just trades a quota error for an auth error.
 - Each switch uses one of opencode's 10 retries for that step, so about 9

@@ -148,15 +148,60 @@ test("an auth error leaves the decision and the session alone", async () => {
   expect(h.switches).toEqual([]);
 });
 
-test("walks forward from the failed model's place in the chain", async () => {
+test("walks down the chain as each fallback runs out in turn", async () => {
   const h = fakeHost({ models: available("a/one", "b/two", "c/three") });
-  const event = await fire(
-    h,
-    file({ ses_1: ["a/one", "b/two", "c/three"] }),
-    retryEvent({ model: { providerID: "b", id: "two" } }),
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two", "c/three"] }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent({ model: { providerID: "z", id: "main" } }));
+  await hook(retryEvent({ model: { providerID: "a", id: "one" } }));
+  const last = retryEvent({ model: { providerID: "b", id: "two" } });
+  await hook(last);
+  expect(h.switches.map((s) => s.model)).toEqual([
+    { providerID: "a", id: "one" },
+    { providerID: "b", id: "two" },
+    { providerID: "c", id: "three" },
+  ]);
+  expect(last.decision).toEqual({ retry: true, delay: 0 });
+  // c/three runs out too: everything has been tried, opencode decides.
+  const exhausted = retryEvent({ model: { providerID: "c", id: "three" } });
+  await hook(exhausted);
+  expect(exhausted.decision).toEqual({ retry: false });
+  expect(h.switches).toHaveLength(3);
+});
+
+// The review finding behind `tried`: a repo whose main model is glm-5.2 while
+// the global chain is [kimi-k3, glm-5.2]. Starting after glm-5.2's index would
+// call the chain exhausted with kimi-k3 never tried.
+test("when the run's own model is in the chain, entries above it are still tried", async () => {
+  const h = fakeHost({ models: available("opencode-go/kimi-k3", "zai-coding-plan/glm-5.2") });
+  await setupModelFallback(
+    h.host,
+    file({ ses_1: ["opencode-go/kimi-k3", "zai-coding-plan/glm-5.2"] }),
   );
-  expect(h.switches.map((s) => s.model)).toEqual([{ providerID: "c", id: "three" }]);
-  expect(event.decision).toEqual({ retry: true, delay: 0 });
+  const hook = h.hooks[0]!;
+  const first = retryEvent({ model: { providerID: "zai-coding-plan", id: "glm-5.2" } });
+  await hook(first);
+  expect(h.switches.map((s) => s.model)).toEqual([{ providerID: "opencode-go", id: "kimi-k3" }]);
+  expect(first.decision).toEqual({ retry: true, delay: 0 });
+  // kimi-k3 runs out next: glm-5.2 already failed in this session, so the
+  // chain is done rather than bouncing back to it.
+  const second = retryEvent({ model: { providerID: "opencode-go", id: "kimi-k3" } });
+  await hook(second);
+  expect(second.decision).toEqual({ retry: false });
+  expect(h.switches).toHaveLength(1);
+  expect(h.logs.at(-1)!.message).toBe("fallback chain exhausted");
+});
+
+test("what one session tried does not affect another", async () => {
+  const h = fakeHost({ models: available("a/one", "b/two") });
+  await setupModelFallback(h.host, file({ ses_1: ["a/one", "b/two"], ses_2: ["a/one", "b/two"] }));
+  const hook = h.hooks[0]!;
+  await hook(retryEvent({ sessionID: "ses_1", model: { providerID: "z", id: "main" } }));
+  await hook(retryEvent({ sessionID: "ses_2", model: { providerID: "z", id: "main" } }));
+  expect(h.switches.map((s) => [s.sessionID, s.model.id])).toEqual([
+    ["ses_1", "one"],
+    ["ses_2", "one"],
+  ]);
 });
 
 test("skips models opencode doesn't list as available", async () => {
@@ -174,19 +219,24 @@ test("never switches to the model that just failed", () => {
     { providerID: "x", id: "first" },
     { providerID: "zai-coding-plan", id: "glm-5.2" },
   ];
-  // The failed model is in the chain: start after it, and nothing is left.
-  expect(nextModel(chain, { providerID: "zai-coding-plan", id: "glm-5.2" }, undefined)).toBe(
-    undefined,
+  // The failed model is in the chain: skip just that entry, still from the top.
+  expect(nextModel(chain, { providerID: "zai-coding-plan", id: "glm-5.2" }, undefined)).toEqual(
+    chain[0],
   );
+  expect(nextModel(chain, { providerID: "x", id: "first" }, undefined)).toEqual(chain[1]);
   // Not in the chain: start at the top.
   expect(nextModel(chain, { providerID: "other", id: "m" }, undefined)).toEqual(chain[0]);
+  // Models already tried in the session are skipped.
+  expect(
+    nextModel(chain, { providerID: "other", id: "m" }, undefined, new Set(["x/first"])),
+  ).toEqual(chain[1]);
 });
 
 test("an exhausted chain leaves opencode's decision untouched", async () => {
-  const h = fakeHost({ models: available("a/one", "b/two") });
+  const h = fakeHost({ models: available("b/two") });
   const event = await fire(
     h,
-    file({ ses_1: ["a/one", "b/two"] }),
+    file({ ses_1: ["b/two"] }),
     retryEvent({ model: { providerID: "b", id: "two" }, decision: { retry: false } }),
   );
   expect(event.decision).toEqual({ retry: false });

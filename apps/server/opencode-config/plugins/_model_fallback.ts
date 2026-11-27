@@ -115,27 +115,49 @@ async function chainFor(
   return undefined;
 }
 
-// The next model to try: walk forward from the failed model's place in the
-// chain, so each fallback is tried at most once. When the failed model is not
-// in the chain (it is the run's own model), start from the top. Models opencode
-// does not list as enabled are skipped.
+// The next model to try: the first one in the chain this session has not
+// tried yet, so each fallback is tried at most once. `tried` holds every model
+// that already failed in this session and every model the plugin switched it
+// to. Walking forward from the failed model's index would be wrong when the
+// run's own model is also in the chain (a repo whose main model is a global
+// fallback): it would skip every entry above it and give up while those were
+// still untouched. Models opencode does not list as enabled are skipped.
 export function nextModel(
   chain: readonly ModelRef[],
   failed: ModelRef,
   available: readonly AvailableModel[] | undefined,
+  tried: ReadonlySet<string> = new Set(),
 ): ModelRef | undefined {
-  const index = chain.findIndex((ref) => same(ref, failed));
-  return chain
-    .slice(index + 1)
-    .find(
-      (ref) =>
-        !same(ref, failed) &&
-        (available === undefined ||
-          available.some((m) => m.enabled && m.providerID === ref.providerID && m.id === ref.id)),
-    );
+  return chain.find(
+    (ref) =>
+      !same(ref, failed) &&
+      !tried.has(format(ref)) &&
+      (available === undefined ||
+        available.some((m) => m.enabled && m.providerID === ref.providerID && m.id === ref.id)),
+  );
 }
 
+// Per-session memory of the models already tried. In memory, so an opencode
+// restart forgets it; the worst that does is retry a fallback once more, and
+// opencode's 10-retries-per-step cap still bounds it.
+// ponytail: no session-end hook to clean up on, so the map is capped and the
+// oldest sessions dropped; a real session.deleted listener would replace this.
+const MAX_TRACKED_SESSIONS = 500;
+
 export async function setupModelFallback(host: FallbackHost, read: FallbackReader): Promise<void> {
+  const triedBySession = new Map<string, Set<string>>();
+  const triedFor = (sessionID: string) => {
+    let tried = triedBySession.get(sessionID);
+    if (!tried) {
+      tried = new Set();
+      triedBySession.set(sessionID, tried);
+      if (triedBySession.size > MAX_TRACKED_SESSIONS) {
+        triedBySession.delete(triedBySession.keys().next().value!);
+      }
+    }
+    return tried;
+  };
+
   await host.onRetry(async (event) => {
     if (!isLimitError(event.error.type)) return;
     const file = read();
@@ -154,7 +176,9 @@ export async function setupModelFallback(host: FallbackHost, read: FallbackReade
     }
 
     const failed = { providerID: String(event.model.providerID), id: String(event.model.id) };
-    const next = nextModel(chain, failed, available);
+    const tried = triedFor(event.sessionID);
+    tried.add(format(failed));
+    const next = nextModel(chain, failed, available, tried);
     // Chain exhausted: leave opencode's own decision alone.
     if (!next) {
       host.log("fallback chain exhausted", {
@@ -175,6 +199,7 @@ export async function setupModelFallback(host: FallbackHost, read: FallbackReade
       });
       return;
     }
+    tried.add(format(next));
     event.decision = { retry: true, delay: 0 };
     host.log("switched to fallback model", {
       session: event.sessionID,

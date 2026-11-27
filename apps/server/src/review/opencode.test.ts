@@ -453,6 +453,43 @@ test("assessTurnOutcome surfaces a provider auth error from the assistant row", 
   });
 });
 
+// Captured from a real opencode 2.4.2 server (#185 review): the run started on a
+// model the mock provider answers with a 429 `insufficient_quota` (classified
+// provider.quota), after one successful tool step, and the fallback plugin
+// switched it. The failed attempt leaves NO assistant row behind: the turn is
+// user → assistant (tool step, old model) → model-switched → assistant (new
+// model) → idle succeeded. So a rescued run must read as a success, and there
+// is no stale limit error for assessTurnOutcome to skip. Ids and times trimmed.
+test("assessTurnOutcome reads a run rescued by a fallback switch as a success", () => {
+  const msgs = [
+    { id: "msg_u", type: "user", text: "say hello" },
+    {
+      id: "msg_a1",
+      type: "assistant",
+      agent: "build",
+      model: { id: "mid", providerID: "mock", variant: "default" },
+      content: [{ type: "text", text: "let me look" }],
+      finish: "tool-calls",
+    },
+    {
+      id: "msg_s",
+      type: "model-switched",
+      model: { id: "good", providerID: "mock" },
+      previous: { id: "mid", providerID: "mock", variant: "default" },
+    },
+    {
+      id: "msg_a2",
+      type: "assistant",
+      agent: "build",
+      model: { id: "good", providerID: "mock", variant: "default" },
+      content: [{ type: "text", text: "hello from good" }],
+      finish: "stop",
+    },
+    { id: "msg_i", type: "idle", outcome: "succeeded" },
+  ] as unknown as Row[];
+  expect(assessTurnOutcome(msgs)).toEqual({});
+});
+
 test("assessTurnOutcome falls back to a generic message when only idle:failed is seen", () => {
   const msgs: Row[] = [
     { id: "u1", type: "user" } as Row,

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { repos, settings } from "~/db";
+import { repos, settingValue, settings } from "~/db";
 import { createServer } from "~/server/app";
 import { SETTINGS, resolveFallbackModels } from "~/settings";
 import { normalizeModelList, parseModelList } from "@fouine/shared/model-list";
@@ -16,6 +16,7 @@ const REPO = "acme/fallback";
 
 afterEach(() => {
   settings.del.run({ $key: SETTINGS.FALLBACK_MODELS });
+  settings.del.run({ $key: SETTINGS.CHAT_MODEL });
   repos.remove.run({ $full_name: REPO });
   forgetFallbackChain("ses_a");
   forgetFallbackChain("ses_b");
@@ -69,6 +70,26 @@ test("registering a chain writes it under the session id, in the plugin's format
   expect(readFile()).toEqual({ sessions: { ses_a: ["a/one", "b/two"], ses_b: ["c/three"] } });
 });
 
+test("old-shape Command Code entries are written the way parseModel reads the main model", () => {
+  registerFallbackChain("ses_a", [
+    "commandcode/deepseek/deepseek-v4-flash",
+    "commandcode/zai-org/GLM-5.2",
+    "openrouter/deepseek/deepseek-v4-flash",
+    // Same model as the first entry once normalised: kept once.
+    "commandcode/deepseek-v4-flash",
+  ]);
+  expect(readFile()).toEqual({
+    sessions: {
+      ses_a: [
+        "commandcode/deepseek-v4-flash",
+        "commandcode/glm-5.2",
+        // Only Command Code is rewritten; other org-prefixed ids stay whole.
+        "openrouter/deepseek/deepseek-v4-flash",
+      ],
+    },
+  });
+});
+
 test("forgetting a session removes only its entry", () => {
   registerFallbackChain("ses_a", ["a/one"]);
   registerFallbackChain("ses_b", ["c/three"]);
@@ -106,6 +127,29 @@ test("PUT /settings stores a clean list, GET returns it, an empty list clears it
     await app.handle(new Request("http://localhost/api/settings"))
   ).json()) as { fallback_models?: string };
   expect(cleared.fallback_models).toBeUndefined();
+});
+
+test("PUT /settings rejects a fallback list that isn't a JSON array and keeps the stored one", async () => {
+  settings.set.run({ $key: SETTINGS.FALLBACK_MODELS, $value: '["a/one"]' });
+  const app = await createServer();
+  const put = (body: Record<string, unknown>) =>
+    app.handle(
+      new Request("http://localhost/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  for (const bad of ["not json", '{"a":1}', '"a/one"', "null", "3"]) {
+    // Another field in the same save must not be applied either.
+    const res = await put({ fallback_models: bad, chat_model: "x/should-not-stick" });
+    expect(res.status).toBe(400);
+    expect(settingValue(SETTINGS.FALLBACK_MODELS)).toBe('["a/one"]');
+    expect(settingValue(SETTINGS.CHAT_MODEL)).toBeUndefined();
+  }
+  // "" clears, like "[]".
+  expect((await put({ fallback_models: "" })).status).toBe(200);
+  expect(settingValue(SETTINGS.FALLBACK_MODELS)).toBeUndefined();
 });
 
 test("PUT /repos sets, keeps and clears the repo's own list", async () => {

@@ -2,6 +2,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { config } from "~/config";
 import { log } from "~/server/log";
+import { normalizeModelSpec } from "~/review/opencode";
 
 // The file the model-fallback plugin reads (opencode-config/plugins/
 // model-fallback.ts, #185). It sits next to the plugin in the runtime config
@@ -48,9 +49,11 @@ function writeFallbackFile(): void {
   }
 }
 
+// Each entry goes through the same rewrite as the run's own model (parseModel),
+// so an old-shape Command Code spec still matches what opencode reports.
 export function registerFallbackChain(sessionId: string, chain: readonly string[]): void {
   if (chain.length === 0) return;
-  chains.set(sessionId, [...chain]);
+  chains.set(sessionId, [...new Set(chain.map(normalizeModelSpec))]);
   writeFallbackFile();
 }
 

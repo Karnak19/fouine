@@ -70,6 +70,20 @@ export function parseModel(spec: string): { providerID: string; modelID: string 
   return { providerID, modelID };
 }
 
+// A spec in the form opencode addresses the model by, through the same rewrite
+// as parseModel (the old Command Code shape becomes `commandcode/<key>`). Used
+// for the fallback chain (#185): the plugin compares those entries with the
+// model opencode reports, so an un-normalised old-shape entry would never
+// match. A malformed spec comes back unchanged; the plugin skips it anyway.
+export function normalizeModelSpec(spec: string): string {
+  try {
+    const { providerID, modelID } = parseModel(spec);
+    return `${providerID}/${modelID}`;
+  } catch {
+    return spec;
+  }
+}
+
 export interface OpencodeServe {
   client: OpencodeClient;
   port: number;
